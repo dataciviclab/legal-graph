@@ -190,12 +190,16 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
         print("  promovimento:   NON TROVATO")
 
     # 5. Senato DDL → normativa (proposed → enacted law)
+    #    Source uses URN when available (to match emendamento targets)
     if senato_ddl_files:
         globs = ", ".join(f"'{f}'" for f in senato_ddl_files)
         con.execute(f"""
             CREATE TABLE edges_senato AS
             SELECT
-                'senato:' || CAST(s.id_ddl AS VARCHAR) AS source_id,
+                COALESCE(
+                    NULLIF(s.urn_normattiva, ''),
+                    'senato:' || CAST(s.id_ddl AS VARCHAR)
+                ) AS source_id,
                 'diventa_legge' AS relation,
                 s.urn_normattiva AS target_id,
                 1 AS weight,
