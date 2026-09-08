@@ -305,6 +305,145 @@ def _impl_stats() -> dict[str, Any]:
     }
 
 
+# ─── Tool: legal_intelligence ──────────────────────────────────
+
+
+METRICS_FILE = DATA_DIR / "graph_metrics.parquet"
+
+
+@mcp.tool(
+    name="legal_intelligence",
+    description=(
+        "Analisi di intelligenza sul grafo legale. "
+        "Per un nodo: metriche di impatto, complessità, età, rischio. "
+        "Per l'intero sistema: nodi critici, obsoleti, complessi, dormienti."
+    ),
+    structured_output=True,
+)
+def legal_intelligence(node_id: str = "", report: str = "") -> dict[str, Any]:
+    return guard_timed(_impl_intelligence, "legal_intelligence", node_id, report)
+
+
+def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
+    if not METRICS_FILE.exists():
+        return {"error": "Graph metrics not computed. Run: python -m legal_graph.graph_intelligence"}
+
+    con = _get_con()
+    con.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{METRICS_FILE}')")
+
+    # Node-specific intelligence
+    if node_id:
+        result = con.execute("""
+            SELECT * FROM metrics WHERE id = ? LIMIT 1
+        """, [node_id]).fetchone()
+
+        if not result:
+            con.close()
+            return {"error": f"Nodo non trovato: {node_id}"}
+
+        columns = [desc[0] for desc in con.execute("SELECT * FROM metrics WHERE id = ? LIMIT 1", [node_id]).description]
+        node_data = dict(zip(columns, result))
+
+        # Get connected nodes
+        out_edges = con.execute("""
+            SELECT relation, target_id, weight FROM edges WHERE source_id = ?
+            ORDER BY weight DESC LIMIT 10
+        """, [node_id]).fetchall()
+
+        in_edges = con.execute("""
+            SELECT relation, source_id, weight FROM edges WHERE target_id = ?
+            ORDER BY weight DESC LIMIT 10
+        """, [node_id]).fetchall()
+
+        con.close()
+
+        return {
+            "node": node_data,
+            "outgoing_sample": [{"rel": e[0], "target": e[1][:60], "weight": e[2]} for e in out_edges],
+            "incoming_sample": [{"rel": e[0], "source": e[1][:60], "weight": e[2]} for e in in_edges],
+        }
+
+    # System report
+    report_type = report or "summary"
+
+    if report_type == "critical":
+        rows = con.execute("""
+            SELECT id, title, referenced_by, impact_score, age_years
+            FROM metrics WHERE impact_level = 'critical'
+            ORDER BY referenced_by DESC LIMIT 20
+        """).fetchall()
+        con.close()
+        return {"critical_nodes": [{"id": r[0], "title": (r[1] or r[0])[:60], "refs": r[2], "score": r[3], "age": r[4]} for r in rows]}
+
+    elif report_type == "obsolete":
+        rows = con.execute("""
+            SELECT id, title, age_years, referenced_by
+            FROM metrics WHERE age_risk = 'obsolete_candidate'
+            ORDER BY age_years DESC LIMIT 20
+        """).fetchall()
+        con.close()
+        return {"obsolete_candidates": [{"id": r[0], "title": (r[1] or r[0])[:60], "age": r[2], "refs": r[3]} for r in rows]}
+
+    elif report_type == "complex":
+        rows = con.execute("""
+            SELECT id, title, "references", referenced_by, age_years
+            FROM metrics WHERE complexity_level IN ('very_complex', 'complex')
+            ORDER BY "references" DESC LIMIT 20
+        """).fetchall()
+        con.close()
+        return {"complex_laws": [{"id": r[0], "title": (r[1] or r[0])[:60], "deps": r[2], "refs": r[3], "age": r[4]} for r in rows]}
+
+    elif report_type == "dormant":
+        rows = con.execute("""
+            SELECT id, title, last_referenced_year, referenced_by
+            FROM metrics WHERE activity_level = 'dormant' AND referenced_by > 5
+            ORDER BY referenced_by DESC LIMIT 20
+        """).fetchall()
+        con.close()
+        return {"dormant_references": [{"id": r[0], "title": (r[1] or r[0])[:60], "last_year": r[2], "refs": r[3]} for r in rows]}
+
+    else:  # summary
+        stats = con.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN impact_level = 'critical' THEN 1 ELSE 0 END) as critical,
+                SUM(CASE WHEN impact_level = 'important' THEN 1 ELSE 0 END) as important,
+                SUM(CASE WHEN complexity_level = 'very_complex' THEN 1 ELSE 0 END) as very_complex,
+                SUM(CASE WHEN age_risk = 'obsolete_candidate' THEN 1 ELSE 0 END) as obsolete,
+                SUM(CASE WHEN activity_level = 'dormant' THEN 1 ELSE 0 END) as dormant,
+                ROUND(AVG(age_years), 1) as avg_age
+            FROM metrics
+        """).fetchone()
+
+        # Top 5 critical
+        critical = con.execute("""
+            SELECT id, title, referenced_by FROM metrics
+            WHERE impact_level = 'critical' ORDER BY referenced_by DESC LIMIT 5
+        """).fetchall()
+
+        # Top 5 obsolete
+        obsolete = con.execute("""
+            SELECT id, title, age_years, referenced_by FROM metrics
+            WHERE age_risk = 'obsolete_candidate' ORDER BY age_years DESC LIMIT 5
+        """).fetchall()
+
+        con.close()
+
+        return {
+            "summary": {
+                "total_nodes": stats[0],
+                "critical": stats[1],
+                "important": stats[2],
+                "very_complex": stats[3],
+                "obsolete_candidates": stats[4],
+                "dormant": stats[5],
+                "avg_age_years": stats[6],
+            },
+            "top_critical": [{"id": r[0], "title": (r[1] or r[0])[:60], "refs": r[2]} for r in critical],
+            "top_obsolete": [{"id": r[0], "title": (r[1] or r[0])[:60], "age": r[2], "refs": r[3]} for r in obsolete],
+        }
+
+
 # ─── Main ────────────────────────────────────────────────────────
 
 
