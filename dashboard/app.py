@@ -122,9 +122,9 @@ def main():
     st.sidebar.markdown("[GitHub](https://github.com/dataciviclab)")
 
     # ─── Tabs ─────────────────────────────────────────────────
-    tab_intro, tab_cerca, tab_corte, tab_senato, tab_ue, tab_timeline, tab_overview = st.tabs([
+    tab_intro, tab_cerca, tab_corte, tab_senato, tab_ue, tab_timeline, tab_intel, tab_overview = st.tabs([
         "🏠 Cos'è", "🔍 Cerca", "⚖️ Corte Costituzionale", "🏛️ Senato",
-        "🇪🇺 UE", "📈 Timeline", "📊 Panoramica"
+        "🇪🇺 UE", "📈 Timeline", "🧠 Intelligence", "📊 Panoramica"
     ])
 
     with tab_intro:
@@ -139,6 +139,8 @@ def main():
         render_ue(con)
     with tab_timeline:
         render_timeline(con)
+    with tab_intel:
+        render_intelligence(con)
     with tab_overview:
         render_overview(con)
 
@@ -533,6 +535,81 @@ def render_timeline(con):
         fig = px.bar(result, x="anno", y="atti",
                      title="Atti entrati in vigore per anno",
                      color="atti", color_continuous_scale="Greens")
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def render_intelligence(con):
+    st.subheader("🧠 Intelligence — Analisi del sistema legislativo")
+    st.markdown("Metriche strutturali del grafo: nodi critici, leggi obsolete, complessità, dormienza.")
+
+    metrics_file = os.path.join(os.path.dirname(__file__), "..", "data", "graph_metrics.parquet")
+    if not os.path.exists(metrics_file):
+        st.warning("Metriche non calcolate. Esegui: `python -m legal_graph.graph_intelligence`")
+        return
+
+    metrics = con.execute(f"SELECT * FROM read_parquet('{metrics_file}')").fetchdf()
+
+    # Summary
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Nodi critici", f"{len(metrics[metrics['impact_level'] == 'critical']):,}")
+    col2.metric("Candidati obsoleti", f"{len(metrics[metrics['age_risk'] == 'obsolete_candidate']):,}")
+    col3.metric("Leggi complesse", f"{len(metrics[metrics['complexity_level'].isin(['very_complex', 'complex'])]):,}")
+    col4.metric("Dormienti", f"{len(metrics[(metrics['activity_level'] == 'dormant') & (metrics['referenced_by'] > 5)]):,}")
+
+    st.divider()
+
+    # Tabs for different views
+    intel_tab1, intel_tab2, intel_tab3, intel_tab4 = st.tabs([
+        "🔴 Critici", "🟡 Obsoleti", "🟠 Complessi", "⚪ Dormienti"
+    ])
+
+    with intel_tab1:
+        st.markdown("**Nodi con >= 100 riferimenti in entrata** — modifiche a queste leggi hanno effetto a catena.")
+        crit = metrics[metrics['impact_level'] == 'critical'].sort_values('referenced_by', ascending=False).head(20)
+        crit = crit[['id', 'title', 'referenced_by', 'impact_score', 'age_years']].copy()
+        crit.columns = ['ID', 'Titolo', 'Riferimenti', 'Impact Score', 'Età (anni)']
+        crit['Titolo'] = crit['Titolo'].apply(lambda x: str(x)[:60] if x else '?')
+        st.dataframe(crit, use_container_width=True)
+
+    with intel_tab2:
+        st.markdown("**Leggi con >= 50 anni e ancora referenziate** — potenziali candidati a deprecazione.")
+        obs = metrics[metrics['age_risk'] == 'obsolete_candidate'].sort_values('age_years', ascending=False).head(20)
+        obs = obs[['id', 'title', 'age_years', 'referenced_by']].copy()
+        obs.columns = ['ID', 'Titolo', 'Età (anni)', 'Riferimenti']
+        obs['Titolo'] = obs['Titolo'].apply(lambda x: str(x)[:60] if x else '?')
+        st.dataframe(obs, use_container_width=True)
+
+    with intel_tab3:
+        st.markdown("**Leggi con >= 100 dipendenze in uscita** — alta complessità interna.")
+        comp = metrics[metrics['complexity_level'].isin(['very_complex', 'complex'])].sort_values('references', ascending=False).head(20)
+        comp = comp[['id', 'title', 'references', 'referenced_by', 'age_years']].copy()
+        comp.columns = ['ID', 'Titolo', 'Dipendenze', 'Riferimenti', 'Età (anni)']
+        comp['Titolo'] = comp['Titolo'].apply(lambda x: str(x)[:60] if x else '?')
+        st.dataframe(comp, use_container_width=True)
+
+    with intel_tab4:
+        st.markdown("**Leggi non citate da prima del 2010** — potenzialmente superate.")
+        dorm = metrics[(metrics['activity_level'] == 'dormant') & (metrics['referenced_by'] > 5)].sort_values('referenced_by', ascending=False).head(20)
+        dorm = dorm[['id', 'title', 'last_referenced_year', 'referenced_by']].copy()
+        dorm.columns = ['ID', 'Titolo', 'Ultimo riferimento', 'Riferimenti']
+        dorm['Titolo'] = dorm['Titolo'].apply(lambda x: str(x)[:60] if x else '?')
+        st.dataframe(dorm, use_container_width=True)
+
+    # Distribution charts
+    st.divider()
+    st.subheader("Distribuzioni")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        impact_dist = metrics['impact_level'].value_counts()
+        fig = px.pie(values=impact_dist.values, names=impact_dist.index,
+                     title="Distribuzione impatto", color_discrete_sequence=px.colors.qualitative.Set2)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        complexity_dist = metrics['complexity_level'].fillna('simple').value_counts()
+        fig = px.pie(values=complexity_dist.values, names=complexity_dist.index,
+                     title="Distribuzione complessità", color_discrete_sequence=px.colors.qualitative.Set3)
         st.plotly_chart(fig, use_container_width=True)
 
 
