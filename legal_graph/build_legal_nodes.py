@@ -586,6 +586,21 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             WHERE id NOT IN (SELECT id FROM nodes_normativa)
     """)
 
+    # Map internal type codes to human-readable names
+    con.execute("""
+        UPDATE legal_nodes SET tipo = CASE tipo
+            WHEN 'emend' THEN 'Emendamento'
+            WHEN 'emendc' THEN 'Emendamento con contributo'
+            WHEN 'sommcomm' THEN 'Sommario commissione'
+            WHEN 'resaula' THEN 'Risoluzione assemblea'
+            WHEN 'ordinaria' THEN 'Legge ordinaria'
+            WHEN 'ddlpres' THEN 'DDL del Presidente'
+            WHEN 'S' THEN 'Sentenza'
+            WHEN 'O' THEN 'Ordinanza'
+            ELSE tipo
+        END
+    """)
+
     n = con.execute("SELECT COUNT(*) FROM legal_nodes").fetchone()[0]
     print(f"\n  TOTALE:         {n:>6} nodi unici")
 
