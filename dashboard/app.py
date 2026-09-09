@@ -137,6 +137,8 @@ def render_home(con):
     """)
 
     # Stats
+    n_nodes = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+    n_edges = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
     c1, c2, c3 = st.columns(3)
     c1.metric("Nodi", f"{n_nodes:,}")
     c2.metric("Archi", f"{n_edges:,}")
