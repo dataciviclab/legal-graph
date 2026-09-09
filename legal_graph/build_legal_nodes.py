@@ -595,10 +595,31 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             WHEN 'resaula' THEN 'Risoluzione assemblea'
             WHEN 'ordinaria' THEN 'Legge ordinaria'
             WHEN 'ddlpres' THEN 'DDL del Presidente'
+            WHEN 'ddldcomm' THEN 'DDL commissione'
+            WHEN 'ddlmess' THEN 'DDL messaggio'
             WHEN 'S' THEN 'Sentenza'
             WHEN 'O' THEN 'Ordinanza'
+            WHEN 'DIR_DEL' THEN 'Direttiva delegata'
+            WHEN 'DIR_IMPL' THEN 'Direttiva di implementazione'
+            WHEN 'REG_DEL' THEN 'Regolamento delegato'
+            WHEN 'REG_IMPL' THEN 'Regolamento di implementazione'
+            WHEN 'SENATORE' THEN 'Senatore'
+            WHEN 'GIUDICE' THEN 'Giudice'
+            WHEN 'PROMOVIMENTO' THEN 'Atto di promovimento'
             ELSE tipo
         END
+    """)
+
+    # Fix types that are dates (should be from DDL with wrong tipo)
+    con.execute("""
+        UPDATE legal_nodes SET tipo = 'DDL'
+        WHERE tipo LIKE '____-__-__' AND source = 'senato'
+    """)
+
+    # Fix types that are codes (C.1234, S.1234)
+    con.execute("""
+        UPDATE legal_nodes SET tipo = 'DDL'
+        WHERE (tipo LIKE 'C.%' OR tipo LIKE 'S.%') AND source = 'senato'
     """)
 
     n = con.execute("SELECT COUNT(*) FROM legal_nodes").fetchone()[0]
