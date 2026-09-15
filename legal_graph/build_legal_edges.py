@@ -312,7 +312,39 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("CREATE TABLE edges_dib (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
         print("  senato_dib:    NON TROVATO")
 
-    # 9. EU edges (recepisce/attua)
+    # 9. Attua delega: D.Lgs → Legge di delega
+    #    Heuristica: D.Lgs che referenziano leggi con "Delega al Governo" nel titolo
+    #    con peso ≥ 5 sono quasi certamente i loro attuatori.
+    #    Serve la tabella nodes per verificare i tipi e i titoli.
+    nodes_file = OUTDIR / "legal_nodes.parquet"
+    if nodes_file.exists():
+        con.execute(f"CREATE TABLE _nodes_ref AS SELECT id, tipo, title FROM read_parquet('{nodes_file}')")
+        con.execute("""
+            CREATE TABLE edges_delega AS
+            SELECT
+                e.source_id AS source_id,
+                'attua_delega' AS relation,
+                e.target_id AS target_id,
+                e.weight AS weight,
+                e.source_year AS source_year,
+                e.target_year AS target_year,
+                n2.title AS evidence
+            FROM edges_riferimenti e
+            JOIN _nodes_ref n1 ON e.source_id = n1.id
+            JOIN _nodes_ref n2 ON e.target_id = n2.id
+            WHERE n1.tipo = 'DECRETO LEGISLATIVO'
+              AND n2.tipo = 'LEGGE'
+              AND LOWER(n2.title) LIKE '%delega al governo%'
+              AND e.weight >= 5
+        """)
+        con.execute("DROP TABLE _nodes_ref")
+        n = con.execute("SELECT COUNT(*) FROM edges_delega").fetchone()[0]
+        print(f"  attua_delega:  {n:>6} archi")
+    else:
+        con.execute("CREATE TABLE edges_delega (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
+        print("  attua_delega:  NON TROVATO (nodes mancante)")
+
+    # 10. EU edges (recepisce/attua)
     eu_edges_file = OUTDIR / "legal_edges_eu.parquet"
     if eu_edges_file.exists():
         con.execute(f"""
@@ -352,6 +384,8 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
             SELECT * FROM edges_senato
             UNION ALL
             SELECT * FROM edges_camera_ddl
+            UNION ALL
+            SELECT * FROM edges_delega
             UNION ALL
             SELECT * FROM edges_corpus
             UNION ALL
