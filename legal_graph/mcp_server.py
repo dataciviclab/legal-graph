@@ -24,14 +24,20 @@ TEMPORAL_FILE = DATA_DIR / "legal_edges_temporal.parquet"
 
 _MAX_ROWS = 100
 
+_cached_con: duckdb.DuckDBPyConnection | None = None
+
 
 def _get_con() -> duckdb.DuckDBPyConnection:
-    """Crea connessione DuckDB con tutte le tabelle del grafo."""
+    """Crea o ritorna la connessione DuckDB cachata con tutte le tabelle del grafo."""
+    global _cached_con
+    if _cached_con is not None:
+        return _cached_con
     con = duckdb.connect(":memory:")
     con.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{NODES_FILE}')")
     con.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{EDGES_FILE}')")
     if TEMPORAL_FILE.exists():
         con.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{TEMPORAL_FILE}')")
+    _cached_con = con
     return con
 
 
@@ -86,16 +92,22 @@ def _impl_search(
     limit = min(limit, _MAX_ROWS)
 
     conditions = []
+    params: list[Any] = []
     if query:
-        conditions.append(f"(LOWER(title) LIKE LOWER('%{query}%') OR LOWER(id) LIKE LOWER('%{query}%'))")
+        conditions.append("(LOWER(title) LIKE ? OR LOWER(id) LIKE ?)")
+        params.extend([f"%{query.lower()}%", f"%{query.lower()}%"])
     if tipo:
-        conditions.append(f"UPPER(tipo) = UPPER('{tipo}')")
+        conditions.append("UPPER(tipo) = ?")
+        params.append(tipo.upper())
     if anno_min > 0:
-        conditions.append(f"anno >= {anno_min}")
+        conditions.append("anno >= ?")
+        params.append(anno_min)
     if anno_max > 0:
-        conditions.append(f"anno <= {anno_max}")
+        conditions.append("anno <= ?")
+        params.append(anno_max)
     if source:
-        conditions.append(f"source = '{source}'")
+        conditions.append("source = ?")
+        params.append(source)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -105,9 +117,7 @@ def _impl_search(
         {where}
         ORDER BY anno DESC NULLS LAST, title
         LIMIT {limit}
-    """).fetchall()
-
-    con.close()
+    """, params).fetchall()
 
     return [
         {
@@ -140,51 +150,47 @@ def legal_node_details(node_id: str) -> dict[str, Any]:
 def _impl_node_details(node_id: str) -> dict[str, Any]:
     con = _get_con()
 
-    # Find node
-    result = con.execute(f"""
+    # Find node — parameterized to prevent SQL injection
+    result = con.execute("""
         SELECT id, tipo, title, CAST(data AS VARCHAR) as data, anno, source,
                length_chars, length_words, celex
         FROM nodes
-        WHERE id = '{node_id}'
-           OR id LIKE '%{node_id}%'
+        WHERE id = ? OR id LIKE ?
         LIMIT 1
-    """).fetchone()
+    """, [node_id, f"%{node_id}%"]).fetchone()
 
     if not result:
-        con.close()
         return {"error": f"Nodo non trovato: {node_id}"}
 
     actual_id = result[0]
 
     # Outgoing edges
-    out_edges = con.execute(f"""
+    out_edges = con.execute("""
         SELECT relation, target_id, weight, source_year, target_year, evidence
         FROM edges
-        WHERE source_id = '{actual_id}'
+        WHERE source_id = ?
         ORDER BY weight DESC
         LIMIT 20
-    """).fetchall()
+    """, [actual_id]).fetchall()
 
     # Incoming edges
-    in_edges = con.execute(f"""
+    in_edges = con.execute("""
         SELECT relation, source_id, weight, source_year, target_year, evidence
         FROM edges
-        WHERE target_id = '{actual_id}'
+        WHERE target_id = ?
         ORDER BY weight DESC
         LIMIT 20
-    """).fetchall()
+    """, [actual_id]).fetchall()
 
     # Temporal edges
     temporal = []
     if "temporal" in [t[0] for t in con.execute("SHOW TABLES").fetchall()]:
-        temporal = con.execute(f"""
+        temporal = con.execute("""
             SELECT relation, target_id, weight, evidence
             FROM temporal
-            WHERE source_id = '{actual_id}'
+            WHERE source_id = ?
             LIMIT 20
-        """).fetchall()
-
-    con.close()
+        """, [actual_id]).fetchall()
 
     return {
         "node": {
@@ -241,8 +247,7 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     # Safety: only allow SELECT
     sql_upper = sql.strip().upper()
     if not sql_upper.startswith("SELECT"):
-        con.close()
-        return [{"error": "Solo SELECT consentito"}]
+            return [{"error": "Solo SELECT consentito"}]
 
     # Add LIMIT if not present
     if "LIMIT" not in sql_upper:
@@ -253,10 +258,8 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()
     except duckdb.Error as e:
-        con.close()
-        return [{"error": str(e)[:200]}]
+            return [{"error": str(e)[:200]}]
 
-    con.close()
 
     return [dict(zip(columns, row)) for row in rows[:limit]]
 
@@ -291,8 +294,6 @@ def _impl_stats() -> dict[str, Any]:
     by_tipo = dict(con.execute("""
         SELECT tipo, COUNT(*) FROM nodes GROUP BY tipo ORDER BY COUNT(*) DESC LIMIT 10
     """).fetchall())
-
-    con.close()
 
     return {
         "nodi_totali": n_nodes,
@@ -338,8 +339,7 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
         """, [node_id]).fetchone()
 
         if not result:
-            con.close()
-            return {"error": f"Nodo non trovato: {node_id}"}
+                    return {"error": f"Nodo non trovato: {node_id}"}
 
         columns = [desc[0] for desc in con.execute("SELECT * FROM metrics WHERE id = ? LIMIT 1", [node_id]).description]
         node_data = dict(zip(columns, result))
@@ -354,8 +354,6 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             SELECT relation, source_id, weight FROM edges WHERE target_id = ?
             ORDER BY weight DESC LIMIT 10
         """, [node_id]).fetchall()
-
-        con.close()
 
         return {
             "node": node_data,
@@ -372,7 +370,6 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             FROM metrics WHERE impact_level = 'critical'
             ORDER BY referenced_by DESC LIMIT 20
         """).fetchall()
-        con.close()
         return {"critical_nodes": [{"id": r[0], "title": (r[1] or r[0])[:60], "refs": r[2], "score": r[3], "age": r[4]} for r in rows]}
 
     elif report_type == "obsolete":
@@ -381,7 +378,6 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             FROM metrics WHERE age_risk = 'obsolete_candidate'
             ORDER BY age_years DESC LIMIT 20
         """).fetchall()
-        con.close()
         return {"obsolete_candidates": [{"id": r[0], "title": (r[1] or r[0])[:60], "age": r[2], "refs": r[3]} for r in rows]}
 
     elif report_type == "complex":
@@ -390,7 +386,6 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             FROM metrics WHERE complexity_level IN ('very_complex', 'complex')
             ORDER BY "references" DESC LIMIT 20
         """).fetchall()
-        con.close()
         return {"complex_laws": [{"id": r[0], "title": (r[1] or r[0])[:60], "deps": r[2], "refs": r[3], "age": r[4]} for r in rows]}
 
     elif report_type == "dormant":
@@ -399,7 +394,6 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             FROM metrics WHERE activity_level = 'dormant' AND referenced_by > 5
             ORDER BY referenced_by DESC LIMIT 20
         """).fetchall()
-        con.close()
         return {"dormant_references": [{"id": r[0], "title": (r[1] or r[0])[:60], "last_year": r[2], "refs": r[3]} for r in rows]}
 
     else:  # summary
@@ -427,8 +421,7 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
             WHERE age_risk = 'obsolete_candidate' ORDER BY age_years DESC LIMIT 5
         """).fetchall()
 
-        con.close()
-
+    
         return {
             "summary": {
                 "total_nodes": stats[0],
