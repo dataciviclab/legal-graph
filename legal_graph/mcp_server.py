@@ -437,6 +437,321 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
         }
 
 
+# ─── Tool: legal_chain ────────────────────────────────────────
+
+
+@mcp.tool(
+    name="legal_chain",
+    description=(
+        "Catena del diritto per un atto: DDL → Legge → D.Lgs → EU. "
+        "Mostra il percorso legislativo completo: deleghe, recepimenti, "
+        "collegamenti Costituzionali. Input: URN o ID di un atto."
+    ),
+    structured_output=True,
+)
+def legal_chain(node_id: str, depth: int = 3) -> dict[str, Any]:
+    return guard_timed(_impl_chain, "legal_chain", node_id, depth=depth)
+
+
+def _impl_chain(node_id: str, depth: int = 3) -> dict[str, Any]:
+    con = _get_con()
+    depth = min(depth, 5)
+
+    # Find the node
+    node = con.execute("""
+        SELECT id, tipo, title, CAST(data AS VARCHAR) as data, anno, source
+        FROM nodes WHERE id = ? OR id LIKE ?
+        LIMIT 1
+    """, [node_id, f"%{node_id}%"]).fetchone()
+
+    if not node:
+        return {"error": f"Nodo non trovato: {node_id}"}
+
+    actual_id = node[0]
+
+    # Legislation chain relations
+    chain_rels = [
+        'diventa_legge', 'attua_delega', 'recepisce_direttiva',
+        'attua_regolamento', 'collega_ue', 'cita_costituzione',
+    ]
+
+    # Walk the chain forward (what does this act lead to?)
+    forward = []
+    visited = {actual_id}
+    queue = [(actual_id, 0)]
+    while queue:
+        current, current_depth = queue.pop(0)
+        if current_depth >= depth:
+            continue
+        edges = con.execute("""
+            SELECT relation, target_id, weight, evidence
+            FROM edges WHERE source_id = ?
+            AND relation IN (?, ?, ?, ?, ?, ?)
+            ORDER BY weight DESC LIMIT 10
+        """, [current] + chain_rels).fetchall()
+        for rel, target, weight, evidence in edges:
+            if target not in visited:
+                visited.add(target)
+                target_node = con.execute(
+                    "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 1",
+                    [target]
+                ).fetchone()
+                forward.append({
+                    "relation": rel,
+                    "target_id": target,
+                    "target_tipo": target_node[0] if target_node else "?",
+                    "target_title": (target_node[1] or "")[:100] if target_node else "",
+                    "target_anno": target_node[2] if target_node else None,
+                    "weight": weight,
+                })
+                queue.append((target, current_depth + 1))
+
+    # Walk the chain backward (what produced this act?)
+    backward = []
+    visited_back = {actual_id}
+    queue_back = [(actual_id, 0)]
+    while queue_back:
+        current, current_depth = queue_back.pop(0)
+        if current_depth >= depth:
+            continue
+        edges = con.execute("""
+            SELECT relation, source_id, weight, evidence
+            FROM edges WHERE target_id = ?
+            AND relation IN (?, ?, ?, ?, ?, ?)
+            ORDER BY weight DESC LIMIT 10
+        """, [current] + chain_rels).fetchall()
+        for rel, source, weight, evidence in edges:
+            if source not in visited_back:
+                visited_back.add(source)
+                source_node = con.execute(
+                    "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 12",
+                    [source]
+                ).fetchone()
+                backward.append({
+                    "relation": rel,
+                    "source_id": source,
+                    "source_tipo": source_node[0] if source_node else "?",
+                    "source_title": (source_node[1] or "")[:100] if source_node else "",
+                    "source_anno": source_node[2] if source_node else None,
+                    "weight": weight,
+                })
+                queue_back.append((source, current_depth + 1))
+
+    # Temporal info
+    temporal = con.execute("""
+        SELECT relation, evidence FROM temporal
+        WHERE source_id = ? LIMIT 5
+    """, [actual_id]).fetchall()
+
+    return {
+        "node": {
+            "id": actual_id,
+            "tipo": node[1],
+            "title": (node[2] or "")[:150],
+            "data": node[3],
+            "anno": node[4],
+            "source": node[5],
+        },
+        "chain_forward": forward,
+        "chain_backward": backward,
+        "temporal": [{"relation": t[0], "evidence": t[1]} for t in temporal],
+    }
+
+
+# ─── Tool: legal_jurisprudence ──────────────────────────────────
+
+
+@mcp.tool(
+    name="legal_jurisprudence",
+    description=(
+        "Giurisprudenza della Corte Costituzionale: sentenze, impugnazioni, "
+        "parametri invocati. Input: id di un atto per vedere le sentenze che lo "
+        "impugnano, o id di un articolo Costituzionale per vedere chi lo invoca."
+    ),
+    structured_output=True,
+)
+def legal_jurisprudence(node_id: str) -> dict[str, Any]:
+    return guard_timed(_impl_jurisprudence, "legal_jurisprudence", node_id)
+
+
+def _impl_jurisprudence(node_id: str) -> dict[str, Any]:
+    con = _get_con()
+
+    # Find node
+    node = con.execute("""
+        SELECT id, tipo, title, CAST(data AS VARCHAR) as data, anno, source
+        FROM nodes WHERE id = ? OR id LIKE ?
+        LIMIT 1
+    """, [node_id, f"%{node_id}%"]).fetchone()
+
+    if not node:
+        return {"error": f"Nodo non trovato: {node_id}"}
+
+    actual_id = node[0]
+
+    # What does this node impugn? (if it's a sentenza)
+    impugna = con.execute("""
+        SELECT e.target_id, n.tipo, LEFT(n.title, 100) as title, n.anno, e.weight
+        FROM edges e JOIN nodes n ON e.target_id = n.id
+        WHERE e.source_id = ? AND e.relation = 'impugna'
+        ORDER BY e.weight DESC LIMIT 20
+    """, [actual_id]).fetchall()
+
+    # What impugns this node? (if it's a norma)
+    impugnata_da = con.execute("""
+        SELECT e.source_id, n.tipo, LEFT(n.title, 100) as title, n.anno, e.weight
+        FROM edges e JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'impugna'
+        ORDER BY e.weight DESC LIMIT 20
+    """, [actual_id]).fetchall()
+
+    # What parameters does this node invoke? (if it's a sentenza)
+    parametri = con.execute("""
+        SELECT e.target_id, LEFT(n.title, 80) as title, e.weight
+        FROM edges e JOIN nodes n ON e.target_id = n.id
+        WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
+        ORDER BY e.weight DESC LIMIT 20
+    """, [actual_id]).fetchall()
+
+    # What cites this article? (if it's a costituzione article)
+    citato_da = con.execute("""
+        SELECT e.source_id, n.tipo, LEFT(n.title, 100) as title, n.anno, e.weight
+        FROM edges e JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
+        ORDER BY e.weight DESC LIMIT 20
+    """, [actual_id]).fetchall()
+
+    return {
+        "node": {
+            "id": actual_id,
+            "tipo": node[1],
+            "title": (node[2] or "")[:150],
+            "data": node[3],
+            "anno": node[4],
+            "source": node[5],
+        },
+        "impugna": [
+            {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
+            for r in impugna
+        ],
+        "impugnata_da": [
+            {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
+            for r in impugnata_da
+        ],
+        "parametri_invocati": [
+            {"articolo": r[0], "title": r[1], "weight": r[2]}
+            for r in parametri
+        ],
+        "citata_da": [
+            {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
+            for r in citato_da
+        ],
+    }
+
+
+# ─── Tool: legal_parliament ─────────────────────────────────────
+
+
+@mcp.tool(
+    name="legal_parliament",
+    description=(
+        "Attività parlamentare su un DDL: emendamenti, interventi, "
+        "stato dell'iter. Input: id di un DDL (senato:{id} o camera:{id})."
+    ),
+    structured_output=True,
+)
+def legal_parliament(node_id: str) -> dict[str, Any]:
+    return guard_timed(_impl_parliament, "legal_parliament", node_id)
+
+
+def _impl_parliament(node_id: str) -> dict[str, Any]:
+    con = _get_con()
+
+    # Find node
+    node = con.execute("""
+        SELECT id, tipo, title, CAST(data AS VARCHAR) as data, anno, source
+        FROM nodes WHERE id = ? OR id LIKE ?
+        LIMIT 1
+    """, [node_id, f"%{node_id}%"]).fetchone()
+
+    if not node:
+        return {"error": f"Nodo non trovato: {node_id}"}
+
+    actual_id = node[0]
+
+    # Emendamenti
+    emendamenti = con.execute("""
+        SELECT e.source_id, LEFT(n.title, 100) as title, n.anno, e.weight
+        FROM edges e JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'emendamento'
+        ORDER BY e.weight DESC LIMIT 20
+    """, [actual_id]).fetchall()
+
+    # Top emendatori
+    top_emendatori = con.execute("""
+        SELECT n.title, COUNT(*) as cnt
+        FROM edges e JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'emendamento'
+        GROUP BY n.title ORDER BY cnt DESC LIMIT 10
+    """, [actual_id]).fetchall()
+
+    # Interventi
+    interventi = con.execute("""
+        SELECT e.source_id, LEFT(n.title, 80) as title, n.anno
+        FROM edges e JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'intervento'
+        ORDER BY n.anno DESC LIMIT 10
+    """, [actual_id]).fetchall()
+
+    # Did it become law?
+    diventa = con.execute("""
+        SELECT e.target_id, LEFT(n.title, 100) as title, n.anno
+        FROM edges e JOIN nodes n ON e.target_id = n.id
+        WHERE e.source_id = ? AND e.relation = 'diventa_legge'
+        LIMIT 5
+    """, [actual_id]).fetchall()
+
+    # Testo
+    testo = con.execute("""
+        SELECT e.target_id, LEFT(n.title, 100) as title
+        FROM edges e JOIN nodes n ON e.target_id = n.id
+        WHERE e.source_id = ? AND e.relation = 'testo_atto'
+        LIMIT 5
+    """, [actual_id]).fetchall()
+
+    return {
+        "node": {
+            "id": actual_id,
+            "tipo": node[1],
+            "title": (node[2] or "")[:150],
+            "data": node[3],
+            "anno": node[4],
+            "source": node[5],
+        },
+        "n_emendamenti": len(emendamenti),
+        "emendamenti": [
+            {"id": r[0], "title": r[1], "anno": r[2], "weight": r[3]}
+            for r in emendamenti
+        ],
+        "top_emendatori": [
+            {"autore": r[0], "n_emendamenti": r[1]}
+            for r in top_emendatori
+        ],
+        "n_interventi": con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE target_id = ? AND relation = 'intervento'
+        """, [actual_id]).fetchone()[0],
+        "diventa_legge": [
+            {"id": r[0], "title": r[1], "anno": r[2]}
+            for r in diventa
+        ],
+        "testo": [
+            {"id": r[0], "title": r[1]}
+            for r in testo
+        ],
+    }
+
+
 # ─── Main ────────────────────────────────────────────────────────
 
 

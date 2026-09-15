@@ -1,9 +1,9 @@
 """Legal Knowledge Graph — Dashboard Streamlit.
 
-Esplora il sistema giuridico italiano come grafo: ogni legge, sentenza,
-emendamento e dibattito è collegato a tutto il resto.
-
-3 tab: Panoramica, Corte Costituzionale, Cerca.
+3 viste che specchiano i 3 tool MCP:
+- 📜 Catena del Diritto (legal_chain)
+- ⚖️ Giurisprudenza (legal_jurisprudence)
+- 🏛️ Parlamento (legal_parliament)
 """
 
 import duckdb
@@ -33,37 +33,13 @@ def load_data():
     return con
 
 
-def get_node_info(con, node_id):
-    node = con.execute("""
-        SELECT id, tipo, title, data, anno, source, vigente
-        FROM nodes WHERE id = ? LIMIT 1
-    """, [node_id]).fetchone()
-    if not node:
-        return None
-
-    out_edges = con.execute("""
-        SELECT relation, target_id, weight, source_year FROM edges
-        WHERE source_id = ? ORDER BY weight DESC LIMIT 20
-    """, [node_id]).fetchall()
-
-    in_edges = con.execute("""
-        SELECT relation, source_id, weight, source_year FROM edges
-        WHERE target_id = ? ORDER BY weight DESC LIMIT 20
-    """, [node_id]).fetchall()
-
-    temporal = con.execute("""
-        SELECT relation, target_id, evidence FROM temporal WHERE source_id = ? LIMIT 10
-    """, [node_id]).fetchall()
-
-    return {
-        "node": {
-            "id": node[0], "tipo": node[1], "title": node[2],
-            "data": node[3], "anno": node[4], "source": node[5], "vigente": node[6],
-        },
-        "outgoing": [{"rel": e[0], "target": e[1], "weight": e[2], "year": e[3]} for e in out_edges],
-        "incoming": [{"rel": e[0], "source": e[1], "weight": e[2], "year": e[3]} for e in in_edges],
-        "temporal": [{"rel": e[0], "target": e[1]} for e in temporal],
-    }
+def find_node(con, node_id):
+    """Trova un nodo per ID o pattern parziale."""
+    return con.execute("""
+        SELECT id, tipo, title, CAST(data AS VARCHAR) as data, anno, source
+        FROM nodes WHERE id = ? OR id LIKE ?
+        LIMIT 1
+    """, [node_id, f"%{node_id}%"]).fetchone()
 
 
 def main():
@@ -79,236 +55,264 @@ def main():
     st.sidebar.markdown("[GitHub](https://github.com/dataciviclab)")
 
     # ─── Tabs ─────────────────────────────────────────────────
-    tab_overview, tab_corte, tab_search = st.tabs([
-        "📊 Panoramica", "⚖️ Corte Costituzionale", "🔍 Cerca"
+    tab_chain, tab_juris, tab_parl = st.tabs([
+        "📜 Catena del Diritto", "⚖️ Giurisprudenza", "🏛️ Parlamento"
     ])
 
-    with tab_overview:
-        render_overview(con)
-    with tab_corte:
-        render_corte(con)
-    with tab_search:
-        render_search(con)
+    with tab_chain:
+        render_chain(con)
+    with tab_juris:
+        render_jurisprudence(con)
+    with tab_parl:
+        render_parliament(con)
 
 
-# ─── TAB: Panoramica ────────────────────────────────────────
+# ─── TAB: Catena del Diritto ─────────────────────────────────
 
 
-def render_overview(con):
-    st.title("Legal Knowledge Graph")
-    st.markdown("**Il sistema giuridico italiano come grafo interrogabile.**")
+def render_chain(con):
+    st.header("📜 Catena del Diritto")
+    st.markdown("DDL → Legge → D.Lgs → EU — deleghe, recepimenti, collegamenti Costituzionali.")
 
-    # Stats in 2 colonne
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Nodi", f"{n_nodes(con):,}")
-    c2.metric("Archi", f"{n_edges(con):,}")
-    c3.metric("Relazioni", "12 tipi")
-    c4.metric("Fonti", "9")
+    node_id = st.text_input("ID atto", placeholder="es. urn:nir:stato:decreto.legislativo:2017-07-03;117")
 
-    st.divider()
+    if node_id:
+        node = find_node(con, node_id)
+        if not node:
+            st.error(f"Nodo non trovato: {node_id}")
+            return
 
-    # Grafo per sorgente
-    col1, col2 = st.columns(2)
+        actual_id = node[0]
+        st.markdown(f"### {node[1]} — `{actual_id}`")
+        st.markdown(f"**{(node[2] or '')[:200]}**")
+        c1, c2, c3 = st.columns(3)
+        c1.caption(f"Data: {node[3] or '—'}")
+        c2.caption(f"Anno: {node[4] or '—'}")
+        c3.caption(f"Fonte: {node[5]}")
 
-    with col1:
-        st.subheader("Nodi per fonte")
-        result = con.execute("""
-            SELECT source, COUNT(*) as n FROM nodes
-            GROUP BY source ORDER BY n DESC
-        """).fetchdf()
-        fig = px.treemap(result, path=["source"], values="n",
-                         color="n", color_continuous_scale="Blues")
-        fig.update_layout(height=400, margin=dict(t=10, b=10, l=10, r=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.divider()
 
-    with col2:
-        st.subheader("Archi per relazione")
-        result = con.execute("""
-            SELECT relation, COUNT(*) as n FROM edges
-            GROUP BY relation ORDER BY n DESC
-        """).fetchdf()
-        fig = px.bar(result, x="n", y="relation", orientation="h",
-                     color="n", color_continuous_scale="Greens")
-        fig.update_layout(yaxis={"autorange": "reversed"}, height=400,
-                          margin=dict(t=10, b=10, l=10, r=10))
-        st.plotly_chart(fig, use_container_width=True)
+        # Chain forward
+        chain_rels = ['diventa_legge', 'attua_delega', 'recepisce_direttiva',
+                      'attua_regolamento', 'collega_ue', 'cita_costituzione']
 
-    st.divider()
+        col1, col2 = st.columns(2)
 
-    # Timeline
-    st.subheader("Attività legislativa per anno")
-    result = con.execute("""
-        SELECT anno, COUNT(*) as n FROM nodes
-        WHERE anno IS NOT NULL AND anno > 1940
-        GROUP BY anno ORDER BY anno
-    """).fetchdf()
-    fig = px.area(result, x="anno", y="n",
-                  labels={"n": "Nodi", "anno": "Anno"},
-                  color_discrete_sequence=["#3498db"])
-    fig.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10))
-    st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            st.subheader("→ Dove porta questo atto")
+            forward = con.execute(f"""
+                SELECT e.relation, e.target_id, n.tipo, LEFT(n.title, 80) as title, n.anno, e.weight
+                FROM edges e JOIN nodes n ON e.target_id = n.id
+                WHERE e.source_id = ? AND e.relation IN ({','.join(['?']*len(chain_rels))})
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id] + chain_rels).fetchdf()
 
+            if len(forward) > 0:
+                for _, row in forward.iterrows():
+                    rel = row['relation']
+                    icon = {'diventa_legge': '✅', 'attua_delega': '📋',
+                            'recepisce_direttiva': '🇪🇺', 'cita_costituzione': '📜'}.get(rel, '→')
+                    st.caption(f"{icon} `{rel}` → {row['tipo']} {row['target_id'][-40:]}")
+                    st.caption(f"   {row['title'][:70]}")
+            else:
+                st.info("Nessun collegamento in uscita.")
 
-def n_nodes(con):
-    return con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+        with col2:
+            st.subheader("← Da dove viene")
+            backward = con.execute(f"""
+                SELECT e.relation, e.source_id, n.tipo, LEFT(n.title, 80) as title, n.anno, e.weight
+                FROM edges e JOIN nodes n ON e.source_id = n.id
+                WHERE e.target_id = ? AND e.relation IN ({','.join(['?']*len(chain_rels))})
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id] + chain_rels).fetchdf()
 
+            if len(backward) > 0:
+                for _, row in backward.iterrows():
+                    rel = row['relation']
+                    icon = {'diventa_legge': '✅', 'attua_delega': '📋',
+                            'recepisce_direttiva': '🇪🇺', 'cita_costituzione': '📜'}.get(rel, '←')
+                    st.caption(f"{icon} `{rel}` ← {row['tipo']} {row['source_id'][-40:]}")
+                    st.caption(f"   {row['title'][:70]}")
+            else:
+                st.info("Nessun collegamento in entrata.")
 
-def n_edges(con):
-    return con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-
-
-# ─── TAB: Corte Costituzionale ──────────────────────────────
-
-
-def render_corte(con):
-    st.header("⚖️ Corte Costituzionale")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Articoli più invocati")
-        result = con.execute("""
-            SELECT REPLACE(target_id, 'costituzione:art:', 'Art. ') as articolo,
-                   COUNT(*) as invocazioni, COUNT(DISTINCT source_id) as sentenze
-            FROM edges WHERE relation = 'invoca_parametro'
-            GROUP BY target_id ORDER BY invocazioni DESC LIMIT 15
-        """).fetchdf()
-        fig = px.bar(result, x="invocazioni", y="articolo", orientation="h",
-                     color="sentenze", color_continuous_scale="Reds")
-        fig.update_layout(yaxis={"autorange": "reversed"}, height=400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader("Norme più impugnate")
-        result = con.execute("""
-            SELECT target_id as norma, COUNT(*) as impugnazioni,
-                   COUNT(DISTINCT source_id) as sentenze
-            FROM edges WHERE relation = 'impugna'
-            GROUP BY target_id ORDER BY impugnazioni DESC LIMIT 15
-        """).fetchdf()
-        fig = px.bar(result, x="impugnazioni", y="norma", orientation="h",
-                     color="sentenze", color_continuous_scale="Oranges")
-        fig.update_layout(yaxis={"autorange": "reversed"}, height=400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.divider()
-
-    # Doppio binario
-    st.subheader("Corte vs Legislazione — Articoli Costituzionali")
-    result = con.execute("""
-        WITH leg AS (
-            SELECT target_id, COUNT(*) as cit FROM edges
-            WHERE relation = 'cita_costituzione' GROUP BY target_id
-        ),
-        corte AS (
-            SELECT target_id, COUNT(*) as inv FROM edges
-            WHERE relation = 'invoca_parametro' GROUP BY target_id
-        )
-        SELECT
-            REPLACE(COALESCE(c.target_id, l.target_id), 'costituzione:art:', 'Art. ') as articolo,
-            COALESCE(c.inv, 0) as invocazioni_corte,
-            COALESCE(l.cit, 0) as citazioni_leggi
-        FROM corte c FULL OUTER JOIN leg l ON c.target_id = l.target_id
-        WHERE COALESCE(c.inv, 0) > 0 OR COALESCE(l.cit, 0) > 0
-        ORDER BY (COALESCE(c.inv, 0) + COALESCE(l.cit, 0)) DESC LIMIT 20
-    """).fetchdf()
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(name="Corte", x=result["articolo"], y=result["invocazioni_corte"],
-                         marker_color="#e74c3c"))
-    fig.add_trace(go.Bar(name="Legislazione", x=result["articolo"], y=result["citazioni_leggi"],
-                         marker_color="#3498db"))
-    fig.update_layout(barmode="group", height=500,
-                      title="Articoli Costituzionali: chi li usa?")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # DDL più contestate
-    st.divider()
-    st.subheader("DDL più contestate (per emendamenti)")
-    result = con.execute("""
-        SELECT n.title as provvedimento, n.id,
-               COUNT(DISTINCT e.source_id) as emendamenti,
-               CASE WHEN bridge.target_id IS NOT NULL THEN '✓ Legge' ELSE 'In attesa' END as stato
-        FROM edges e JOIN nodes n ON e.target_id = n.id
-        LEFT JOIN edges bridge ON bridge.source_id = n.id AND bridge.relation = 'diventa_legge'
-        WHERE e.relation = 'emendamento'
-        GROUP BY n.id, n.title, bridge.target_id
-        ORDER BY emendamenti DESC LIMIT 15
-    """).fetchdf()
-    st.dataframe(result, use_container_width=True, hide_index=True)
-
-
-# ─── TAB: Cerca ─────────────────────────────────────────────
-
-
-def render_search(con):
-    st.header("🔍 Cerca nel grafo")
-
-    query = st.text_input("Cerca per titolo o ID", placeholder="es. Codice Penale, art. 3, legge 234/2012")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        tipo = st.selectbox("Tipo", ["", "LEGGE", "DECRETO-LEGGE", "DECRETO LEGISLATIVO",
-                                      "SENTENZA", "Progetto di Legge", "DIRETTIVA", "REGOLAMENTO"])
-    with c2:
-        source = st.selectbox("Fonte", ["", "normativa", "senato", "camera_ddl",
-                                         "costituzione", "eu", "gu"])
-
-    if query or tipo or source:
-        conditions, params = [], []
-        if query:
-            conditions.append("(LOWER(title) LIKE ? OR LOWER(id) LIKE ?)")
-            params.extend([f"%{query.lower()}%", f"%{query.lower()}%"])
-        if tipo:
-            conditions.append("UPPER(tipo) = ?")
-            params.append(tipo.upper())
-        if source:
-            conditions.append("source = ?")
-            params.append(source)
-
-        where = f"WHERE {' AND '.join(conditions)}"
-        result = con.execute(f"""
-            SELECT id, tipo, title, data, anno, source
-            FROM nodes {where}
-            ORDER BY anno DESC NULLS LAST LIMIT 50
-        """, params).fetchdf()
-
-        st.write(f"**{len(result)} risultati**")
-        st.dataframe(result, use_container_width=True, hide_index=True)
-
-        if len(result) > 0:
+        # Temporal
+        temporal = con.execute("""
+            SELECT relation, evidence FROM temporal WHERE source_id = ? LIMIT 5
+        """, [actual_id]).fetchall()
+        if temporal:
             st.divider()
-            selected = st.selectbox(
-                "Seleziona un nodo per esplorare i collegamenti",
-                result["id"].tolist(),
-                format_func=lambda x: f"{x[:80]}"
-            )
-            if selected:
-                info = get_node_info(con, selected)
-                if info:
-                    n = info["node"]
-                    st.markdown(f"### {n['tipo']} — `{n['id']}`")
-                    st.markdown(f"**{n['title'][:200] if n['title'] else 'Senza titolo'}**")
+            st.subheader("📅 Timeline")
+            for rel, ev in temporal:
+                st.caption(f"  `{rel}` — {ev}")
 
-                    mc1, mc2, mc3, mc4 = st.columns(4)
-                    mc1.caption(f"Data: {n['data'] or '—'}")
-                    mc2.caption(f"Anno: {n['anno'] or '—'}")
-                    mc3.caption(f"Fonte: {n['source']}")
 
-                    if info["outgoing"]:
-                        st.markdown("**→ Collegamenti uscenti:**")
-                        for e in info["outgoing"][:10]:
-                            st.caption(f"  `{e['rel']}` → {e['target'][:80]} (peso {e['weight']:.0f})")
+# ─── TAB: Giurisprudenza ─────────────────────────────────────
 
-                    if info["incoming"]:
-                        st.markdown("**← Collegamenti entranti:**")
-                        for e in info["incoming"][:10]:
-                            st.caption(f"  `{e['rel']}` ← {e['source'][:80]} (peso {e['weight']:.0f})")
 
-                    if info["temporal"]:
-                        st.markdown("**⏱ Temporale:**")
-                        for e in info["temporal"]:
-                            st.caption(f"  `{e['rel']}` → {e['target'][:80]}")
+def render_jurisprudence(con):
+    st.header("⚖️ Giurisprudenza")
+    st.markdown("Sentenze, impugnazioni, parametri Costituzionali.")
+
+    node_id = st.text_input("ID atto o articolo", placeholder="es. sentenza:2009-0151 o costituzione:art:3")
+
+    if node_id:
+        node = find_node(con, node_id)
+        if not node:
+            st.error(f"Nodo non trovato: {node_id}")
+            return
+
+        actual_id = node[0]
+        st.markdown(f"### {node[1]} — `{actual_id}`")
+        st.markdown(f"**{(node[2] or '')[:200]}**")
+
+        st.divider()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # What does this node impugn?
+            impugna = con.execute("""
+                SELECT e.target_id, n.tipo, LEFT(n.title, 80) as title, n.anno, e.weight
+                FROM edges e JOIN nodes n ON e.target_id = n.id
+                WHERE e.source_id = ? AND e.relation = 'impugna'
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id]).fetchdf()
+
+            if len(impugna) > 0:
+                st.subheader("🔴 Impugna")
+                for _, row in impugna.iterrows():
+                    st.caption(f"  → {row['tipo']} {row['target_id'][-40:]}")
+                    st.caption(f"    {row['title'][:70]}")
+
+            # What impugns this node?
+            impugnata_da = con.execute("""
+                SELECT e.source_id, n.tipo, LEFT(n.title, 80) as title, n.anno, e.weight
+                FROM edges e JOIN nodes n ON e.source_id = n.id
+                WHERE e.target_id = ? AND e.relation = 'impugna'
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id]).fetchdf()
+
+            if len(impugnata_da) > 0:
+                st.subheader("🔴 Impugnata da")
+                for _, row in impugnata_da.iterrows():
+                    st.caption(f"  ← {row['tipo']} {row['source_id'][-40:]}")
+                    st.caption(f"    {row['title'][:70]}")
+
+        with col2:
+            # Parameters invoked
+            parametri = con.execute("""
+                SELECT e.target_id, LEFT(n.title, 80) as title, e.weight
+                FROM edges e JOIN nodes n ON e.target_id = n.id
+                WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id]).fetchdf()
+
+            if len(parametri) > 0:
+                st.subheader("📜 Parametri invocati")
+                for _, row in parametri.iterrows():
+                    st.caption(f"  → {row['target_id']}")
+                    st.caption(f"    {row['title'][:70]}")
+
+            # Cited by
+            citata_da = con.execute("""
+                SELECT e.source_id, n.tipo, LEFT(n.title, 80) as title, n.anno, e.weight
+                FROM edges e JOIN nodes n ON e.source_id = n.id
+                WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
+                ORDER BY e.weight DESC LIMIT 15
+            """, [actual_id]).fetchdf()
+
+            if len(citata_da) > 0:
+                st.subheader("📜 Citata da")
+                for _, row in citata_da.iterrows():
+                    st.caption(f"  ← {row['tipo']} {row['source_id'][-40:]}")
+                    st.caption(f"    {row['title'][:70]}")
+
+
+# ─── TAB: Parlamento ─────────────────────────────────────────
+
+
+def render_parliament(con):
+    st.header("🏛️ Parlamento")
+    st.markdown("Emendamenti, interventi, stato dell'iter legislativo.")
+
+    node_id = st.text_input("ID DDL", placeholder="es. senato:40754 o camera:3053")
+
+    if node_id:
+        node = find_node(con, node_id)
+        if not node:
+            st.error(f"Nodo non trovato: {node_id}")
+            return
+
+        actual_id = node[0]
+        st.markdown(f"### {node[1]} — `{actual_id}`")
+        st.markdown(f"**{(node[2] or '')[:200]}**")
+        c1, c2, c3 = st.columns(3)
+        c1.caption(f"Data: {node[3] or '—'}")
+        c2.caption(f"Anno: {node[4] or '—'}")
+        c3.caption(f"Fonte: {node[5]}")
+
+        st.divider()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Emendamenti
+            n_emend = con.execute("""
+                SELECT COUNT(*) FROM edges
+                WHERE target_id = ? AND relation = 'emendamento'
+            """, [actual_id]).fetchone()[0]
+            st.metric("Emendamenti", f"{n_emend:,}")
+
+            if n_emend > 0:
+                top_emend = con.execute("""
+                    SELECT n.title, COUNT(*) as cnt
+                    FROM edges e JOIN nodes n ON e.source_id = n.id
+                    WHERE e.target_id = ? AND e.relation = 'emendamento'
+                    GROUP BY n.title ORDER BY cnt DESC LIMIT 10
+                """, [actual_id]).fetchdf()
+                st.subheader("Top emendamenti")
+                fig = px.bar(top_emend.head(5), x="cnt", y="title", orientation="h",
+                             color="cnt", color_continuous_scale="Blues")
+                fig.update_layout(yaxis={"autorange": "reversed"}, height=250,
+                                  margin=dict(t=10, b=10, l=10, r=10))
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            # Interventi
+            n_interventi = con.execute("""
+                SELECT COUNT(*) FROM edges
+                WHERE target_id = ? AND relation = 'intervento'
+            """, [actual_id]).fetchone()[0]
+            st.metric("Interventi", f"{n_interventi:,}")
+
+            # Diventa legge?
+            diventa = con.execute("""
+                SELECT e.target_id, LEFT(n.title, 100) as title, n.anno
+                FROM edges e JOIN nodes n ON e.target_id = n.id
+                WHERE e.source_id = ? AND e.relation = 'diventa_legge'
+                LIMIT 5
+            """, [actual_id]).fetchall()
+
+            if diventa:
+                st.success("**✓ Diventato legge:**")
+                for tid, title, anno in diventa:
+                    st.caption(f"  {title[:80]} ({anno})")
+            else:
+                st.warning("**Non è diventato legge** (o ancora in iter)")
+
+            # Testo
+            testo = con.execute("""
+                SELECT e.target_id, LEFT(n.title, 80) as title
+                FROM edges e JOIN nodes n ON e.target_id = n.id
+                WHERE e.source_id = ? AND e.relation = 'testo_atto'
+                LIMIT 3
+            """, [actual_id]).fetchall()
+
+            if testo:
+                st.caption("**Testo:**")
+                for tid, title in testo:
+                    st.caption(f"  {title[:70]}")
 
 
 if __name__ == "__main__":
