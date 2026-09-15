@@ -33,6 +33,8 @@ GU_ACTS = WORKSPACE / "gu-monitor" / "data" / "gu_acts.parquet"
 SENATO_CORPUS = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_corpus" / "2026" / "senato_corpus_2026_clean.parquet"
 SENATO_EMEND = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_emendamenti" / "2026" / "senato_emendamenti_2026_clean.parquet"
 SENATO_DIB = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_dibattito" / "2026" / "senato_dibattito_2026_clean.parquet"
+CAMERA_DDL_FILES = sorted(WORKSPACE.glob("open-politica/out/data/clean/camera_ddl/*/camera_ddl_*_clean.parquet"))
+CAMERA_LEGGI_FILES = sorted(WORKSPACE.glob("open-politica/out/data/clean/camera_leggi/*/camera_leggi_*_clean.parquet"))
 
 
 def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
@@ -165,7 +167,9 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         print("  gu:             NON TROVATO")
 
     # 5. Senato DDL (proposed legislation)
-    #    Use URN when available, fall back to senato:id_ddl
+    #    Always use senato:id_ddl as ID — the URN is the LAW, not the DDL.
+    #    This keeps DDL nodes distinct from normativa nodes and fixes
+    #    the diventa_legge self-loop.
     senato_ddl_files = sorted(WORKSPACE.glob("open-politica/out/data/clean/senato_ddl/*/senato_ddl_*_clean.parquet"))
     if senato_ddl_files:
         globs = ", ".join(f"'{f}'" for f in senato_ddl_files)
@@ -176,10 +180,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 source, anno, length_chars, length_words, celex, vigente
             FROM (
                 SELECT
-                    COALESCE(
-                        NULLIF(urn_normattiva, ''),
-                        'senato:' || CAST(id_ddl AS VARCHAR)
-                    ) AS id,
+                    'senato:' || CAST(id_ddl AS VARCHAR) AS id,
                     COALESCE(natura, 'legge') AS tipo,
                     CAST(data_legge AS VARCHAR) AS data,
                     CAST(numero_legge AS VARCHAR) AS numero,
@@ -193,7 +194,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     NULL AS celex,
                     NULL AS vigente,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(NULLIF(urn_normattiva, ''), 'senato:' || CAST(id_ddl AS VARCHAR))
+                        PARTITION BY id_ddl
                         ORDER BY id_ddl
                     ) AS _rn
                 FROM read_parquet([{globs}])
@@ -208,6 +209,48 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
         )""")
         print("  senato_ddl:     NON TROVATO")
+
+    # 5b. Camera DDL (proposed legislation — Camera dei Deputati)
+    #     Same pattern as senato_ddl: camera:{id_ddl}
+    if CAMERA_DDL_FILES:
+        globs_cam = ", ".join(f"'{f}'" for f in CAMERA_DDL_FILES)
+        con.execute(f"""
+            CREATE TABLE nodes_camera_ddl AS
+            SELECT
+                id, tipo, data, numero, title, collezione, source_filename,
+                source, anno, length_chars, length_words, celex, vigente
+            FROM (
+                SELECT
+                    'camera:' || CAST(id_ddl AS VARCHAR) AS id,
+                    COALESCE(tipo, 'DDL') AS tipo,
+                    CAST(data_presentazione AS VARCHAR) AS data,
+                    CAST(id_ddl AS VARCHAR) AS numero,
+                    COALESCE(titolo, '') AS title,
+                    'Camera DDL' AS collezione,
+                    atto_camera AS source_filename,
+                    'camera_ddl' AS source,
+                    anno AS anno,
+                    NULL AS length_chars,
+                    NULL AS length_words,
+                    NULL AS celex,
+                    NULL AS vigente,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY id_ddl
+                        ORDER BY data_presentazione DESC
+                    ) AS _rn
+                FROM read_parquet([{globs_cam}])
+                WHERE id_ddl IS NOT NULL
+            ) WHERE _rn = 1
+        """)
+        n = con.execute("SELECT COUNT(*) FROM nodes_camera_ddl").fetchone()[0]
+        print(f"  camera_ddl:    {n:>6} nodi ({len(CAMERA_DDL_FILES)} legislature)")
+    else:
+        con.execute("""CREATE TABLE nodes_camera_ddl (
+            id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
+            collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+        )""")
+        print("  camera_ddl:    NON TROVATO")
 
     # 6. Senato Corpus (testi atti legislativi)
     #    Deduplicate by atto_num (same act can appear in multiple documents)
@@ -556,6 +599,9 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             WHERE id NOT IN (SELECT id FROM nodes_normativa)
         UNION ALL
         SELECT * FROM nodes_senato
+            WHERE id NOT IN (SELECT id FROM nodes_normativa)
+        UNION ALL
+        SELECT * FROM nodes_camera_ddl
             WHERE id NOT IN (SELECT id FROM nodes_normativa)
         UNION ALL
         SELECT * FROM nodes_corpus

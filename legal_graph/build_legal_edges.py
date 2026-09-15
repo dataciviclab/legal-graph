@@ -33,6 +33,8 @@ NORMATIVA = WORKSPACE / "italia-corpus" / "data" / "derived" / "normativa.parque
 SENATO_CORPUS = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_corpus" / "2026" / "senato_corpus_2026_clean.parquet"
 SENATO_EMEND = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_emendamenti" / "2026" / "senato_emendamenti_2026_clean.parquet"
 SENATO_DIB = WORKSPACE / "senato-akn" / "out" / "data" / "clean" / "senato_dibattito" / "2026" / "senato_dibattito_2026_clean.parquet"
+CAMERA_DDL_FILES = sorted(WORKSPACE.glob("open-politica/out/data/clean/camera_ddl/*/camera_ddl_*_clean.parquet"))
+CAMERA_LEGGI_FILES = sorted(WORKSPACE.glob("open-politica/out/data/clean/camera_leggi/*/camera_leggi_*_clean.parquet"))
 
 
 def build_edges(con: duckdb.DuckDBPyConnection) -> None:
@@ -59,7 +61,8 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
     else:
         con.execute("CREATE TABLE urn_lookup (filename VARCHAR, urn VARCHAR)")
 
-    # 0b. Build a DDL ID → URN lookup for emendamento target resolution
+    # 0b. Build a DDL ID → resolved ID lookup for emendamento/corpus target resolution
+    #     Always use senato:id_ddl — DDL nodes are always 'senato:{id_ddl}'
     if senato_ddl_files:
         globs_ddl = ", ".join(f"'{f}'" for f in senato_ddl_files)
         con.execute(f"""
@@ -67,7 +70,7 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
             SELECT * FROM (
                 SELECT
                     id_ddl,
-                    COALESCE(NULLIF(urn_normattiva, ''), 'senato:' || CAST(id_ddl AS VARCHAR)) AS resolved_id,
+                    'senato:' || CAST(id_ddl AS VARCHAR) AS resolved_id,
                     ROW_NUMBER() OVER (PARTITION BY id_ddl ORDER BY legislatura DESC) AS _rn
                 FROM read_parquet([{globs_ddl}])
                 WHERE id_ddl IS NOT NULL
@@ -190,16 +193,13 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
         print("  promovimento:   NON TROVATO")
 
     # 5. Senato DDL → normativa (proposed → enacted law)
-    #    Source uses URN when available (to match emendamento targets)
+    #    Source: senato:id_ddl (DDL node), Target: urn_normattiva (law node)
     if senato_ddl_files:
         globs = ", ".join(f"'{f}'" for f in senato_ddl_files)
         con.execute(f"""
             CREATE TABLE edges_senato AS
             SELECT
-                COALESCE(
-                    NULLIF(s.urn_normattiva, ''),
-                    'senato:' || CAST(s.id_ddl AS VARCHAR)
-                ) AS source_id,
+                'senato:' || CAST(s.id_ddl AS VARCHAR) AS source_id,
                 'diventa_legge' AS relation,
                 s.urn_normattiva AS target_id,
                 1 AS weight,
@@ -214,6 +214,30 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
     else:
         con.execute("CREATE TABLE edges_senato (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
         print("  senato_ddl:     NON TROVATO")
+
+    # 5b. Camera DDL → normativa (proposed → enacted law)
+    #     Source: camera:id_ddl (DDL node), Target: urn_normattiva (law node)
+    if CAMERA_LEGGI_FILES:
+        globs_cam = ", ".join(f"'{f}'" for f in CAMERA_LEGGI_FILES)
+        con.execute(f"""
+            CREATE TABLE edges_camera_ddl AS
+            SELECT
+                'camera:' || CAST(l.ddl_numero AS VARCHAR) AS source_id,
+                'diventa_legge' AS relation,
+                l.urn_normattiva AS target_id,
+                1 AS weight,
+                l.anno AS source_year,
+                l.anno AS target_year,
+                l.titolo AS evidence
+            FROM read_parquet([{globs_cam}]) l
+            WHERE NULLIF(l.urn_normattiva, '') IS NOT NULL
+              AND l.ddl_numero IS NOT NULL
+        """)
+        n = con.execute("SELECT COUNT(*) FROM edges_camera_ddl").fetchone()[0]
+        print(f"  camera->legge: {n:>6} archi")
+    else:
+        con.execute("CREATE TABLE edges_camera_ddl (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
+        print("  camera_leggi:  NON TROVATO")
 
     # 6. Senato Corpus → senato_ddl (atto testuale → iter legislativo)
     if SENATO_CORPUS.exists():
@@ -326,6 +350,8 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
             SELECT * FROM edges_promovimento
             UNION ALL
             SELECT * FROM edges_senato
+            UNION ALL
+            SELECT * FROM edges_camera_ddl
             UNION ALL
             SELECT * FROM edges_corpus
             UNION ALL
