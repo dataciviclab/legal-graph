@@ -7,14 +7,14 @@
 
 ## Stato attuale
 
-- **729.177 nodi** unici (9 fonti)
-- **1.073.041 archi statici** (12 tipi di relazione)
-- **53.057 archi temporali**
-- **1.126.098 archi totali**
+- **472.610 nodi** unici (11 fonti)
+- **707.857 archi statici** (13 tipi di relazione)
+- **61.096 archi temporali**
+- **768.953 archi totali**
 - Grafo interrogabile via DuckDB
-- MCP server con 4 tool
-- Dashboard Streamlit (5 tab)
-- Bridge emendamento→DDL funzionante (via `fase`)
+- MCP server con **8 tool** (search, node_details, query, stats, intelligence, chain, jurisprudence, parliament)
+- Dashboard Streamlit (**3 tab**: Catena del Diritto, Giurisprudenza, Parlamento)
+- Bridge emendamento→DDL, Camera DDL→Legge, attua_delega funzionanti
 
 ---
 

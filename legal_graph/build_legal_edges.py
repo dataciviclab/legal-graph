@@ -82,9 +82,10 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("CREATE TABLE ddl_urn_lookup (id_ddl BIGINT, resolved_id VARCHAR)")
 
     # 1. Riferimenti (atti → atti cross-references) + Citazioni costituzionali
-    #    riferimenti.parquet now has tipo_riferimento (atto/costituzione) and articolo_costituzione
+    #    riferimenti.parquet: fonte_tipo, bersaglio_tipo (no more tipo_riferimento)
+    #    citazioni-costituzionali.parquet: fonte_filename, articolo
     if RIFERIMENTI.exists():
-        # 1a. Riferimenti atto → atto
+        # 1a. Riferimenti atto → atto (all rows are atto→atto now)
         con.execute(f"""
             CREATE TABLE edges_riferimenti AS
             SELECT
@@ -100,29 +101,34 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
               ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
             LEFT JOIN urn_lookup lu2
               ON r.bersaglio_filename = lu2.filename
-            WHERE r.risolto = true AND r.tipo_riferimento = 'atto'
+            WHERE r.risolto = true
         """)
         n = con.execute("SELECT COUNT(*) FROM edges_riferimenti").fetchone()[0]
         print(f"  riferimenti:    {n:>6} archi (atto→atto)")
 
         # 1b. Citazioni costituzionali (atto → articolo Costituzione)
-        con.execute(f"""
-            CREATE TABLE edges_citazioni AS
-            SELECT
-                COALESCE(lu.urn, 'file:' || r.fonte_filename) AS source_id,
-                'cita_costituzione' AS relation,
-                'costituzione:art:' || CAST(CAST(r.articolo_costituzione AS INTEGER) AS VARCHAR) AS target_id,
-                1 AS weight,
-                r.fonte_anno AS source_year,
-                NULL AS target_year,
-                LEFT(r.contesto, 200) AS evidence
-            FROM read_parquet('{RIFERIMENTI}') r
-            LEFT JOIN urn_lookup lu ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
-            WHERE r.tipo_riferimento = 'costituzione'
-              AND r.articolo_costituzione IS NOT NULL
-        """)
-        n = con.execute("SELECT COUNT(*) FROM edges_citazioni").fetchone()[0]
-        print(f"  citazioni:      {n:>6} archi (atto→costituzione)")
+        #     Now from separate citazioni-costituzionali.parquet
+        CITAZIONI = WORKSPACE / "italia-corpus" / "data" / "derived" / "citazioni-costituzionali.parquet"
+        if CITAZIONI.exists():
+            con.execute(f"""
+                CREATE TABLE edges_citazioni AS
+                SELECT
+                    COALESCE(lu.urn, 'file:' || c.fonte_filename) AS source_id,
+                    'cita_costituzione' AS relation,
+                    'costituzione:art:' || CAST(CAST(c.articolo AS INTEGER) AS VARCHAR) AS target_id,
+                    1 AS weight,
+                    c.fonte_anno AS source_year,
+                    NULL AS target_year,
+                    LEFT(c.contesto, 200) AS evidence
+                FROM read_parquet('{CITAZIONI}') c
+                LEFT JOIN urn_lookup lu ON regexp_extract(c.fonte_filename, '/([^/]+)$', 1) = lu.filename
+                WHERE c.articolo IS NOT NULL
+            """)
+            n = con.execute("SELECT COUNT(*) FROM edges_citazioni").fetchone()[0]
+            print(f"  citazioni:      {n:>6} archi (atto→costituzione)")
+        else:
+            con.execute("CREATE TABLE edges_citazioni (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
+            print("  citazioni:      NON TROVATO")
     else:
         con.execute("CREATE TABLE edges_riferimenti (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight DOUBLE, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
         con.execute("CREATE TABLE edges_citazioni (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")

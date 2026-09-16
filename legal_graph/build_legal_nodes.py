@@ -47,7 +47,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_normativa AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     urn AS id,
@@ -62,7 +62,6 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     lunghezza_caratteri AS length_chars,
                     lunghezza_parole AS length_words,
                     NULLIF(celex, '') AS celex,
-                    vigente,
                     ROW_NUMBER() OVER (PARTITION BY urn ORDER BY filename) AS _rn
                 FROM read_parquet('{NORMATIVA}')
                 WHERE NULLIF(urn, '') IS NOT NULL
@@ -91,7 +90,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 commi AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{ARTICOLI}')
             WHERE articolo IS NOT NULL
         """)
@@ -101,7 +100,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_articoli (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  costituzione:   NON TROVATO")
 
@@ -122,7 +121,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 n_articoli AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{REVISIONI}')
         """)
         n = con.execute("SELECT COUNT(*) FROM nodes_revisioni").fetchone()[0]
@@ -131,7 +130,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_revisioni (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  revisioni:      NON TROVATO")
 
@@ -152,7 +151,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 NULL AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{GU_ACTS}')
             WHERE NULLIF(urn_normattiva, '') IS NOT NULL
         """)
@@ -162,7 +161,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_gu (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  gu:             NON TROVATO")
 
@@ -177,7 +176,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_senato AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'senato:' || CAST(id_ddl AS VARCHAR) AS id,
@@ -192,8 +191,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     NULL AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY id_ddl
                         ORDER BY id_ddl
                     ) AS _rn
@@ -206,7 +204,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_senato (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  senato_ddl:     NON TROVATO")
 
@@ -218,7 +216,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_camera_ddl AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'camera:' || CAST(id_ddl AS VARCHAR) AS id,
@@ -233,8 +231,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     NULL AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY id_ddl
                         ORDER BY data_presentazione DESC
                     ) AS _rn
@@ -248,7 +245,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_camera_ddl (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  camera_ddl:    NON TROVATO")
 
@@ -259,7 +256,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_corpus AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'senato:atto:' || CAST(atto_num AS VARCHAR) AS id,
@@ -274,8 +271,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     text_len AS length_chars,
                     paragraphs_count AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY atto_num
                         ORDER BY work_date
                     ) AS _rn
@@ -289,7 +285,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_corpus (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  senato_corpus: NON TROVATO")
 
@@ -301,7 +297,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_emend AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'senato:emend:' || CAST(regexp_extract(legislatura, '(\\d+)', 1) AS BIGINT) || ':' || emend_id AS id,
@@ -316,8 +312,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     text_len AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY CAST(regexp_extract(legislatura, '(\\d+)', 1) AS BIGINT), emend_id
                         ORDER BY document_id
                     ) AS _rn
@@ -331,7 +326,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_emend (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  senato_emend:   NON TROVATO")
 
@@ -342,7 +337,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_dib AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'senato:dib:' || CAST(senatore_id AS VARCHAR) || ':' || CAST(data_seduta AS VARCHAR) || ':' || CAST(ordine_intervento AS VARCHAR) AS id,
@@ -357,8 +352,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     text_len AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY senatore_id, data_seduta, ordine_intervento
                         ORDER BY document_id
                     ) AS _rn
@@ -372,7 +366,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_dib (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  senato_dib:     NON TROVATO")
 
@@ -382,7 +376,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_senatori AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'senatore:' || CAST(senatore_id AS VARCHAR) AS id,
@@ -397,8 +391,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     NULL AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY senatore_id
                         ORDER BY data_seduta
                     ) AS _rn
@@ -412,7 +405,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_senatori (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
 
     # 9. EU legislation (from EUR-Lex enrichment)
@@ -433,7 +426,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 NULL AS length_words,
                 celex,
-                NULL AS vigente
+                
             FROM read_parquet('{eu_nodes_file}')
         """)
         n = con.execute("SELECT COUNT(*) FROM nodes_eu").fetchone()[0]
@@ -442,7 +435,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_eu (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  eu (EUR-Lex):  NON TROVATO (eseguire eu_enrichment.py)")
 
@@ -463,7 +456,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 NULL AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{PRONUNCE}')
             WHERE anno_pronuncia IS NOT NULL AND numero_pronuncia IS NOT NULL
         """)
@@ -473,7 +466,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_pronunce (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  pronunce:      NON TROVATO")
 
@@ -494,7 +487,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 NULL AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{GIUDICI}')
             WHERE nome_cognome IS NOT NULL
         """)
@@ -504,7 +497,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_giudici (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
         print("  giudici:       NON TROVATO")
 
@@ -516,7 +509,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             CREATE TABLE nodes_norme AS
             SELECT
                 id, tipo, data, numero, title, collezione, source_filename,
-                source, anno, length_chars, length_words, celex, vigente
+                source, anno, length_chars, length_words, celex
             FROM (
                 SELECT
                     'norma:' || LOWER(COALESCE(norma_descrizione, 'legge'))
@@ -534,8 +527,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                     NULL AS length_chars,
                     NULL AS length_words,
                     NULL AS celex,
-                    NULL AS vigente,
-                    ROW_NUMBER() OVER (
+                                        ROW_NUMBER() OVER (
                         PARTITION BY norma_descrizione, norma_numero, YEAR(TRY_CAST(norma_data AS DATE))
                         ORDER BY norma_data DESC
                     ) AS _rn
@@ -550,7 +542,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_norme (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
 
     # 13. Promovimento (source of evoca_parametro edges)
@@ -571,7 +563,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
                 NULL AS length_chars,
                 NULL AS length_words,
                 NULL AS celex,
-                NULL AS vigente
+                
             FROM read_parquet('{prom_file}')
             WHERE anno IS NOT NULL AND numero_atto IS NOT NULL
         """)
@@ -581,7 +573,7 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("""CREATE TABLE nodes_promovimento (
             id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
-            length_chars BIGINT, length_words BIGINT, celex VARCHAR, vigente BOOLEAN
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
 
     # Union all — deduplicate on id
