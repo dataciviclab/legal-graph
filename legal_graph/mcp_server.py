@@ -28,15 +28,21 @@ _cached_con: duckdb.DuckDBPyConnection | None = None
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
-    """Crea o ritorna la connessione DuckDB cachata con tutte le tabelle del grafo."""
+    """Crea o ritorna la connessione DuckDB cachata con view sul grafo parquet.
+
+    Usa VIEW (non TABLE) per evitare la materializzazione in RAM.
+    DuckDB legge i parquet on-the-fly con predicate pushdown.
+    """
     global _cached_con
     if _cached_con is not None:
         return _cached_con
     con = duckdb.connect(":memory:")
-    con.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{NODES_FILE}')")
-    con.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{EDGES_FILE}')")
+    con.execute("SET memory_limit='256MB'")
+    con.execute("SET threads=1")
+    con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{NODES_FILE}')")
+    con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{EDGES_FILE}')")
     if TEMPORAL_FILE.exists():
-        con.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{TEMPORAL_FILE}')")
+        con.execute(f"CREATE OR REPLACE VIEW temporal AS SELECT * FROM read_parquet('{TEMPORAL_FILE}')")
     _cached_con = con
     return con
 
@@ -330,7 +336,7 @@ def _impl_intelligence(node_id: str, report: str) -> dict[str, Any]:
         return {"error": "Graph metrics not computed. Run: python -m legal_graph.graph_intelligence"}
 
     con = _get_con()
-    con.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{METRICS_FILE}')")
+    con.execute(f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{METRICS_FILE}')")
 
     # Node-specific intelligence
     if node_id:

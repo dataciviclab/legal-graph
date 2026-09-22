@@ -85,7 +85,7 @@ def build_temporal_edges_from_riferimenti(con: duckdb.DuckDBPyConnection) -> Non
         FROM read_parquet('{RIFERIMENTI}') r
         LEFT JOIN (
             SELECT filename, urn FROM read_parquet('{NORMATIVA}')
-        ) lu ON r.fonte_filename = lu.filename
+        ) lu ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
         LEFT JOIN (
             SELECT filename, urn FROM read_parquet('{NORMATIVA}')
         ) lu2 ON r.bersaglio_filename = lu2.filename

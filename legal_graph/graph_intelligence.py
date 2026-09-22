@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -27,11 +28,13 @@ OUTPUT_FILE = DATA_DIR / "graph_metrics.parquet"
 ANALYSIS_RELATIONS = (
     'riferimento', 'cita_costituzione', 'impugna', 'invoca_parametro',
     'diventa_legge', 'recepisce_direttiva', 'attua_regolamento', 'evoca_parametro',
+    'abroga',
 )
 
 
 def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
     """Compute all graph metrics."""
+    current_year = datetime.now().year
 
     # 1. Incoming edges (impact on this node)
     print("Computing incoming metrics...")
@@ -68,7 +71,7 @@ def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
 
     # 3. Combine with nodes
     print("Building node metrics...")
-    con.execute("""
+    con.execute(f"""
         CREATE TABLE node_metrics AS
         SELECT
             n.id,
@@ -77,7 +80,6 @@ def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
             n.data,
             n.anno,
             n.source,
-            n.vigente,
             -- Incoming
             COALESCE(i.referenced_by, 0) AS referenced_by,
             COALESCE(i.impact_score, 0) AS impact_score,
@@ -92,7 +94,7 @@ def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
             o.newest_reference,
             o.oldest_reference,
             -- Derived
-            CASE WHEN n.anno IS NOT NULL THEN 2026 - n.anno ELSE NULL END AS age_years,
+            CASE WHEN n.anno IS NOT NULL THEN {current_year} - n.anno ELSE NULL END AS age_years,
             -- Impact level
             CASE
                 WHEN COALESCE(i.referenced_by, 0) >= 100 THEN 'critical'
@@ -109,8 +111,8 @@ def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
             END AS complexity_level,
             -- Age risk
             CASE
-                WHEN (2026 - n.anno) >= 50 AND COALESCE(i.referenced_by, 0) >= 10 THEN 'obsolete_candidate'
-                WHEN (2026 - n.anno) >= 30 AND COALESCE(i.referenced_by, 0) >= 50 THEN 'aging'
+                WHEN ({current_year} - n.anno) >= 50 AND COALESCE(i.referenced_by, 0) >= 10 THEN 'obsolete_candidate'
+                WHEN ({current_year} - n.anno) >= 30 AND COALESCE(i.referenced_by, 0) >= 50 THEN 'aging'
                 ELSE NULL
             END AS age_risk,
             -- Activity level

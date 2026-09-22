@@ -322,6 +322,13 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
     #    Heuristica: D.Lgs che referenziano leggi con "Delega al Governo" nel titolo
     #    con peso ≥ 5 sono quasi certamente i loro attuatori.
     #    Serve la tabella nodes per verificare i tipi e i titoli.
+    #
+    #    NOTA: tutti e 464 gli archi attua_delega sono anche archi riferimento
+    #    (stessa coppia source-target, relazione diversa). Questa è una
+    #    reclassificazione semantica deliberata: un D.Lgs che attua una delega
+    #    è un sottoinsieme dei riferimenti generici. Gli archi attua_delega
+    #    sono esclusi da ANALYSIS_RELATIONS in graph_intelligence.py per evitare
+    #    doppio conteggio nelle metriche di impact/complexity.
     nodes_file = OUTDIR / "legal_nodes.parquet"
     if nodes_file.exists():
         con.execute(f"CREATE TABLE _nodes_ref AS SELECT id, tipo, title FROM read_parquet('{nodes_file}')")
@@ -363,6 +370,75 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("CREATE TABLE edges_eu (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
         print("  eu (EUR-Lex):  NON TROVATO")
 
+    # 11. PNRR edges: atto → missione/componente/investimento PNRR
+    pnrr_file = WORKSPACE / "italia-corpus" / "data" / "derived" / "pnrr_bridge.parquet"
+    if pnrr_file.exists() and NORMATIVA.exists():
+        con.execute(f"""
+            CREATE TABLE edges_pnrr AS
+            SELECT
+                lu.urn AS source_id,
+                'referenzia_pnrr' AS relation,
+                'pnrr:missione:' || CAST(r.missione AS VARCHAR) AS target_id,
+                1 AS weight,
+                r.missione AS source_year,
+                NULL AS target_year,
+                'M' || CAST(r.missione AS VARCHAR) || 'C' || CAST(r.componente AS VARCHAR)
+                    || CASE WHEN r.investimento IS NOT NULL THEN '-I' || r.investimento ELSE '' END AS evidence
+            FROM read_parquet('{pnrr_file}') r
+            JOIN (
+                SELECT filename, urn FROM read_parquet('{NORMATIVA}')
+                WHERE NULLIF(urn, '') IS NOT NULL
+            ) lu ON r.filename = lu.filename
+            WHERE r.missione IS NOT NULL
+        """)
+        n = con.execute("SELECT COUNT(*) FROM edges_pnrr").fetchone()[0]
+        print(f"  pnrr:          {n:>6} archi (atto→missione)")
+    else:
+        con.execute("CREATE TABLE edges_pnrr (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
+        print("  pnrr:          NON TROVATO")
+
+    # 12. Abrogation edges: atto A abroga atto B
+    abro_file = WORKSPACE / "italia-corpus" / "data" / "derived" / "abrogations_raw.parquet"
+    if abro_file.exists() and NORMATIVA.exists():
+        con.execute(f"""
+            CREATE TABLE _abro_source AS
+            SELECT
+                lu.urn AS source_id,
+                a.abrogated_year,
+                a.abrogated_number,
+                a.context
+            FROM read_parquet('{abro_file}') a
+            JOIN (
+                SELECT filename, urn FROM read_parquet('{NORMATIVA}')
+                WHERE NULLIF(urn, '') IS NOT NULL
+            ) lu ON a.abrogating_file = lu.filename
+        """)
+        # Find abrogated acts by year + number in normativa
+        con.execute(f"""
+            CREATE TABLE edges_abro AS
+            SELECT
+                s.source_id,
+                'abroga' AS relation,
+                n.urn AS target_id,
+                1 AS weight,
+                s.abrogated_year AS source_year,
+                NULL AS target_year,
+                LEFT(s.context, 200) AS evidence
+            FROM _abro_source s
+            JOIN (
+                SELECT urn, anno_atto, numero
+                FROM read_parquet('{NORMATIVA}')
+                WHERE NULLIF(urn, '') IS NOT NULL
+            ) n ON s.abrogated_year = n.anno_atto
+                AND s.abrogated_number = TRY_CAST(n.numero AS INTEGER)
+        """)
+        con.execute("DROP TABLE _abro_source")
+        n = con.execute("SELECT COUNT(*) FROM edges_abro").fetchone()[0]
+        print(f"  abroga:        {n:>6} archi (atto→atto)")
+    else:
+        con.execute("CREATE TABLE edges_abro (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, weight INTEGER, source_year INTEGER, target_year INTEGER, evidence VARCHAR)")
+        print("  abroga:        NON TROVATO")
+
     # Union all edges, then DEDUPLICATE
     # Same (source_id, target_id, relation) can appear from multiple sources
     # → aggregate: sum weight, take first evidence, take min/max years
@@ -400,6 +476,10 @@ def build_edges(con: duckdb.DuckDBPyConnection) -> None:
             SELECT * FROM edges_dib
             UNION ALL
             SELECT * FROM edges_eu
+            UNION ALL
+            SELECT * FROM edges_pnrr
+            UNION ALL
+            SELECT * FROM edges_abro
         )
         GROUP BY source_id, relation, target_id
     """)

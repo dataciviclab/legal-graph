@@ -551,21 +551,29 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         con.execute(f"""
             CREATE TABLE nodes_promovimento AS
             SELECT
-                'promovimento:' || CAST(anno AS VARCHAR) || '-' || LPAD(CAST(numero_atto AS VARCHAR), 4, '0') AS id,
-                'PROMOVIMENTO' AS tipo,
-                CAST(anno AS VARCHAR) AS data,
-                CAST(numero_atto AS VARCHAR) AS numero,
-                COALESCE(norma_descrizione, '') AS title,
-                'Corte Costituzionale' AS collezione,
-                NULL AS source_filename,
-                'costituzione' AS source,
-                anno AS anno,
-                NULL AS length_chars,
-                NULL AS length_words,
-                NULL AS celex,
-                
-            FROM read_parquet('{prom_file}')
-            WHERE anno IS NOT NULL AND numero_atto IS NOT NULL
+                id, tipo, data, numero, title, collezione, source_filename,
+                source, anno, length_chars, length_words, celex
+            FROM (
+                SELECT
+                    'promovimento:' || CAST(anno AS VARCHAR) || '-' || LPAD(CAST(numero_atto AS VARCHAR), 4, '0') AS id,
+                    'PROMOVIMENTO' AS tipo,
+                    CAST(anno AS VARCHAR) AS data,
+                    CAST(numero_atto AS VARCHAR) AS numero,
+                    COALESCE(norma_descrizione, '') AS title,
+                    'Corte Costituzionale' AS collezione,
+                    NULL AS source_filename,
+                    'costituzione' AS source,
+                    anno AS anno,
+                    NULL AS length_chars,
+                    NULL AS length_words,
+                    NULL AS celex,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY anno, numero_atto
+                        ORDER BY anno DESC
+                    ) AS _rn
+                FROM read_parquet('{prom_file}')
+                WHERE anno IS NOT NULL AND numero_atto IS NOT NULL
+            ) WHERE _rn = 1
         """)
         n = con.execute("SELECT COUNT(*) FROM nodes_promovimento").fetchone()[0]
         print(f"  promovimento: {n:>6} nodi")
@@ -575,6 +583,79 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
             collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
             length_chars BIGINT, length_words BIGINT, celex VARCHAR
         )""")
+
+    # 14. PNRR — missioni, componenti, investimenti (from pnrr_bridge.parquet)
+    pnrr_file = WORKSPACE / "italia-corpus" / "data" / "derived" / "pnrr_bridge.parquet"
+    if pnrr_file.exists():
+        # Create unique PNRR entity nodes
+        con.execute(f"""
+            CREATE TABLE nodes_pnrr AS
+            SELECT * FROM (
+                -- Missioni
+                SELECT DISTINCT
+                    'pnrr:missione:' || CAST(missione AS VARCHAR) AS id,
+                    'MISSIONE PNRR' AS tipo,
+                    NULL AS data,
+                    CAST(missione AS VARCHAR) AS numero,
+                    'Missione ' || CAST(missione AS VARCHAR) || ' PNRR' AS title,
+                    'PNRR' AS collezione,
+                    NULL AS source_filename,
+                    'pnrr' AS source,
+                    NULL AS anno,
+                    NULL AS length_chars,
+                    NULL AS length_words,
+                    NULL AS celex
+                FROM read_parquet('{pnrr_file}')
+                WHERE missione IS NOT NULL
+
+                UNION
+
+                -- Componenti
+                SELECT DISTINCT
+                    'pnrr:componente:' || CAST(missione AS VARCHAR) || ':' || CAST(componente AS VARCHAR),
+                    'COMPONENTE PNRR',
+                    NULL,
+                    CAST(missione AS VARCHAR) || '.' || CAST(componente AS VARCHAR),
+                    'Missione ' || CAST(missione AS VARCHAR) || ', Componente ' || CAST(componente AS VARCHAR),
+                    'PNRR',
+                    NULL,
+                    'pnrr',
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM read_parquet('{pnrr_file}')
+                WHERE missione IS NOT NULL AND componente IS NOT NULL
+
+                UNION
+
+                -- Investimenti (where investimento is present)
+                SELECT DISTINCT
+                    'pnrr:investimento:' || CAST(missione AS VARCHAR) || ':' || CAST(componente AS VARCHAR) || ':' || investimento,
+                    'INVESTIMENTO PNRR',
+                    NULL,
+                    CAST(missione AS VARCHAR) || '.' || CAST(componente AS VARCHAR) || '.' || investimento,
+                    'M' || CAST(missione AS VARCHAR) || 'C' || CAST(componente AS VARCHAR) || '-I' || investimento,
+                    'PNRR',
+                    NULL,
+                    'pnrr',
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM read_parquet('{pnrr_file}')
+                WHERE missione IS NOT NULL AND componente IS NOT NULL AND investimento IS NOT NULL
+            )
+        """)
+        n = con.execute("SELECT COUNT(*) FROM nodes_pnrr").fetchone()[0]
+        print(f"  pnrr:          {n:>6} nodi (missioni/componenti/investimenti)")
+    else:
+        con.execute("""CREATE TABLE nodes_pnrr (
+            id VARCHAR, tipo VARCHAR, data VARCHAR, numero VARCHAR, title VARCHAR,
+            collezione VARCHAR, source_filename VARCHAR, source VARCHAR, anno INTEGER,
+            length_chars BIGINT, length_words BIGINT, celex VARCHAR
+        )""")
+        print("  pnrr:          NON TROVATO")
 
     # Union all — deduplicate on id
     con.execute("""
@@ -622,7 +703,31 @@ def build_nodes(con: duckdb.DuckDBPyConnection) -> None:
         UNION ALL
         SELECT * FROM nodes_promovimento
             WHERE id NOT IN (SELECT id FROM nodes_normativa)
+        UNION ALL
+        SELECT * FROM nodes_pnrr
+            WHERE id NOT IN (SELECT id FROM nodes_normativa)
     """)
+
+    # Add codice_redazionale (GU reference) from normativa
+    if NORMATIVA.exists():
+        con.execute("""
+            ALTER TABLE legal_nodes ADD COLUMN codice_redazionale VARCHAR
+        """)
+        con.execute(f"""
+            UPDATE legal_nodes ln
+            SET codice_redazionale = n.codice_redazionale
+            FROM (
+                SELECT urn, codice_redazionale
+                FROM read_parquet('{NORMATIVA}')
+                WHERE NULLIF(urn, '') IS NOT NULL
+                  AND NULLIF(codice_redazionale, '') IS NOT NULL
+            ) n
+            WHERE ln.id = n.urn
+        """)
+        n_cr = con.execute("""
+            SELECT COUNT(*) FROM legal_nodes WHERE codice_redazionale IS NOT NULL
+        """).fetchone()[0]
+        print(f"  GU reference:   {n_cr:>6} atti con codice redazionale")
 
     # Map internal type codes to human-readable names
     con.execute("""
