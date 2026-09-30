@@ -1,6 +1,6 @@
 {
   "metadata_schema_version": 1,
-  "timestamp_utc": "2026-09-30T20:19:11.298254+00:00",
+  "timestamp_utc": "2026-09-30T20:22:49.925941+00:00",
   "toolkit_version": "1.52.0",
   "layer": "mart",
   "dataset": "legal_graph",
@@ -10,13 +10,13 @@
   "outputs": [
     {
       "file": "mart_legal_nodes.parquet",
-      "sha256": "19ec410da67d899ae7079e31abae24feaf6fd59d848d27631e4d5e8eacf8d3ee",
-      "bytes": 14879132
+      "sha256": "bbbb9b63c74a7096a466d8b4f8c3fd76165cd19b962f8132d5d91c7398aa6aed",
+      "bytes": 14880616
     },
     {
       "file": "mart_legal_edges.parquet",
-      "sha256": "3f140efb9a1b54fe1c93d9a803d0a53610cbe2539a518164cec7989f44d62855",
-      "bytes": 12867832
+      "sha256": "d750361067282de1693c1560f04f46e17c75274f0bdda74eb73e8b40212430da",
+      "bytes": 8949038
     }
   ],
   "output_paths": [
