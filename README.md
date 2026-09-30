@@ -110,10 +110,11 @@ Documenti di dettaglio:
 
 ## Limiti
 
-- `legal_text` copre gli atti di **normativa** (italia-corpus); per altri testi restano i repo dati
-- Nessun FTS nei corpi di testo (search su titoli/id/metrics del mart)
-- L. 40/2004 e L. 194/1978 possono mancare dal mart normativa (gap corpus)
+- `legal_text`: normativa (IC) + mart texts (articoli Cost. con testo, pronunce Corte con dispositivo)
+- Massime Corte: view `massime` per SQL (testo troncato); FTS profondo non dedicato
+- L.40/2004 e L.194/1978: nodi `norma:*` cercabili da numero+anno (titolo sintetico)
 - Relazioni UE e archi temporali opzionali (legacy `data/`)
+
 
 ## Partecipa
 
