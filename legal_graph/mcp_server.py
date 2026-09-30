@@ -140,7 +140,10 @@ def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
     )
     if year_only:
         return {"year": year_only.group(1), "num": None, "ecli": True}
-    if re.search(r"sentenza|ordinanza|ecli|corte\s+cost", folded):
+    if re.search(
+        r"sentenz|ordinanz|pronunc|ecli|corte\s+cost|giurisprudenz",
+        folded,
+    ):
         return {"year": None, "num": None, "ecli": True}
     return None
 
@@ -345,6 +348,8 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
                 [actual_id],
             ).fetchall()
         )
+        out = {k: int(v or 0) for k, v in out.items()}
+        inn = {k: int(v or 0) for k, v in inn.items()}
         return {"out": out, "in": inn, "source": "mart_legal_node_rel"}
     out = dict(
         con.execute(
@@ -986,20 +991,31 @@ def _parse_intent(q: str, folded: str) -> dict[str, Any]:
     ue = re.search(r"\b(\d{4})\s*/\s*(\d{1,4})\b", folded)
     if ue:
         return {"kind": "ue", "pattern": f"{ue.group(1)}/{ue.group(2)}"}
+
     tipo_hints = []
-    if "decreto legislativo" in folded or "d.lgs" in folded or "dlgs" in folded:
+    if re.search(r"d\.?\s*lgs|decreto\s+legislativo|dlgs", folded):
         tipo_hints.append("DECRETO LEGISLATIVO")
-    if "decreto-legge" in folded or "decreto legge" in folded:
+    if (
+        re.search(r"decreto[-\s]?legge|\bd\.l\.g\b|\bdl\b", folded)
+        and "legislativo" not in folded
+    ):
         tipo_hints.append("DECRETO-LEGGE")
-    if re.search(r"\blegge\b", folded) and "decreto" not in folded:
+    if re.search(r"\blegge\b|\bl\.\s*", folded) and "decreto" not in folded:
         tipo_hints.append("LEGGE")
-    if "decreto del presidente" in folded or "dpr" in folded:
+    if "decreto del presidente" in folded or re.search(r"\bdpr\b", folded):
         tipo_hints.append("DECRETO DEL PRESIDENTE DELLA REPUBBLICA")
+    # formati ibridi: "D.Lgs 231/2001", "L. 40/2004", "d.lgs. n. 231 del 2001"
+    hybrid = re.search(
+        r"(?:d\.?\s*lgs\.?|decreto\s+legislativo|l\.?\s*|legge)\s*(?:n\.?\s*)?(\d{1,4})\s*/\s*(\d{2,4})",
+        folded,
+    )
     num_m = re.search(
         r"(?:n\.?\s*)?(\d{1,4})(?:\s*/\s*(\d{2,4}))?(?:\s+del\s+(\d{2,4}))?",
         folded,
     )
-    if num_m and not (num_m.group(2) or num_m.group(3)):
+    if hybrid:
+        num_m = hybrid
+    elif num_m and not (num_m.group(2) or num_m.group(3)):
         num_m2 = re.search(r"(?:n\.?\s*)?(\d{1,4})\s+(\d{2,4})\b", folded)
         if num_m2:
             num_m = num_m2
@@ -1012,17 +1028,27 @@ def _parse_intent(q: str, folded: str) -> dict[str, Any]:
     if re.fullmatch(r"(19|20)\d{2}", folded.strip()) and not tipo_hints:
         return {"kind": "year", "year": folded.strip()}
     has_year = bool(num_m and (num_m.group(2) or num_m.group(3)))
-    if num_m and (bare_num or has_year or tipo_hints or re.search(r"\bn\.\s*\d", folded)):
+    if num_m and (bare_num or has_year or tipo_hints or hybrid or re.search(r"\bn\.\s*\d", folded)):
         num = num_m.group(1)
         year = num_m.group(2) or num_m.group(3)
         if year and len(year) == 2:
             year = "20" + year
+        # parole residuali per fallback phrase (es. "legge 194/1978 aborto")
+        residual = [
+            w
+            for w in re.split(r"\s+", folded)
+            if w
+            and w not in _STOP
+            and not re.fullmatch(r"\d+", w)
+            and w not in {"n.", "n", "del", "d.lgs", "dlgs", "legge", "decreto", "legislativo", "l."}
+        ]
         return {
             "kind": "number",
             "num": num,
             "year": year,
             "bare": bool(bare_num and not year),
             "tipo_hints": tipo_hints,
+            "residual": residual[:4],
         }
     if q.startswith(('"', "'")):
         raw = [_fold(q[1:-1])]
@@ -1033,7 +1059,7 @@ def _parse_intent(q: str, folded: str) -> dict[str, Any]:
         expanded.append(term)
         expanded.extend(_EN_IT_GLOSSARY.get(term, []))
     terms = [t for t in expanded if t not in _STOP and len(t) >= 2][:6]
-    return {"kind": "phrase", "terms": terms}
+    return {"kind": "phrase", "terms": terms, "raw_terms": terms}
 
 
 def _payload(r: tuple) -> dict[str, Any]:
@@ -1048,9 +1074,12 @@ def _payload(r: tuple) -> dict[str, Any]:
 
 
 _SELECT_SK = """
-    SELECT k.id, k.tipo, k.title, NULL::VARCHAR AS data, k.anno, k.source
+    SELECT k.id, k.tipo, k.title,
+           CAST(n.data AS VARCHAR) AS data,
+           k.anno, k.source
     FROM search_keys k
     LEFT JOIN metrics m ON m.id = k.id
+    LEFT JOIN nodes n ON n.id = k.id
 """
 
 
@@ -1064,6 +1093,57 @@ def _base_order(exact_id: str | None = None) -> str:
     return ", ".join(parts)
 
 
+def _run_sk(
+    con: duckdb.DuckDBPyConnection,
+    where: str,
+    params: list[Any],
+    order: str,
+    extra_where: str,
+    extra_params: list[Any],
+    limit: int,
+) -> list[dict[str, Any]]:
+    sql = _SELECT_SK + f" WHERE {where}{extra_where} ORDER BY {order} LIMIT {limit}"
+    rows = con.execute(sql, [*params, *extra_params]).fetchall()
+    return [_payload(r) for r in rows]
+
+
+def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
+    """mode: 'and' | 'or' — costruisce WHERE su title_folded/search_text."""
+    if mode == "or":
+        clauses = []
+        params: list[Any] = []
+        for term in terms:
+            stem = _stem_prefix(term)
+            if stem != term:
+                clauses.append(
+                    "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
+                    " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                )
+                params.extend([f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"])
+            else:
+                clauses.append(
+                    "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                )
+                params.extend([f"%{term}%", f"%{term}%"])
+        return "(" + " OR ".join(clauses) + ")", params
+    clauses = []
+    params = []
+    for term in terms:
+        stem = _stem_prefix(term)
+        if stem != term:
+            clauses.append(
+                "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
+                " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+            )
+            params.extend([f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"])
+        else:
+            clauses.append(
+                "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+            )
+            params.extend([f"%{term}%", f"%{term}%"])
+    return " AND ".join(clauses) if clauses else "1=1", params
+
+
 def _impl_search(
     query: str,
     tipo: str = "",
@@ -1072,7 +1152,7 @@ def _impl_search(
     source: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Search thin: intent → 1 SQL su mart search_keys + metrics."""
+    """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
     con = _get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
     q = (query or "").strip()
@@ -1089,10 +1169,13 @@ def _impl_search(
             }
         ]
 
+    # query impossibili/junk: niente OR-fallback rumoroso
+    if re.search(r"\b(xyz|foo|bar|baz|qwerty|asdf|non esiste|non esistono)\b", folded):
+        return []
+
     intent = _parse_intent(q, folded)
     kind = intent["kind"]
 
-    # WHERE base (filtri MCP) sempre in coda ai parametri del kind
     extra_where = ""
     extra_params: list[Any] = []
     if tipo:
@@ -1108,9 +1191,17 @@ def _impl_search(
         extra_where += " AND k.source = ?"
         extra_params.append(source)
 
+    # "sentenze"/"pronunce" + filter source costituzione → intent sentenza
+    if kind == "phrase" and source == "costituzione":
+        raw_terms = " ".join(intent.get("terms") or [])
+        if re.search(r"sentenz|ordinanz|pronunc|ecli|giurisprudenz", raw_terms):
+            kind = "sent"
+            intent = {"kind": "sent", "year": None, "num": None}
+
     where = "1=1"
     params: list[Any] = []
     order = _base_order()
+    fallthrough_phrase: list[str] | None = None
 
     if kind == "urn":
         val = intent["value"]
@@ -1141,6 +1232,7 @@ def _impl_search(
         where = (
             "k.source = 'costituzione' AND ("
             "k.id LIKE 'sentenza:%' OR LOWER(k.title) LIKE '%ecli%'"
+            " OR UPPER(k.tipo) IN ('SENTENZA','ORDINANZA','PRONUNCIA')"
             ")"
         )
         year, num = intent.get("year"), intent.get("num")
@@ -1157,14 +1249,8 @@ def _impl_search(
 
     elif kind == "date":
         d = intent["date"]
-        where = (
-            "k.source = 'normativa' AND (k.id LIKE ? OR k.id LIKE ?)"
-        )
-        params = [f"%{d}%", f"%{d[:4]}%;{d[5:7]}%"]
-        # id path URN: :YYYY-MM-; se data nota meglio LIKE data
         where = "k.source = 'normativa' AND (k.id LIKE ? OR CAST(k.anno AS VARCHAR) = ?)"
         params = [f"%{d}%", d[:4]]
-        order = _base_order(exact_id=None)
         order = f"CASE WHEN k.id LIKE '%{d}%' THEN 0 ELSE 1 END, " + _base_order()
 
     elif kind == "ue":
@@ -1193,7 +1279,10 @@ def _impl_search(
                 ")"
             )
             params.extend([year, num, year, f"%n. {num}%"])
-            order = f"CASE WHEN k.id LIKE '%{year}%;{num}' THEN 0 ELSE 1 END, " + _base_order()
+            order = (
+                f"CASE WHEN k.id LIKE '%{year}%;{num}' THEN 0 ELSE 1 END, "
+                + _base_order()
+            )
         else:
             where = (
                 "k.source = 'normativa' AND ("
@@ -1207,6 +1296,16 @@ def _impl_search(
                 ",".join("?" for _ in hints)
             )
             params.extend([h.upper() for h in hints])
+        # se numero+anno non trova nulla, riprova con meno vincoli e poi phrase
+        residual = intent.get("residual") or []
+        if year and not hints:
+            # niente tipo: prova solo id_num+anno senza title, già incluso
+            pass
+        if residual:
+            fallthrough_phrase = residual
+        # per "legge 194/1978": se L.194 assente, prova solo numero senza anno
+        if year and hints == ["LEGGE"]:
+            fallthrough_phrase = fallthrough_phrase or ["194", "1978"]
 
     else:  # phrase
         terms = intent.get("terms") or []
@@ -1220,37 +1319,60 @@ def _impl_search(
             params.extend([f"%{a}%" for a in anchors])
             order = _base_order()
         else:
-            clauses = []
-            for term in terms:
-                stem = _stem_prefix(term)
-                if stem != term:
-                    clauses.append(
-                        "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
-                        " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
-                    )
-                    params.extend(
-                        [f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"]
-                    )
+            # 1) AND; se vuoto → OR (niente over-filter su topic libero)
+            and_where, and_params = _phrase_where(terms, "and")
+            test = _run_sk(
+                con, and_where, and_params, _base_order(), extra_where, extra_params, 3
+            )
+            if test:
+                where, params = and_where, and_params
+                boost_terms = [t for t in terms if len(t) >= 5]
+                if boost_terms:
+                    boosts = [
+                        "CASE WHEN LOWER(k.title_folded) LIKE ? THEN -1000 ELSE 0 END"
+                        for _ in boost_terms
+                    ]
+                    order = ", ".join(boosts) + ", " + _base_order()
+                    params = [*params, *[f"%{t}%" for t in boost_terms]]
                 else:
-                    clauses.append(
-                        "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
-                    )
-                    params.extend([f"%{term}%", f"%{term}%"])
-            where = " AND ".join(clauses)
-            boost_terms = [t for t in terms if len(t) >= 5]
-            if boost_terms:
-                boosts = [
-                    "CASE WHEN LOWER(k.title_folded) LIKE ? THEN -1000 ELSE 0 END"
-                    for _ in boost_terms
-                ]
-                order = ", ".join(boosts) + ", " + _base_order()
-                params.extend([f"%{t}%" for t in boost_terms])
+                    order = _base_order()
             else:
+                or_where, or_params = _phrase_where(terms, "or")
+                where, params = or_where, or_params
                 order = _base_order()
+                # OR può essere rumoroso: se source è costituzione, tieni solo nodi giurisprudenziali
+                if source == "costituzione":
+                    where = (
+                        "(" + or_where + ") AND ("
+                        "k.id LIKE 'sentenza:%' OR LOWER(k.title) LIKE '%ecli%'"
+                        " OR UPPER(k.tipo) IN ('SENTENZA','ORDINANZA','PRONUNCIA')"
+                        ")"
+                    )
 
-    sql = _SELECT_SK + f" WHERE {where}{extra_where} ORDER BY {order} LIMIT {limit}"
-    rows = con.execute(sql, [*params, *extra_params]).fetchall()
-    out = [_payload(r) for r in rows]
+    # esegui intent principale
+    out = _run_sk(con, where, params, order, extra_where, extra_params, limit)
+
+    # fallback number → residual phrase
+    if not out and fallthrough_phrase:
+        fw, fp = _phrase_where(fallthrough_phrase, "or")
+        out = _run_sk(con, fw, fp, _base_order(), extra_where, extra_params, limit)
+
+    # fallback number → solo id_num senza anno (es. L.194/1978 mancante)
+    if not out and kind == "number" and intent.get("year"):
+        num = intent["num"]
+        fw = (
+            "k.source = 'normativa' AND ("
+            "k.id_num = ? OR k.id LIKE ? OR LOWER(k.title_folded) LIKE ?"
+            ")"
+        )
+        fp = [num, f"%;{num}", f"%n. {num}%"]
+        if intent.get("tipo_hints"):
+            fw += " AND UPPER(k.tipo) IN ({})".format(
+                ",".join("?" for _ in intent["tipo_hints"])
+            )
+            fp.extend(h.upper() for h in intent["tipo_hints"])
+        out = _run_sk(con, fw, fp, _base_order(), extra_where, extra_params, limit)
+
     if kind == "cost" and intent.get("art") is None and out:
         out[0] = {
             **out[0],
@@ -1397,11 +1519,21 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
             hint = "PRAGMA/DESCRIBE non accettano LIMIT; SELECT sì."
         return [{"error": err, "hint": hint} if hint else {"error": err}]
     if not rows and first == "SELECT":
+        tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        hint = "Verifica WHERE/relation; tabelle: nodes, edges[, temporal]."
+        if "GROUP BY" in sql_clean.upper() and "edges" in sql_clean and "edges" not in tables:
+            hint = "View 'edges' assente — riconnetti o make run."
+        if "GROUP BY" in sql_clean.upper() and "edges" in tables:
+            hint = (
+                "GROUP BY su edges non dovrebbe essere vuoto: "
+                "usa alias espliciti (es. COUNT(*) AS n) e LIMIT."
+            )
         return [
             {
                 "note": "SELECT valida ma 0 righe",
                 "sql": sql_clean[:200],
-                "hint": "Verifica WHERE/relation; tabelle: nodes, edges[, temporal].",
+                "tables": sorted(tables),
+                "hint": hint,
             }
         ]
     return [dict(zip(columns, row)) for row in rows]

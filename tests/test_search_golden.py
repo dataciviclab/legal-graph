@@ -44,6 +44,41 @@ def test_search_golden(search_ready, query, expected_substring, limit):
     )
 
 
+def test_search_data_field(search_ready):
+    rows = m._impl_search("231", limit=1)
+    assert rows and rows[0].get("data"), "campo data assente nei risultati search"
+
+
+def test_search_hybrid_dlgs(search_ready):
+    rows = m._impl_search("D.Lgs 231/2001", limit=3)
+    assert any("decreto.legislativo:2001-06-08;231" in r["id"] for r in rows)
+
+
+def test_search_sentenze_with_source(search_ready):
+    rows = m._impl_search("sentenze", source="costituzione", limit=3)
+    assert rows, "sentenze+source costituzione vuoto"
+    assert all(r["source"] == "costituzione" for r in rows)
+
+
+def test_search_topic_not_overfiltered(search_ready):
+    rows = m._impl_search("responsabilità società reati ambientali", limit=3)
+    assert rows, "topic libero over-filtrato a 0"
+
+
+def test_overview_top_incoming(search_ready):
+    ov = m._impl_node("urn:nir:stato:decreto.legislativo:2001-06-08;231", view="overview")
+    assert ov.get("top_incoming"), "top_incoming vuoto su 231"
+    assert (ov.get("relation_counts") or {}).get("in", {}).get("riferimento", 0) >= 100
+
+
+def test_groupby_relation_ok(search_ready):
+    rows = m.legal_query(
+        "SELECT relation, COUNT(*) AS n FROM edges GROUP BY relation ORDER BY n DESC LIMIT 5",
+        limit=5,
+    )
+    assert rows and "relation" in rows[0]
+
+
 def test_search_nonsense_empty(search_ready):
     rows = m._impl_search("non esiste questo atto XYZ 999", limit=5)
     assert rows == [] or all("error" in r for r in rows)
