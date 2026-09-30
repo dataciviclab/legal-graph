@@ -40,6 +40,11 @@ def con():
     c.close()
 
 
+def _has_table(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+    rows = con.execute("SHOW TABLES").fetchall()
+    return any(r[0] == name for r in rows)
+
+
 # ── Node integrity ──────────────────────────────────────────────
 
 class TestNodes:
@@ -140,11 +145,17 @@ class TestEdges:
 # ── Temporal edge integrity ─────────────────────────────────────
 
 class TestTemporalEdges:
+    """Archi temporali: opzionali (non nel compose mart-only)."""
+
     def test_temporal_exists(self, con):
+        if not _has_table(con, "temporal"):
+            pytest.skip("temporal non presente (compose senza step temporale)")
         count = con.execute("SELECT COUNT(*) FROM temporal").fetchone()[0]
         assert count > 50_000, f"Expected >50K temporal edges, got {count}"
 
     def test_temporal_relation_types(self, con):
+        if not _has_table(con, "temporal"):
+            pytest.skip("temporal non presente")
         types = con.execute("""
             SELECT DISTINCT relation FROM temporal ORDER BY relation
         """).fetchall()
@@ -154,6 +165,8 @@ class TestTemporalEdges:
 
     def test_temporal_no_self_modifica(self, con):
         """A modifica edge should not be a self-loop (A modifies A)."""
+        if not _has_table(con, "temporal"):
+            pytest.skip("temporal non presente")
         self_loops = con.execute("""
             SELECT COUNT(*) FROM temporal
             WHERE relation = 'modifica' AND source_id = target_id
@@ -164,12 +177,18 @@ class TestTemporalEdges:
 # ── Metrics integrity ───────────────────────────────────────────
 
 class TestMetrics:
+    """Metriche intelligence: opzionali (richiedono make intelligence)."""
+
     def test_metrics_exist(self, con):
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti (esegui make intelligence)")
         count = con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
         assert count > 400_000, f"Expected >400K metric rows, got {count}"
 
     def test_metrics_match_nodes(self, con):
         """Every node should have a metrics row."""
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
         node_count = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
         metric_count = con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
         assert metric_count >= node_count * 0.95, (
@@ -177,12 +196,16 @@ class TestMetrics:
         )
 
     def test_impact_levels_populated(self, con):
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
         critical = con.execute("""
             SELECT COUNT(*) FROM metrics WHERE impact_level = 'critical'
         """).fetchone()[0]
         assert critical > 0, "No critical nodes found"
 
     def test_no_negative_age(self, con):
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
         bad = con.execute("""
             SELECT COUNT(*) FROM metrics WHERE age_years < 0
         """).fetchone()[0]
@@ -204,6 +227,8 @@ class TestCardinality:
         assert 700_000 <= count <= 800_000, f"Edge count {count} outside expected range"
 
     def test_temporal_count_range(self, con):
+        if not _has_table(con, "temporal"):
+            pytest.skip("temporal non presente")
         count = con.execute("SELECT COUNT(*) FROM temporal").fetchone()[0]
         assert 50_000 <= count <= 80_000, f"Temporal count {count} outside expected range"
 
@@ -214,6 +239,8 @@ class TestCardinality:
         assert 20_000 <= count <= 25_000, f"Normativa nodes {count} outside expected range"
 
     def test_modifica_edges_range(self, con):
+        if not _has_table(con, "temporal"):
+            pytest.skip("temporal non presente")
         count = con.execute("""
             SELECT COUNT(*) FROM temporal WHERE relation = 'modifica'
         """).fetchone()[0]
