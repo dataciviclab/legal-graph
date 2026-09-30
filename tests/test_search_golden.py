@@ -119,6 +119,30 @@ def test_legal_query_texts_massime(search_ready):
         assert rows and "sentenza_id" in rows[0]
 
 
+def test_search_n_dot_year(search_ready):
+    rows = m._impl_search("n. 231 del 2001", limit=3)
+    assert any("decreto.legislativo:2001-06-08;231" in r["id"] for r in rows), (
+        f"n. 231 del 2001: {[r['id'] for r in rows]}"
+    )
+
+
+def test_sentenza_alias_no_pad(search_ready):
+    j = m._impl_node("sentenza:2009-151", view="overview")
+    assert "error" not in j
+    assert j["node"]["id"] == "sentenza:2009-0151"
+    t = m._impl_legal_text("sentenza:2009-151", max_chars=200)
+    assert "error" not in t, t.get("error")
+    assert t.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+
+
+def test_legal_text_norma_hint(search_ready):
+    t = m._impl_legal_text("norma:legge:40:2004", max_chars=200)
+    # errore onesto o testo se filename IC presente
+    assert "error" in t or t.get("text")
+    if "error" in t:
+        assert "mart_legal_texts" in t["error"] or "norma" in t["error"]
+
+
 def test_search_nonsense_empty(search_ready):
     rows = m._impl_search("non esiste questo atto XYZ 999", limit=5)
     assert rows == [] or all("error" in r for r in rows)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -393,7 +394,8 @@ def _top_edges(
 ) -> list[dict[str, Any]]:
     """Top edge in uscita (source_id) o in entrata (target_id)."""
     join_col = "target_id" if column == "source_id" else "source_id"
-    rows = con.execute(
+    try:
+        rows = con.execute(
         f"""
         SELECT e.relation, e.{join_col}, e.weight, e.source_year, e.target_year,
                n.tipo, LEFT(n.title, 90)
@@ -405,6 +407,8 @@ def _top_edges(
         """,
         [actual_id, limit],
     ).fetchall()
+    except duckdb.Error:
+        return []
     key = "target" if column == "source_id" else "source"
     return [
         {
@@ -424,7 +428,8 @@ def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
     con = _get_con()
     if not _view_exists(con, "metrics"):
         return None
-    row = con.execute(
+    try:
+        row = con.execute(
         """
         SELECT referenced_by, impact_score, impact_level, "references",
                complexity_level, age_years, age_risk, activity_level
@@ -433,6 +438,8 @@ def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
         """,
         [actual_id],
     ).fetchone()
+    except duckdb.Error:
+        return None
     if not row:
         return None
     return {
@@ -679,6 +686,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
 
 def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
+    _refresh_views(con)
     impugna = con.execute(
         """
         SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
@@ -698,15 +706,18 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         [actual_id],
     ).fetchall()
     # LEFT JOIN: non azzera la lista se qualche target node manca nel mart
-    parametri = con.execute(
-        """
-        SELECT e.target_id, LEFT(n.title, 120), e.weight
-        FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
-        WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
-        ORDER BY e.weight DESC, e.target_id LIMIT 20
-        """,
-        [actual_id],
-    ).fetchall()
+    try:
+        parametri = con.execute(
+            """
+            SELECT e.target_id, LEFT(n.title, 120), e.weight
+            FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
+            WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
+            ORDER BY e.weight DESC, e.target_id LIMIT 20
+            """,
+            [actual_id],
+        ).fetchall()
+    except duckdb.Error:
+        parametri = []
     if not parametri:
         # fallback: articoli Cost. invocati come target di impugna
         parametri = con.execute(
@@ -775,18 +786,46 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         ).fetchone()[0]
     parent_title = node_row[2] or ""
     ddl_m = re.search(r"\bDDL\s+(\d+)", parent_title, re.IGNORECASE)
-    emendamenti = con.execute(
-        """
-        SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight,
-               n.source_filename
-        FROM edges e
-        LEFT JOIN nodes n ON e.source_id = n.id
-        WHERE e.target_id = ? AND e.relation = 'emendamento'
-        ORDER BY e.weight DESC, e.source_id
-        LIMIT 15
-        """,
-        [actual_id],
-    ).fetchall()
+    emendamenti: list[tuple] = []
+    sample_source = "edges"
+    if use_emend_leg:
+        # campioni dal pre-aggregato (id reali emendamento, non nodi generici)
+        emendamenti = con.execute(
+            """
+            SELECT el.sample_emend_id, LEFT(n.title, 140), n.anno, NULL::DOUBLE AS weight,
+                   n.source_filename
+            FROM emend_leg el
+            LEFT JOIN nodes n ON n.id = el.sample_emend_id
+            WHERE el.target_id = ?
+              AND el.sample_emend_id IS NOT NULL
+              AND el.sample_emend_id LIKE 'senato:emend:%'
+            ORDER BY el.n_emend DESC, el.sample_emend_id
+            LIMIT 15
+            """,
+            [actual_id],
+        ).fetchall()
+        sample_source = "emend_leg"
+    if not emendamenti:
+        emendamenti = con.execute(
+            """
+            SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight,
+                   n.source_filename
+            FROM edges e
+            LEFT JOIN nodes n ON e.source_id = n.id
+            WHERE e.target_id = ? AND e.relation = 'emendamento'
+              AND e.source_id LIKE 'senato:emend:%'
+            ORDER BY e.weight DESC, e.source_id
+            LIMIT 15
+            """,
+            [actual_id],
+        ).fetchall()
+        sample_source = "edges"
+    # difesa: mai id che non sono emendamenti
+    emendamenti = [
+        r
+        for r in emendamenti
+        if (r[0] or "").startswith("senato:emend:")
+    ]
     if ddl_m and not any(r[1] for r in emendamenti):
         # campioni vuoti o senza titolo: campiona per numero DDL nei source_id
         ddl_n = ddl_m.group(1)
@@ -893,8 +932,8 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
             for r in emendamenti
         ],
         "emendamenti_note": (
-            "LEFT JOIN su nodes; se title è NULL l'id emendamento è comunque reale. "
-            "Nomi 'DDL N' nei titoli emendamento indicano il disegno di legge collegato."
+            f"Campioni da {sample_source}; solo id senato:emend:*. "
+            "title mancante se il nodo emendamento non è nel mart nodes."
         ),
         "emendamenti_per_legislatura": top_emendatori,
         "n_interventi": n_interventi,
@@ -984,7 +1023,7 @@ def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str
 
 
 def _has_mart_search(con: duckdb.DuckDBPyConnection) -> bool:
-    return _view_exists(con, "search_keys") and _view_exists(con, "metrics")
+    return _view_exists(con, "search_keys")
 
 
 def _parse_intent(q: str, folded: str) -> dict[str, Any]:
@@ -1085,14 +1124,45 @@ def _payload(r: tuple) -> dict[str, Any]:
     }
 
 
-_SELECT_SK = """
+def _select_sk_sql(use_metrics: bool) -> str:
+    metrics_join = "LEFT JOIN metrics m ON m.id = k.id" if use_metrics else ""
+    return f"""
     SELECT k.id, k.tipo, k.title,
            CAST(n.data AS VARCHAR) AS data,
            k.anno, k.source
     FROM search_keys k
-    LEFT JOIN metrics m ON m.id = k.id
+    {metrics_join}
     LEFT JOIN nodes n ON n.id = k.id
 """
+
+
+def _ensure_view(
+    con: duckdb.DuckDBPyConnection,
+    name: str,
+    path: Path | None,
+) -> bool:
+    """Crea la VIEW se il parquet esiste ma la view no (MCP stale / partial run)."""
+    if path is None or not path.exists():
+        return _view_exists(con, name)
+    if _view_exists(con, name):
+        return True
+    con.execute(
+        f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
+    )
+    return True
+
+
+def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Riconnette le view mart dopo un rebuild parziale."""
+    _ensure_view(con, "nodes", resolve_nodes_file())
+    _ensure_view(con, "edges", resolve_edges_file())
+    _ensure_view(con, "metrics", resolve_metrics_file())
+    _ensure_view(con, "search_keys", resolve_search_keys_file())
+    _ensure_view(con, "node_rel", resolve_node_rel_file())
+    _ensure_view(con, "emend_leg", resolve_emend_leg_file())
+    _ensure_view(con, "texts", resolve_texts_file())
+    _ensure_view(con, "massime", resolve_massime_file())
+    _ensure_view(con, "temporal", resolve_temporal_file())
 
 
 def _base_order(exact_id: str | None = None) -> str:
@@ -1114,8 +1184,28 @@ def _run_sk(
     extra_params: list[Any],
     limit: int,
 ) -> list[dict[str, Any]]:
-    sql = _SELECT_SK + f" WHERE {where}{extra_where} ORDER BY {order} LIMIT {limit}"
-    rows = con.execute(sql, [*params, *extra_params]).fetchall()
+    use_metrics = _view_exists(con, "metrics")
+    # se ORDER usa metrics ma la view manca, togli i riferimenti a m.
+    sql_order = order
+    if not use_metrics:
+        sql_order = re.sub(
+            r"COALESCE\(m\.referenced_by,\s*0\) DESC,\s*",
+            "",
+            sql_order,
+        )
+        sql_order = re.sub(
+            r"CASE WHEN LOWER\(k\.title_folded\) LIKE \? THEN -\d+ ELSE 0 END,\s*",
+            "",
+            sql_order,
+        )
+    sql = (
+        _select_sk_sql(use_metrics)
+        + f" WHERE {where}{extra_where} ORDER BY {sql_order} LIMIT {limit}"
+    )
+    try:
+        rows = con.execute(sql, [*params, *extra_params]).fetchall()
+    except duckdb.Error:
+        return []
     return [_payload(r) for r in rows]
 
 
@@ -1166,6 +1256,7 @@ def _impl_search(
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
     con = _get_con()
+    _refresh_views(con)
     limit = min(max(limit, 1), _MAX_ROWS)
     q = (query or "").strip()
     folded = _fold(q)
@@ -1283,6 +1374,7 @@ def _impl_search(
         num = intent["num"]
         year = intent.get("year")
         hints = intent.get("tipo_hints") or []
+        want_n_dot = bool(re.search(r"\bn\.?\s*" + re.escape(num), folded))
         if year:
             # URN ;NUM | id_num/id_year | norma:tipo:NUM:ANNO (massime)
             where = (
@@ -1305,6 +1397,11 @@ def _impl_search(
                 f"CASE WHEN k.id LIKE '%{year}%;{num}' THEN 0 ELSE 1 END, "
                 f"CASE WHEN k.id LIKE '%legge:{num}:{year}' THEN 0 "
                 f"WHEN k.id LIKE '%:{num}:{year}' THEN 1 ELSE 2 END, "
+                + (
+                    f"CASE WHEN LOWER(k.title_folded) LIKE '%n. {num}%' THEN 0 ELSE 1 END, "
+                    if want_n_dot
+                    else ""
+                )
                 + _base_order()
             )
         else:
@@ -1345,6 +1442,7 @@ def _impl_search(
             test = _run_sk(
                 con, and_where, and_params, _base_order(), extra_where, extra_params, 3
             )
+            test = [r for r in test if r.get("id")]
             if test:
                 where, params = and_where, and_params
                 boost_terms = [t for t in terms if len(t) >= 5]
@@ -1360,7 +1458,10 @@ def _impl_search(
             else:
                 or_where, or_params = _phrase_where(terms, "or")
                 where, params = or_where, or_params
-                order = _base_order()
+                order = (
+                    "CASE WHEN k.source = 'normativa' THEN 0 ELSE 1 END, "
+                    + _base_order()
+                )
                 # OR può essere rumoroso: se source è costituzione, tieni solo nodi giurisprudenziali
                 if source == "costituzione":
                     where = (
@@ -1418,6 +1519,7 @@ def legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
 
 
 def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
+    _refresh_views(_get_con())
     node = resolve_text_node(node_id)
     if not node:
         return {"error": f"Nodo non trovato: {node_id}"}
@@ -1441,20 +1543,47 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
         or str(nid).startswith("costituzione:art:")
         or str(nid).startswith("sentenza:")
         or (node.get("tipo") or "").upper() in {"SENTENZA", "ORDINANZA", "PRONUNCIA", "COSTITUZIONE"}
+        or str(nid).startswith("norma:")
     ):
         result = fetch_mart_text(nid, max_chars=max_chars)
         if "error" not in result:
             return {**base, **result}
-        # fallback: se è articolo e mart manca, errore chiaro; se normativa, prova IC
+        # nodi norma:* con filename IC → prova fetch normativa
+        fn = node.get("source_filename") or ""
+        coll = node.get("collezione") or ""
+        if source != "normativa" and fn.endswith(".md") and coll:
+            ic = fetch_normativa_text(collezione=coll, filename=fn, max_chars=max_chars)
+            if "error" not in ic:
+                return {**base, **ic}
         if source != "normativa":
-            return {**base, **result}
+            texts_ok = _view_exists(_get_con(), "texts")
+            return {
+                **base,
+                "error": (
+                    f"legal_text: source={source!r} non in mart_legal_texts"
+                    f"{' (view presente ma nodo assente)' if texts_ok else ' (mart_legal_texts assente — make run)'}. "
+                    "Coperti: normativa (IC) + articoli Cost. + pronunce Corte."
+                ),
+            }
 
     if source != "normativa":
+        # nodi norma:* dalle massime: se hanno filename IC, prova lo stesso fetch
+        fn = node.get("source_filename") or ""
+        coll = node.get("collezione") or ""
+        if fn.endswith(".md") and coll:
+            result = fetch_normativa_text(
+                collezione=coll, filename=fn, max_chars=max_chars
+            )
+            if "error" not in result:
+                return {**base, **result}
+        texts_ok = _view_exists(_get_con(), "texts")
         return {
             **base,
             "error": (
-                f"legal_text copre normativa + mart texts (articoli Cost./pronunce). "
-                f"Source {source!r} non disponibile."
+                f"legal_text: source={source!r} non in mart_legal_texts"
+                f"{' (view presente ma nodo assente)' if texts_ok else ' (mart_legal_texts assente — make run)'}. "
+                "Coperti: normativa (IC) + articoli Cost. + pronunce Corte. "
+                "Nodi norma:* dalle massime hanno solo titolo/relazioni."
             ),
         }
 

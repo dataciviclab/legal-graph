@@ -41,11 +41,23 @@ def _write_cache(url: str, text: str) -> None:
     _cache_path(url).write_text(text, encoding="utf-8")
 
 
+def _pad_sentenza(node_id: str) -> str:
+    """sentenza:2009-151 → sentenza:2009-0151."""
+    import re as _re
+    m = _re.fullmatch(
+        r"sentenza:(\d{4})-(\d{1,4})", (node_id or "").strip(), _re.IGNORECASE
+    )
+    if m:
+        return f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
+    return (node_id or "").strip()
+
+
 def resolve_node(node_id: str) -> dict | None:
-    """Lookup nodo nei mart compose (o legacy)."""
+    """Lookup nodo nei mart compose (o legacy). Accetta alias sentenza senza zero-pad."""
     nodes_file = resolve_nodes_file()
     if not nodes_file.exists():
         return None
+    nid = _pad_sentenza(node_id)
     con = duckdb.connect(":memory:")
     try:
         row = con.execute(
@@ -57,7 +69,7 @@ def resolve_node(node_id: str) -> dict | None:
             ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, length(id)
             LIMIT 1
             """,
-            [str(nodes_file), node_id, f"%{node_id}%", node_id],
+            [str(nodes_file), nid, f"%{nid}%", nid],
         ).fetchone()
     finally:
         con.close()
