@@ -1,6 +1,6 @@
 {
   "metadata_schema_version": 1,
-  "timestamp_utc": "2026-09-30T22:07:47.295787+00:00",
+  "timestamp_utc": "2026-09-30T22:16:51.873303+00:00",
   "toolkit_version": "1.52.0",
   "layer": "mart",
   "dataset": "legal_graph",
@@ -10,33 +10,33 @@
   "outputs": [
     {
       "file": "mart_legal_nodes.parquet",
-      "sha256": "733ec7de00680ec1586914771b0933c255d9ae676af3bd57e99a4ac23603fbee",
-      "bytes": 14874083
+      "sha256": "2f55766f2290d0178a68e2f47f95766b00bd900f5fd7ea8e04dc26e12b7e90e8",
+      "bytes": 14876595
     },
     {
       "file": "mart_legal_edges.parquet",
-      "sha256": "d35f8787d80d73d2e48b52489b5765783c3b8dc97a641b0aa50636f60f001a78",
-      "bytes": 12082968
+      "sha256": "a2551a708a3ce025f39c7422e6574b46daa8d6fbdd4f48112269f06e599c589d",
+      "bytes": 8855554
     },
     {
       "file": "mart_legal_node_metrics.parquet",
-      "sha256": "7927afb3da38fdfdcfbf4ab2144151f4a50d33188ab77e9ef95fab6ca30f1c87",
-      "bytes": 11771859
+      "sha256": "abedc54c995e780c82379126b5176c519e4fb50459c16aa67eec8e9fb6d5064e",
+      "bytes": 11796957
     },
     {
       "file": "mart_legal_search_keys.parquet",
-      "sha256": "2e26b3ad0852c4a3dbead637ae6740908a1e2cc28d8f953f8b1b488467e1deb2",
-      "bytes": 34605320
+      "sha256": "f87eda70299a215cd921d93a00308333ee48b322c6c382fea40e6015fa43371a",
+      "bytes": 34715145
     },
     {
       "file": "mart_legal_node_rel.parquet",
-      "sha256": "354e8d65cada08928072ec983d1e84c9a8121e102f64b05d74aac1e9ae6dc80c",
-      "bytes": 2915060
+      "sha256": "6444fad6300c3bdbbabc6a72ea0c71145d774bea676efbcbdebf8e7c42fa538a",
+      "bytes": 2139111
     },
     {
       "file": "mart_legal_emend_leg.parquet",
-      "sha256": "35403f03f22c927128d4f9bf687c15795866bb5b1a92aafa746cf097f86bd61c",
-      "bytes": 11556
+      "sha256": "5b43ee818e7199631beaede7775093bde093c31f96bb8ceb37706fba9caaf1e3",
+      "bytes": 11250
     }
   ],
   "output_paths": [
