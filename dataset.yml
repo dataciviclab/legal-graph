@@ -114,11 +114,16 @@ mart:
       sql: "sql/mart_legal_node_rel.sql"
     - name: "mart_legal_emend_leg"
       sql: "sql/mart_legal_emend_leg.sql"
+    - name: "mart_legal_texts"
+      sql: "sql/mart_legal_texts.sql"
+    - name: "mart_legal_massime"
+      sql: "sql/mart_legal_massime.sql"
   required_tables:
     - "mart_legal_nodes"
     - "mart_legal_edges"
     - "mart_legal_node_metrics"
     - "mart_legal_search_keys"
+    - "mart_legal_texts"
   validate:
     table_rules:
       mart_legal_nodes:
@@ -135,6 +140,13 @@ mart:
       mart_legal_search_keys:
         required_columns: [id, title_folded, search_text, is_major]
         primary_key: [id]
+        min_rows: 10000
+      mart_legal_texts:
+        required_columns: [id, kind, title, testo]
+        primary_key: [id]
+        min_rows: 1000
+      mart_legal_massime:
+        required_columns: [sentenza_id, ecli, id_massima, testo]
         min_rows: 10000
 
 validation:

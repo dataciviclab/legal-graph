@@ -18,6 +18,8 @@ COMPOSE_METRICS = COMPOSE_MART_DIR / "mart_legal_node_metrics.parquet"
 COMPOSE_SEARCH_KEYS = COMPOSE_MART_DIR / "mart_legal_search_keys.parquet"
 COMPOSE_NODE_REL = COMPOSE_MART_DIR / "mart_legal_node_rel.parquet"
 COMPOSE_EMEND_LEG = COMPOSE_MART_DIR / "mart_legal_emend_leg.parquet"
+COMPOSE_TEXTS = COMPOSE_MART_DIR / "mart_legal_texts.parquet"
+COMPOSE_MASSIME = COMPOSE_MART_DIR / "mart_legal_massime.parquet"
 
 LEGACY_NODES = DATA_DIR / "legal_nodes.parquet"
 LEGACY_EDGES = DATA_DIR / "legal_edges.parquet"
@@ -65,6 +67,18 @@ def resolve_node_rel_file() -> Path | None:
 def resolve_emend_leg_file() -> Path | None:
     if COMPOSE_EMEND_LEG.exists():
         return COMPOSE_EMEND_LEG
+    return None
+
+
+def resolve_texts_file() -> Path | None:
+    if COMPOSE_TEXTS.exists():
+        return COMPOSE_TEXTS
+    return None
+
+
+def resolve_massime_file() -> Path | None:
+    if COMPOSE_MASSIME.exists():
+        return COMPOSE_MASSIME
     return None
 
 

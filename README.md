@@ -17,7 +17,7 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 |---|---|
 | **Nodi** | ~472.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
 | **Archi** | ~710.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, bridge DDL→legge |
-| **Mart** | nodes · edges · node_metrics · search_keys · node_rel · emend_leg |
+| **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `emendamento`, `riferimento` |
 

@@ -79,6 +79,46 @@ def test_groupby_relation_ok(search_ready):
     assert rows and "relation" in rows[0]
 
 
+def test_search_norma_nodes(search_ready):
+    rows = m._impl_search("legge 194/1978", limit=5)
+    assert any("194" in r["id"] or "194" in (r.get("title") or "") for r in rows), (
+        f"L.194/1978 non trovata: {[r['id'] for r in rows]}"
+    )
+    rows2 = m._impl_search("legge 40 2004", limit=5)
+    assert any("40" in r["id"] and "2004" in r["id"] for r in rows2) or any(
+        "40" in (r.get("title") or "") and "2004" in (r.get("title") or "")
+        for r in rows2
+    ), f"L.40/2004 non trovata: {[r['id'] for r in rows2]}"
+
+
+def test_legal_text_sentenza_and_art(search_ready):
+    t1 = m._impl_legal_text("sentenza:2009-0151", max_chars=1500)
+    # mart texts o error strutturato (se non ancora in compose)
+    if "error" in t1:
+        assert "mart_legal_texts" in t1["error"] or "non trovato" in t1["error"]
+    else:
+        assert t1.get("text")
+        assert t1.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+    t2 = m._impl_legal_text("costituzione:art:3", max_chars=800)
+    if "error" not in t2:
+        assert "dignità" in (t2.get("text") or "").lower() or "cittadini" in (
+            t2.get("text") or ""
+        ).lower()
+
+
+def test_legal_query_texts_massime(search_ready):
+    if m._view_exists(m._get_con(), "texts"):
+        rows = m.legal_query(
+            "SELECT id, kind FROM texts WHERE kind='articolo' LIMIT 3", limit=3
+        )
+        assert rows and "id" in rows[0]
+    if m._view_exists(m._get_con(), "massime"):
+        rows = m.legal_query(
+            "SELECT sentenza_id, ecli FROM massime LIMIT 2", limit=2
+        )
+        assert rows and "sentenza_id" in rows[0]
+
+
 def test_search_nonsense_empty(search_ready):
     rows = m._impl_search("non esiste questo atto XYZ 999", limit=5)
     assert rows == [] or all("error" in r for r in rows)

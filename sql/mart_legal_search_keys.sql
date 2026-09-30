@@ -38,13 +38,17 @@ SELECT
     anno,
     numero,
     collezione,
+    -- numero atto: campo numero | URN ;NUM | norma:tipo:NUM:ANNO
     COALESCE(
         NULLIF(CAST(numero AS VARCHAR), ''),
-        regexp_extract(id, ';(\d+)$', 1)
+        regexp_extract(id, ';(\d+)$', 1),
+        regexp_extract(id, ':(\d+):\d{4}$', 1)
     ) AS id_num,
+    -- anno: colonna | URN :YYYY- | suffix :YYYY (norma:legge:40:2004)
     COALESCE(
         CAST(anno AS VARCHAR),
-        regexp_extract(id, ':(\d{4})-', 1)
+        regexp_extract(id, ':(\d{4})-', 1),
+        regexp_extract(id, ':(\d{4})$', 1)
     ) AS id_year,
     CASE
         WHEN tipo IN ('DECRETO LEGISLATIVO', 'LEGGE', 'DECRETO-LEGGE', 'DECRETO')

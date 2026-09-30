@@ -11,7 +11,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 |---|---|
 | Config | `dataset.yml` (ordine tabelle obbligatorio) |
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
-| SQL derivate | `sql/mart_legal_node_metrics.sql`, `mart_legal_search_keys.sql`, `mart_legal_node_rel.sql`, `mart_legal_emend_leg.sql` |
+| SQL derivate | metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (committato) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
 | CLI | `scripts/` — intelligence fallback, eu/temporal |
@@ -26,6 +26,8 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 4 mart_legal_search_keys    ← FROM mart_legal_nodes
 5 mart_legal_node_rel       ← FROM mart_legal_edges
 6 mart_legal_emend_leg      ← FROM mart_legal_edges
+7 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
+8 mart_legal_massime         ← massime (testo troncato 600)
 ```
 
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.

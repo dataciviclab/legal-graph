@@ -22,16 +22,18 @@ from typing import Any
 import duckdb
 from lab_connectors.mcp import create_mcp_server, guard_timed
 
-from legal_graph.legal_text import fetch_normativa_text
+from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.paths import (
     resolve_edges_file,
     resolve_emend_leg_file,
+    resolve_massime_file,
     resolve_metrics_file,
     resolve_node_rel_file,
     resolve_nodes_file,
     resolve_search_keys_file,
     resolve_temporal_file,
+    resolve_texts_file,
 )
 
 _MAX_ROWS = 100
@@ -217,6 +219,8 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     search_keys_file = resolve_search_keys_file()
     node_rel_file = resolve_node_rel_file()
     emend_leg_file = resolve_emend_leg_file()
+    texts_file = resolve_texts_file()
+    massime_file = resolve_massime_file()
     con = duckdb.connect(":memory:")
     con.execute("SET memory_limit='256MB'")
     con.execute("SET threads=1")
@@ -241,6 +245,14 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     if emend_leg_file is not None and emend_leg_file.exists():
         con.execute(
             f"CREATE OR REPLACE VIEW emend_leg AS SELECT * FROM read_parquet('{emend_leg_file}')"
+        )
+    if texts_file is not None and texts_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW texts AS SELECT * FROM read_parquet('{texts_file}')"
+        )
+    if massime_file is not None and massime_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW massime AS SELECT * FROM read_parquet('{massime_file}')"
         )
     _cached_con = con
     return con
@@ -1272,38 +1284,47 @@ def _impl_search(
         year = intent.get("year")
         hints = intent.get("tipo_hints") or []
         if year:
+            # URN ;NUM | id_num/id_year | norma:tipo:NUM:ANNO (massime)
             where = (
-                "k.source = 'normativa' AND ("
                 "(k.id_year = ? AND k.id_num = ?) "
-                "OR (k.id_year = ? AND LOWER(k.title_folded) LIKE ?)"
-                ")"
+                "OR (k.id_year = ? AND LOWER(k.title_folded) LIKE ?) "
+                "OR (k.source = 'normativa' AND k.id LIKE ?) "
+                "OR (k.id LIKE ?)"
             )
-            params.extend([year, num, year, f"%n. {num}%"])
+            params.extend(
+                [
+                    year,
+                    num,
+                    year,
+                    f"%n. {num}%",
+                    f"%{year}%;{num}",
+                    f"%:{num}:{year}",
+                ]
+            )
             order = (
                 f"CASE WHEN k.id LIKE '%{year}%;{num}' THEN 0 ELSE 1 END, "
+                f"CASE WHEN k.id LIKE '%legge:{num}:{year}' THEN 0 "
+                f"WHEN k.id LIKE '%:{num}:{year}' THEN 1 ELSE 2 END, "
                 + _base_order()
             )
         else:
             where = (
-                "k.source = 'normativa' AND ("
-                "k.id_num = ? OR k.id LIKE ? OR LOWER(k.title_folded) LIKE ?"
-                ")"
+                "k.id_num = ? OR k.id LIKE ? OR LOWER(k.title_folded) LIKE ? "
+                "OR k.id LIKE ?"
             )
-            params.extend([num, f"%;{num}", f"%n. {num}%"])
-            order = f"CASE WHEN k.id LIKE '%;{num}' THEN 0 ELSE 1 END, " + _base_order()
+            params.extend([num, f"%;{num}", f"%n. {num}%", f"%:{num}:%"])
+            order = (
+                f"CASE WHEN k.id LIKE '%;{num}' THEN 0 ELSE 1 END, "
+                + _base_order()
+            )
         if hints:
             where += " AND UPPER(k.tipo) IN ({})".format(
                 ",".join("?" for _ in hints)
             )
             params.extend([h.upper() for h in hints])
-        # se numero+anno non trova nulla, riprova con meno vincoli e poi phrase
         residual = intent.get("residual") or []
-        if year and not hints:
-            # niente tipo: prova solo id_num+anno senza title, già incluso
-            pass
         if residual:
             fallthrough_phrase = residual
-        # per "legge 194/1978": se L.194 assente, prova solo numero senza anno
         if year and hints == ["LEGGE"]:
             fallthrough_phrase = fallthrough_phrase or ["194", "1978"]
 
@@ -1360,12 +1381,12 @@ def _impl_search(
     # fallback number → solo id_num senza anno (es. L.194/1978 mancante)
     if not out and kind == "number" and intent.get("year"):
         num = intent["num"]
+        year = intent["year"]
         fw = (
-            "k.source = 'normativa' AND ("
-            "k.id_num = ? OR k.id LIKE ? OR LOWER(k.title_folded) LIKE ?"
-            ")"
+            "(k.id_num = ? AND k.id_year = ?) OR k.id LIKE ? OR k.id LIKE ? "
+            "OR LOWER(k.title_folded) LIKE ?"
         )
-        fp = [num, f"%;{num}", f"%n. {num}%"]
+        fp = [num, year, f"%:{num}:{year}", f"%n. {num}%", f"%n. {num}%"]
         if intent.get("tipo_hints"):
             fw += " AND UPPER(k.tipo) IN ({})".format(
                 ",".join("?" for _ in intent["tipo_hints"])
@@ -1413,12 +1434,27 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
     }
 
     source = node.get("source") or ""
+    nid = node.get("id") or node_id
+    # 1) mart texts: articoli Cost. + pronunce Corte
+    if (
+        source == "costituzione"
+        or str(nid).startswith("costituzione:art:")
+        or str(nid).startswith("sentenza:")
+        or (node.get("tipo") or "").upper() in {"SENTENZA", "ORDINANZA", "PRONUNCIA", "COSTITUZIONE"}
+    ):
+        result = fetch_mart_text(nid, max_chars=max_chars)
+        if "error" not in result:
+            return {**base, **result}
+        # fallback: se è articolo e mart manca, errore chiaro; se normativa, prova IC
+        if source != "normativa":
+            return {**base, **result}
+
     if source != "normativa":
         return {
             **base,
             "error": (
-                f"legal_text copre solo source=normativa (oggi {source!r}). "
-                "Per senato-akn/costituzione usare toolkit o i parquet clean."
+                f"legal_text copre normativa + mart texts (articoli Cost./pronunce). "
+                f"Source {source!r} non disponibile."
             ),
         }
 
@@ -1437,7 +1473,8 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
     name="legal_query",
     description=(
         "SQL sul grafo. Ammessi: SELECT, WITH, PRAGMA, DESCRIBE, SHOW, EXPLAIN. "
-        "Tabelle: nodes, edges, [temporal]. Niente scritture."
+        "Tabelle: nodes, edges, [metrics|search_keys|node_rel|emend_leg|texts|massime|temporal]. "
+        "Niente scritture."
     ),
     structured_output=True,
 )

@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 import duckdb
 
-from legal_graph.paths import resolve_nodes_file
+from legal_graph.paths import resolve_nodes_file, resolve_texts_file
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
 IC_LOCAL_ROOT = Path("/home/gabry/dev/dataciviclab-workspace/diritto-legge/italia-corpus")
@@ -151,5 +151,67 @@ def fetch_normativa_text(
         "chars": len(text),
         "truncated": truncated,
         "max_chars": max_chars,
+        "text": text,
+    }
+
+
+def fetch_mart_text(
+    node_id: str,
+    *,
+    max_chars: int = _DEFAULT_MAX_CHARS,
+) -> dict:
+    """Testo da mart_legal_texts (articoli Cost. + pronunce Corte)."""
+    texts_file = resolve_texts_file()
+    if texts_file is None or not texts_file.exists():
+        return {
+            "error": (
+                "mart_legal_texts assente — esegui `make run` per produrre "
+                "testi articoli Cost. e pronunce."
+            )
+        }
+    max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
+    # normalizza sentenza senza zero-pad
+    nid = node_id.strip()
+    m = __import__("re").fullmatch(r"sentenza:(\d{4})-(\d{1,4})", nid, __import__("re").IGNORECASE)
+    if m:
+        nid = f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
+    con = duckdb.connect(":memory:")
+    try:
+        row = con.execute(
+            """
+            SELECT id, kind, title, testo, dispositivo, ecli
+            FROM read_parquet(?)
+            WHERE id = ? OR id LIKE ?
+            ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, length(id)
+            LIMIT 1
+            """,
+            [str(texts_file), nid, f"%{nid}%", nid],
+        ).fetchone()
+    finally:
+        con.close()
+    if not row:
+        return {
+            "error": (
+                f"Testo non in mart_legal_texts per {node_id!r}. "
+                "Coperto: articoli Cost. e pronunce Corte Cost."
+            )
+        }
+    parts: list[str] = []
+    if row[3]:
+        parts.append(str(row[3]))
+    if row[4]:
+        parts.append("\n\n--- DISPOSITIVO ---\n" + str(row[4]))
+    text = "\n".join(parts) or ""
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars] + "\n\n… [troncato]"
+    return {
+        "via": "mart_legal_texts",
+        "url": str(texts_file),
+        "kind": row[1],
+        "chars": len(text),
+        "truncated": truncated,
+        "max_chars": max_chars,
+        "ecli": row[5],
         "text": text,
     }
