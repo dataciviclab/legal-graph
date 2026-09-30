@@ -1,6 +1,6 @@
 {
   "metadata_schema_version": 1,
-  "timestamp_utc": "2026-09-30T23:05:28.865059+00:00",
+  "timestamp_utc": "2026-09-30T23:17:20.114209+00:00",
   "toolkit_version": "1.52.0",
   "layer": "mart",
   "dataset": "legal_graph",
@@ -10,42 +10,42 @@
   "outputs": [
     {
       "file": "mart_legal_nodes.parquet",
-      "sha256": "683b79ef3e497d19e29ea6eca7a289d30eb70d034a923b7c04154f43d0d89837",
-      "bytes": 14845023
+      "sha256": "e42ab996435db1a3f1457db28681c27fb9c388dd8a628d8373cd30f49f52709a",
+      "bytes": 14889408
     },
     {
       "file": "mart_legal_edges.parquet",
-      "sha256": "ad012fc3d67d2237680467584651e067073a73a09cb5a8a9f486f9366185c3f9",
-      "bytes": 12858620
+      "sha256": "b657198731a4fbd7b4068cfb5890452544140700f11d2d4456a428f59dbe2146",
+      "bytes": 8951621
     },
     {
       "file": "mart_legal_node_metrics.parquet",
-      "sha256": "be46d59c76bfe2ba1cdf09c610317c74bf1fff72fe06d17f20b298ea40cd62f0",
-      "bytes": 11754554
+      "sha256": "0a33be50099eb776586e7b4aaa07dbd8da89d74b73e6c73a43eafb44dfd5d879",
+      "bytes": 11779401
     },
     {
       "file": "mart_legal_search_keys.parquet",
-      "sha256": "a1e50f29fcf6e8f34b29c7293266b094ec6fcef9c69b5835bb374585a20a63de",
-      "bytes": 34566255
+      "sha256": "0c9dcbbdf5f0fbab66f22006d3f617a05620f77643772a6485f1c06883fcf29b",
+      "bytes": 34764147
     },
     {
       "file": "mart_legal_node_rel.parquet",
-      "sha256": "570c26199c32534bd936217d4aeba16e3352cd945c4d40e119a3905ab4f04ede",
-      "bytes": 2964148
+      "sha256": "fbc8ba0814c6328999cc6b057d8993a4a495998c2fed3101701e04227ea3b11b",
+      "bytes": 2120294
     },
     {
       "file": "mart_legal_emend_leg.parquet",
-      "sha256": "3500d130829cf717cdd531cd55fde13846454727017878c80bff05ae5967224e",
-      "bytes": 11623
+      "sha256": "dd6cf49dda77b53ae060296f6d4881f9c4cc175cad58aedcf31c66a54a99155e",
+      "bytes": 11173
     },
     {
       "file": "mart_legal_texts.parquet",
-      "sha256": "d65e18476354301ccdb14c693fa1e040313febe94ad956ec6506ef8a0f9d509d",
+      "sha256": "d7cca8207a1860a0aef9bc5112e3e8d9977cf89c66e05bc9f57440ea721ee0b1",
       "bytes": 4677274
     },
     {
       "file": "mart_legal_massime.parquet",
-      "sha256": "d04cae49aa4f6cbe2bd511bab01cc750b755e834d6909a644ca0ed90e22c3543",
+      "sha256": "e7345aed5bc75ec7d5586b595603726e1d9bdfd6a4d3d1a65e85ee1d9263c3ab",
       "bytes": 11579561
     }
   ],
