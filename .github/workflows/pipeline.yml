@@ -1,11 +1,11 @@
 # Pipeline — legal-graph
 #
 # Mart-only compose: legge nodi/archi da GitHub raw + GCS HTTPS,
-# produce out/data/mart/legal_graph/<year>/.
-# I parquet restano gitignored: la CI li ricostruisce; non sono source of truth.
+# produce out/data/mart/legal_graph/<year>/ e li committa nel repo
+# (stesso pattern pil-intelligence: il repo è source of truth per MCP/dashboard).
 #
 # Triggers:
-#   - schedule: ogni lunedì 06:00 UTC (dopo eventuali update upstream)
+#   - schedule: ogni lunedì 06:00 UTC
 #   - push su main: su dataset.yml / sql/**
 #   - workflow_dispatch: manuale
 
@@ -29,6 +29,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -44,6 +46,18 @@ jobs:
 
       - name: Verify tests on built graph
         run: make test
+
+      - name: Commit mart parquet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add out/data/mart/
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica — skip commit"
+          else
+            git commit -m "chore: update mart parquet [skip ci]"
+            git push
+          fi
 
       - name: Upload mart artifact
         uses: actions/upload-artifact@v7

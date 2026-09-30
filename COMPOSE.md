@@ -40,7 +40,8 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale, nessuna cache obb
 | Compose + MCP + test | ✅ |
 | LICENSE | ✅ MIT |
 | CI GitHub Actions | ✅ `ci.yml` + `pipeline.yml` |
-| Remote org / path repo | ❌ |
+| CI / remote org / path repo | ✅ Actions + `dataciviclab/legal-graph` (private) |
+| Mart committati da pipeline | ✅ `out/data/mart/` (come pil-intelligence) |
 
 ## CI
 

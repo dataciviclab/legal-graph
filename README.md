@@ -59,7 +59,8 @@ make test         # 32 test di integrità
 make intelligence # metriche per legal_insights
 ```
 
-Output: `out/data/mart/legal_graph/2026/` (parquet nodi + archi).
+Output: `out/data/mart/legal_graph/2026/` — i mart sono **committati** dalla pipeline
+(source of truth del repo, come altri compose del Lab). Le fonti upstream si leggono da rete.
 
 ### 3. SQL diretto (DuckDB)
 

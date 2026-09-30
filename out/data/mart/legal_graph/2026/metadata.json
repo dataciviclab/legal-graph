@@ -1,0 +1,140 @@
+{
+  "metadata_schema_version": 1,
+  "timestamp_utc": "2026-09-30T20:19:11.298254+00:00",
+  "toolkit_version": "1.52.0",
+  "layer": "mart",
+  "dataset": "legal_graph",
+  "year": 2026,
+  "config_hash": "fcd9bc963c588a11366fe105ea9433121fe7d1e05fbf4e4fdd081fa551095696",
+  "inputs": [],
+  "outputs": [
+    {
+      "file": "mart_legal_nodes.parquet",
+      "sha256": "19ec410da67d899ae7079e31abae24feaf6fd59d848d27631e4d5e8eacf8d3ee",
+      "bytes": 14879132
+    },
+    {
+      "file": "mart_legal_edges.parquet",
+      "sha256": "3f140efb9a1b54fe1c93d9a803d0a53610cbe2539a518164cec7989f44d62855",
+      "bytes": 12867832
+    }
+  ],
+  "output_paths": [
+    "data/mart/legal_graph/2026/mart_legal_nodes.parquet",
+    "data/mart/legal_graph/2026/mart_legal_edges.parquet"
+  ],
+  "template_ctx": {
+    "year": 2026,
+    "dataset": "legal_graph"
+  },
+  "tables": [
+    {
+      "name": "mart_legal_nodes",
+      "sql": "sql/mart_legal_nodes.sql",
+      "sql_rendered": "data/mart/legal_graph/2026/_run/01_mart_legal_nodes_rendered.sql",
+      "output": "data/mart/legal_graph/2026/mart_legal_nodes.parquet"
+    },
+    {
+      "name": "mart_legal_edges",
+      "sql": "sql/mart_legal_edges.sql",
+      "sql_rendered": "data/mart/legal_graph/2026/_run/02_mart_legal_edges_rendered.sql",
+      "output": "data/mart/legal_graph/2026/mart_legal_edges.parquet"
+    }
+  ],
+  "hierarchy_enabled": false,
+  "clean_input_profile": null,
+  "table_profiles": {
+    "mart_legal_nodes": {
+      "row_count": 472544,
+      "columns": [
+        {
+          "name": "id",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "tipo",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "data",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "numero",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "title",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "collezione",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "source_filename",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "source",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "anno",
+          "type": "BIGINT"
+        },
+        {
+          "name": "length_chars",
+          "type": "BIGINT"
+        },
+        {
+          "name": "length_words",
+          "type": "BIGINT"
+        },
+        {
+          "name": "celex",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "codice_redazionale",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    "mart_legal_edges": {
+      "row_count": 711545,
+      "columns": [
+        {
+          "name": "source_id",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "relation",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "target_id",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "weight",
+          "type": "HUGEINT"
+        },
+        {
+          "name": "source_year",
+          "type": "BIGINT"
+        },
+        {
+          "name": "target_year",
+          "type": "BIGINT"
+        },
+        {
+          "name": "evidence",
+          "type": "VARCHAR"
+        }
+      ]
+    }
+  },
+  "transition_profiles": [],
+  "source_id": "dataciviclab_composite"
+}
