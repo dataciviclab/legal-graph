@@ -97,14 +97,28 @@ support:
     years: [13, 14, 15, 16, 17, 18, 19]
 
 mart:
+  # Ordine obbligato: le tabelle derivate leggono le precedenti
+  # nella stessa sessione DuckDB del run MART.
+  #   1 mart_legal_nodes / 2 mart_legal_edges  ← support esterni
+  #   3+ metrics, search_keys, rel, emend_leg  ← FROM mart_legal_*
   tables:
     - name: "mart_legal_nodes"
       sql: "sql/mart_legal_nodes.sql"
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+    - name: "mart_legal_node_metrics"
+      sql: "sql/mart_legal_node_metrics.sql"
+    - name: "mart_legal_search_keys"
+      sql: "sql/mart_legal_search_keys.sql"
+    - name: "mart_legal_node_rel"
+      sql: "sql/mart_legal_node_rel.sql"
+    - name: "mart_legal_emend_leg"
+      sql: "sql/mart_legal_emend_leg.sql"
   required_tables:
     - "mart_legal_nodes"
     - "mart_legal_edges"
+    - "mart_legal_node_metrics"
+    - "mart_legal_search_keys"
   validate:
     table_rules:
       mart_legal_nodes:
@@ -113,6 +127,14 @@ mart:
         min_rows: 10000
       mart_legal_edges:
         required_columns: [source_id, relation, target_id, weight]
+        min_rows: 10000
+      mart_legal_node_metrics:
+        required_columns: [id, referenced_by, impact_score]
+        primary_key: [id]
+        min_rows: 10000
+      mart_legal_search_keys:
+        required_columns: [id, title_folded, search_text, is_major]
+        primary_key: [id]
         min_rows: 10000
 
 validation:

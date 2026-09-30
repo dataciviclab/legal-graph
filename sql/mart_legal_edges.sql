@@ -17,7 +17,7 @@ WITH urn_lookup AS (
 ),
 
 normativa_types AS (
-    SELECT urn, tipo, oggetto
+    SELECT urn, tipo, oggetto, numero, anno_atto
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
 ),
@@ -201,6 +201,40 @@ edges_delega AS (
       AND e.weight >= 5
 ),
 
+-- Euristica titolo: "articolo X della legge DD mese YYYY, n. Y" nel D.Lgs
+-- → edge attua_delega verso la legge-base (es. D.Lgs 231/2001 → L.300/2000).
+edges_delega_titolo AS (
+    SELECT DISTINCT
+        n1.urn AS source_id,
+        'attua_delega' AS relation,
+        n2.urn AS target_id,
+        5 AS weight,
+        n1.anno_atto AS source_year,
+        n2.anno_atto AS target_year,
+        n1.oggetto AS evidence
+    FROM normativa_types n1
+    JOIN normativa_types n2
+      ON n2.tipo = 'LEGGE'
+     AND n2.numero = regexp_extract(
+            LOWER(n1.oggetto),
+            'legge\s+\d{1,2}\s+[a-zà-ù]+\s+\d{4}\s*,?\s*n\.\s*(\d+)',
+            1
+        )
+     AND CAST(n2.anno_atto AS VARCHAR) = regexp_extract(
+            LOWER(n1.oggetto),
+            'legge\s+\d{1,2}\s+[a-zà-ù]+\s+(\d{4})',
+            1
+        )
+    WHERE n1.tipo = 'DECRETO LEGISLATIVO'
+      AND LOWER(n1.oggetto) LIKE '%articolo%'
+      AND LOWER(n1.oggetto) LIKE '%della legge%'
+      AND regexp_extract(
+            LOWER(n1.oggetto),
+            'legge\s+\d{1,2}\s+[a-zà-ù]+\s+\d{4}\s*,?\s*n\.\s*\d+',
+            0
+        ) != ''
+),
+
 edges_pnrr AS (
     SELECT
         lu.urn AS source_id,
@@ -270,6 +304,8 @@ FROM (
     SELECT * FROM edges_camera_leggi
     UNION ALL
     SELECT * FROM edges_delega
+    UNION ALL
+    SELECT * FROM edges_delega_titolo
     UNION ALL
     SELECT * FROM edges_corpus
     UNION ALL

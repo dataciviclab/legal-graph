@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import UTC, datetime
 from typing import Any
 
 import duckdb
@@ -27,15 +26,13 @@ from legal_graph.legal_text import fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.paths import (
     resolve_edges_file,
+    resolve_emend_leg_file,
     resolve_metrics_file,
+    resolve_node_rel_file,
     resolve_nodes_file,
+    resolve_search_keys_file,
     resolve_temporal_file,
 )
-
-NODES_FILE = resolve_nodes_file()
-EDGES_FILE = resolve_edges_file()
-TEMPORAL_FILE = resolve_temporal_file()
-METRICS_FILE = resolve_metrics_file()
 
 _MAX_ROWS = 100
 _NODE_VIEWS = ("overview", "chain", "jurisprudence", "parliament")
@@ -62,6 +59,149 @@ def _fold(text: str) -> str:
     return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
 
 
+_STOP = frozenset(
+    {
+        "il", "lo", "la", "le", "gli", "i", "di", "del", "dello", "della", "dei",
+        "degli", "delle", "e", "ed", "o", "in", "su", "al", "allo", "alla", "ai",
+        "agli", "alle", "con", "per", "che", "nel", "nello", "nella", "nei",
+        "negli", "nelle", "un", "una", "uno", "come", "dove", "quando", "cui",
+        "the", "of", "and", "for", "on", "da", "dalla",
+        "non", "esiste", "questo", "que", "anche", "altre", "solo", "molto",
+        "dopo", "prima", "oltre", "circa", "quale", "quali", "qualcuno",
+        "essere", "sono", "ave", "aveva", "sara", "sarebbe",
+    }
+)
+
+_EN_IT_GLOSSARY: dict[str, list[str]] = {
+    "whistleblowing": ["segnalazione", "segnalazioni", "whistleblow", "2019/1937"],
+    "whistleblower": ["segnalazione", "segnalazioni"],
+    "ombudsman": ["garante", "difensore"],
+    "data": ["dati", "personali"],
+}
+
+# Prefissi stabili per ridurre rumore su match parziale
+_STEM_SUFFIX = (
+    "amentalmente", "amentalita", "amentalita", "amentalmente",
+    "abilita", "abilita", "abilita",
+    "azione", "azioni", "atore", "atori", "atrici", "atura", "ature",
+    "ibile", "ibili", "ibile",
+    "ista", "iste", "isti", "iste", "istica", "istico", "istiche",
+    "mente", "menti", "mento", "menti",
+    "zione", "zioni", "zionale", "zionali",
+    "ciale", "ciali", "ciale",
+    "tore", "tori", "trice", "trici", "trici",
+    "essa", "esse", "essi", "esso", "essere", "essere",
+    "are", "are", "are", "ire", "ire", "ere", "ere",
+    "ato", "ata", "ati", "ate", "ato",
+    "ito", "ita", "iti", "ite", "ito",
+    "uto", "uta", "uti", "ute", "uto",
+    "ale", "ali", "ale", "ale",
+    "ico", "ica", "ici", "ice", "ico",
+    "oso", "osa", "osi", "ose", "oso",
+    "ibile", "ibili",
+    "ita", "ite", "ati", "ate",
+    "ato", "ata",
+    "ivo", "iva", "ivi", "ive",
+    "euro", "euro",
+)
+
+
+def _stem_prefix(term: str) -> str:
+    """Prefisso comune italiano per LIKE (responsabilita → responsabilit)."""
+    if len(term) <= 4:
+        return term
+    for suf in sorted(_STEM_SUFFIX, key=len, reverse=True):
+        if term.endswith(suf) and len(term) - len(suf) >= 4:
+            return term[: -len(suf)]
+    if term.endswith(("a", "e", "o")):
+        return term[:-1]
+    return term
+
+
+_TIPO_MAJOR = ("DECRETO LEGISLATIVO", "LEGGE", "DECRETO-LEGGE", "DECRETO")
+
+
+def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
+    """Riconosce 'sentenza 2009 151', 'ECLI:IT:COST:2009:151', 'corte cost 2009'."""
+    ecli = re.search(r"ecli[:\s]*it[:\s]*cost[:\s]*(\d{4})[:\s]*(\d{1,4})", folded)
+    if ecli:
+        return {"year": ecli.group(1), "num": ecli.group(2), "ecli": True}
+    sent = re.search(
+        r"(?:sentenza|ordinanza|pronuncia|corte\s+costituzionale|corte\s+cost)"
+        r".*?(\d{4})\D{0,8}(\d{1,4})",
+        folded,
+    )
+    if sent:
+        return {"year": sent.group(1), "num": sent.group(2), "ecli": False}
+    year_only = re.search(
+        r"(?:sentenza|ordinanza|pronuncia|corte\s+costituzionale|corte\s+cost)"
+        r".*?(\d{4})",
+        folded,
+    )
+    if year_only:
+        return {"year": year_only.group(1), "num": None, "ecli": True}
+    if re.search(r"sentenza|ordinanza|ecli|corte\s+cost", folded):
+        return {"year": None, "num": None, "ecli": True}
+    return None
+
+
+def _parse_costituzione(folded: str) -> dict[str, Any] | None:
+    """'art. 3 della costituzione', 'costituzione', 'articolo 13 cost'."""
+    if not re.search(r"costituzion", folded):
+        return None
+    if re.search(r"corte\s+cost|sentenza|ordinanza|pronuncia", folded):
+        return None
+    art = re.search(r"(?:art\.?|articolo)\s*(\d{1,3})", folded)
+    return {"art": art.group(1) if art else None}
+
+
+def _parse_date_query(folded: str) -> dict[str, str] | None:
+    """'8 giugno 2001' → data ISO o anno+giorno."""
+    months = {
+        "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5,
+        "giugno": 6, "luglio": 7, "agosto": 8, "settembre": 9,
+        "ottobre": 10, "novembre": 11, "dicembre": 12,
+        "gen": 1, "feb": 2, "mar": 3, "apr": 4, "mag": 5, "giu": 6,
+        "lug": 7, "ago": 8, "set": 9, "ott": 10, "nov": 11, "dic": 12,
+    }
+    m = re.search(
+        r"(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|"
+        r"settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|"
+        r"set|ott|nov|dic)\s+(\d{4})",
+        folded,
+    )
+    if not m:
+        return None
+    day, mon, year = int(m.group(1)), months[m.group(2)], m.group(3)
+    return {"date": f"{year}-{mon:02d}-{day:02d}", "year": year}
+
+
+def _metric_rank_sql(use_metrics: bool, exact_id: str | None = None) -> str:
+    """ORDER BY stabile. exact_id = URN atteso (literal, no placeholder)."""
+    rank_parts: list[str] = []
+    if exact_id:
+        rank_parts.append(f"CASE WHEN id = '{exact_id}' THEN 0 ELSE 1 END")
+    rank_parts.append(
+        "CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END"
+    )
+    rank_parts.append("CASE WHEN source = 'costituzione' THEN 0 ELSE 1 END")
+    if use_metrics:
+        rank_parts.append(
+            "COALESCE((SELECT m.referenced_by FROM read_parquet(?) m WHERE m.id = nodes.id), 0) DESC"
+        )
+    rank_parts.extend(["anno DESC NULLS LAST", "title"])
+    return ",\n      ".join(rank_parts)
+
+
+def _view_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+    rows = con.execute("SHOW TABLES").fetchall()
+    views = con.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_type='VIEW'"
+    ).fetchall()
+    names = {r[0] for r in rows} | {r[0] for r in views}
+    return name in names
+
+
 def _get_con() -> duckdb.DuckDBPyConnection:
     """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
     global _cached_con
@@ -70,14 +210,34 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     nodes_file = resolve_nodes_file()
     edges_file = resolve_edges_file()
     temporal_file = resolve_temporal_file()
+    metrics_file = resolve_metrics_file()
+    search_keys_file = resolve_search_keys_file()
+    node_rel_file = resolve_node_rel_file()
+    emend_leg_file = resolve_emend_leg_file()
     con = duckdb.connect(":memory:")
     con.execute("SET memory_limit='256MB'")
     con.execute("SET threads=1")
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if temporal_file is not None:
+    if temporal_file is not None and temporal_file.exists():
         con.execute(
             f"CREATE OR REPLACE VIEW temporal AS SELECT * FROM read_parquet('{temporal_file}')"
+        )
+    if metrics_file is not None and metrics_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
+        )
+    if search_keys_file is not None and search_keys_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW search_keys AS SELECT * FROM read_parquet('{search_keys_file}')"
+        )
+    if node_rel_file is not None and node_rel_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW node_rel AS SELECT * FROM read_parquet('{node_rel_file}')"
+        )
+    if emend_leg_file is not None and emend_leg_file.exists():
+        con.execute(
+            f"CREATE OR REPLACE VIEW emend_leg AS SELECT * FROM read_parquet('{emend_leg_file}')"
         )
     _cached_con = con
     return con
@@ -114,6 +274,34 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
     ).fetchone()
     if exact:
         return exact
+    # varianti sentenza: YYYY-NNN senza zero-pad
+    m = re.fullmatch(r"sentenza:(\d{4})-(\d{1,4})", node_id.strip(), re.IGNORECASE)
+    if m:
+        padded = f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
+        hit = con.execute(
+            """
+            SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
+                   length_chars, length_words, celex, collezione, source_filename
+            FROM nodes WHERE id = ? LIMIT 1
+            """,
+            [padded],
+        ).fetchone()
+        if hit:
+            return hit
+    # ECLI parziale nel titolo
+    if re.search(r"ecli|:\d{4}:\d+", node_id, re.IGNORECASE):
+        hit = con.execute(
+            """
+            SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
+                   length_chars, length_words, celex, collezione, source_filename
+            FROM nodes
+            WHERE source='costituzione' AND LOWER(title) LIKE ?
+            ORDER BY id LIMIT 1
+            """,
+            [f"%{_fold(node_id)}%"],
+        ).fetchone()
+        if hit:
+            return hit
     return con.execute(
         """
         SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
@@ -144,6 +332,20 @@ def _node_payload(row: tuple) -> dict[str, Any]:
 
 
 def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str, Any]:
+    if _view_exists(con, "node_rel"):
+        out = dict(
+            con.execute(
+                "SELECT relation, n_out FROM node_rel WHERE id = ? ORDER BY n_out DESC LIMIT 12",
+                [actual_id],
+            ).fetchall()
+        )
+        inn = dict(
+            con.execute(
+                "SELECT relation, n_in FROM node_rel WHERE id = ? ORDER BY n_in DESC LIMIT 12",
+                [actual_id],
+            ).fetchall()
+        )
+        return {"out": out, "in": inn, "source": "mart_legal_node_rel"}
     out = dict(
         con.execute(
             """
@@ -162,7 +364,7 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
             [actual_id],
         ).fetchall()
     )
-    return {"out": out, "in": inn}
+    return {"out": out, "in": inn, "source": "edges"}
 
 
 def _top_edges(
@@ -202,21 +404,18 @@ def _top_edges(
 
 
 def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
-    if METRICS_FILE is None or not METRICS_FILE.exists():
+    con = _get_con()
+    if not _view_exists(con, "metrics"):
         return None
-    con = duckdb.connect(":memory:")
-    try:
-        row = con.execute(
-            f"""
-            SELECT referenced_by, impact_score, impact_level, "references",
-                   complexity_level, age_years, age_risk, activity_level
-            FROM read_parquet('{METRICS_FILE}')
-            WHERE id = ?
-            """,
-            [actual_id],
-        ).fetchone()
-    finally:
-        con.close()
+    row = con.execute(
+        """
+        SELECT referenced_by, impact_score, impact_level, "references",
+               complexity_level, age_years, age_risk, activity_level
+        FROM metrics
+        WHERE id = ?
+        """,
+        [actual_id],
+    ).fetchone()
     if not row:
         return None
     return {
@@ -231,6 +430,92 @@ def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
     }
 
 
+def _parse_delega_hint(title: str) -> dict[str, str] | None:
+    """Euristica da titolo: 'articolo X della legge DD mese YYYY, n. Y' → delega."""
+    if not title:
+        return None
+    m = re.search(
+        r"articolo\s+(\d+)[^.,;]{0,80}della\s+legge\s+"
+        r"(\d{1,2})\s+([a-zà-ù]+)\s+(\d{4})\s*,?\s*n\.\s*(\d+)",
+        _fold(title),
+    )
+    if not m:
+        return None
+    months = {
+        "gennaio": "01", "febbraio": "02", "marzo": "03", "aprile": "04",
+        "maggio": "05", "giugno": "06", "luglio": "07", "agosto": "08",
+        "settembre": "09", "ottobre": "10", "novembre": "11", "dicembre": "12",
+        "gen": "01", "feb": "02", "mar": "03", "apr": "04", "mag": "05",
+        "giu": "06", "lug": "07", "ago": "08", "set": "09", "ott": "10",
+        "nov": "11", "dic": "12",
+    }
+    mon = months.get(m.group(3), "")
+    if not mon:
+        return None
+    return {
+        "articolo": m.group(1),
+        "legge_id": f"urn:nir:stato:legge:{m.group(4)}-{mon}-{int(m.group(2)):02d};{m.group(5)}",
+        "legge_n": m.group(5),
+        "legge_anno": m.group(4),
+    }
+
+
+def _attua_delega_hint(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any] | None:
+    """Se il titolo cita una delega (legge-base), mostra l'attuazione anche senza edge tipizzato."""
+    actual_id = node_row[0]
+    hint = _parse_delega_hint(node_row[2] or "")
+    if not hint:
+        return None
+    # già presente come edge tipizzato?
+    exists = con.execute(
+        """
+        SELECT 1 FROM edges
+        WHERE source_id = ? AND relation = 'attua_delega' AND target_id = ?
+        LIMIT 1
+        """,
+        [actual_id, hint["legge_id"]],
+    ).fetchone()
+    legge = con.execute(
+        "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 1",
+        [hint["legge_id"]],
+    ).fetchone()
+    # fallback LIKE per URN non normalizzate
+    if legge is None:
+        legge = con.execute(
+            """
+            SELECT tipo, title, anno FROM nodes
+            WHERE source='normativa' AND id LIKE ?
+            ORDER BY length(id) LIMIT 1
+            """,
+            [f"%legge:{hint['legge_anno']}%;{hint['legge_n']}"],
+        ).fetchone()
+    if legge is None:
+        return {
+            "heuristic": True,
+            "articolo": hint["articolo"],
+            "delega_urn_guess": hint["legge_id"],
+            "delega_in_grafo": False,
+            "note": (
+                "Titolo cita legge-base n. "
+                f"{hint['legge_n']}/{hint['legge_anno']} art. {hint['articolo']}, "
+                "ma il nodo legge non è nel mart normativa."
+            ),
+        }
+    return {
+        "heuristic": True,
+        "edge_presente": bool(exists),
+        "articolo": hint["articolo"],
+        "delega_tipo": legge[0],
+        "delega_title": (legge[1] or "")[:200],
+        "delega_anno": legge[2],
+        "delega_urn_guess": hint["legge_id"],
+        "note": (
+            "attua_delega euristica dal titolo (non un edge tipizzato). "
+            "Verifica con legal_text / legal_query su edges."
+        ),
+    }
+
+
 def _view_overview(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
     return {
@@ -239,6 +524,7 @@ def _view_overview(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str,
         "relation_counts": _relation_counts(con, actual_id),
         "top_outgoing": _top_edges(con, column="source_id", actual_id=actual_id),
         "top_incoming": _top_edges(con, column="target_id", actual_id=actual_id),
+        "attua_delega_hint": _attua_delega_hint(con, node_row),
         "intelligence": _node_intelligence(actual_id),
         "next": [
             "legal_text(node_id) per il testo (se source=normativa)",
@@ -319,7 +605,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             queue_b.append((source, d + 1))
 
     temporal = []
-    if TEMPORAL_FILE is not None and TEMPORAL_FILE.exists():
+    if _view_exists(con, "temporal"):
         temporal = con.execute(
             "SELECT relation, evidence FROM temporal WHERE source_id = ? LIMIT 5",
             [actual_id],
@@ -364,10 +650,12 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         "chain_backward": backward,
         "top_riferimenti_out": top_riferimenti_out,
         "top_riferimenti_in": top_riferimenti_in,
+        "attua_delega_hint": _attua_delega_hint(con, node_row),
         "temporal": [{"relation": t[0], "evidence": t[1]} for t in temporal],
         "note": (
             "chain_* = relazioni legislative tipizzate. "
-            "top_riferimenti_* = campione riferimento se la chain è vuota."
+            "top_riferimenti_* = campione riferimento se la chain è vuota. "
+            "attua_delega_hint = euristica dal titolo (legge-base citata)."
         ),
     }
 
@@ -377,7 +665,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     impugna = con.execute(
         """
         SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e JOIN nodes n ON e.target_id = n.id
+        FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'impugna'
         ORDER BY e.weight DESC LIMIT 15
         """,
@@ -386,30 +674,55 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     impugnata_da = con.execute(
         """
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e JOIN nodes n ON e.source_id = n.id
+        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'impugna'
         ORDER BY e.weight DESC LIMIT 15
         """,
         [actual_id],
     ).fetchall()
+    # LEFT JOIN: non azzera la lista se qualche target node manca nel mart
     parametri = con.execute(
         """
         SELECT e.target_id, LEFT(n.title, 120), e.weight
-        FROM edges e JOIN nodes n ON e.target_id = n.id
+        FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
-        ORDER BY e.weight DESC LIMIT 15
+        ORDER BY e.weight DESC, e.target_id LIMIT 20
         """,
         [actual_id],
     ).fetchall()
+    if not parametri:
+        # fallback: articoli Cost. invocati come target di impugna
+        parametri = con.execute(
+            """
+            SELECT e.target_id, LEFT(n.title, 120), e.weight
+            FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
+            WHERE e.source_id = ? AND e.relation = 'impugna'
+              AND (e.target_id LIKE 'costituzione:%' OR n.source = 'costituzione')
+            ORDER BY e.weight DESC, e.target_id LIMIT 20
+            """,
+            [actual_id],
+        ).fetchall()
     citata_da = con.execute(
         """
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e JOIN nodes n ON e.source_id = n.id
+        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
         ORDER BY e.weight DESC LIMIT 15
         """,
         [actual_id],
     ).fetchall()
+    parametri_out = []
+    for r in parametri:
+        tid = r[0] or ""
+        art_m = re.search(r"costituzione:art:(\d+)", tid)
+        parametri_out.append(
+            {
+                "id": tid,
+                "articolo": art_m.group(1) if art_m else tid,
+                "title": r[1],
+                "weight": r[2],
+            }
+        )
     return {
         "view": "jurisprudence",
         "node": _node_payload(node_row),
@@ -421,9 +734,8 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
             {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
             for r in impugnata_da
         ],
-        "parametri_invocati": [
-            {"articolo": r[0], "title": r[1], "weight": r[2]} for r in parametri
-        ],
+        "parametri_invocati": parametri_out,
+        "n_parametri": len(parametri_out),
         "citata_da": [
             {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
             for r in citata_da
@@ -433,35 +745,87 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
 
 def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
-    n_emendamenti = con.execute(
-        "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'emendamento'",
-        [actual_id],
-    ).fetchone()[0]
+    use_emend_leg = _view_exists(con, "emend_leg")
+    if use_emend_leg:
+        n_emendamenti = con.execute(
+            "SELECT COALESCE(SUM(n_emend), 0) FROM emend_leg WHERE target_id = ?",
+            [actual_id],
+        ).fetchone()[0]
+    else:
+        n_emendamenti = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'emendamento'",
+            [actual_id],
+        ).fetchone()[0]
+    parent_title = node_row[2] or ""
+    ddl_m = re.search(r"\bDDL\s+(\d+)", parent_title, re.IGNORECASE)
     emendamenti = con.execute(
         """
-        SELECT e.source_id, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e JOIN nodes n ON e.source_id = n.id
+        SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight,
+               n.source_filename
+        FROM edges e
+        LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'emendamento'
-        ORDER BY e.weight DESC LIMIT 15
+        ORDER BY e.weight DESC, e.source_id
+        LIMIT 15
         """,
         [actual_id],
     ).fetchall()
+    if ddl_m and not any(r[1] for r in emendamenti):
+        # campioni vuoti o senza titolo: campiona per numero DDL nei source_id
+        ddl_n = ddl_m.group(1)
+        emendamenti = con.execute(
+            """
+            SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight, n.source_filename
+            FROM edges e
+            LEFT JOIN nodes n ON e.source_id = n.id
+            WHERE e.target_id = ? AND e.relation = 'emendamento'
+              AND (e.source_id ILIKE ? OR LOWER(COALESCE(n.title,'')) ILIKE ?)
+            ORDER BY e.source_id
+            LIMIT 15
+            """,
+            [actual_id, f"%DDL {ddl_n}%", f"%ddl {ddl_n}%"],
+        ).fetchall()
+    # se ancora vuoti, almeno id emendamento senza join (coerenza count)
+    if not emendamenti:
+        emendamenti = [
+            (r[0], None, None, None, None)
+            for r in con.execute(
+                """
+                SELECT source_id FROM edges
+                WHERE target_id = ? AND relation = 'emendamento'
+                ORDER BY weight DESC, source_id LIMIT 15
+                """,
+                [actual_id],
+            ).fetchall()
+        ]
     # I nodi emendamento hanno titolo unico per emendamento: raggruppare per
     # title dà sempre n=1. Utile: distribuzione per legislatura (dal source_id).
-    top_emendatori = con.execute(
-        """
-        SELECT
-          CAST(NULLIF(regexp_extract(e.source_id, 'senato:emend:(\\d+):', 1), '') AS INTEGER)
-            AS legislatura,
-          COUNT(*) AS cnt
-        FROM edges e
-        WHERE e.target_id = ? AND e.relation = 'emendamento'
-        GROUP BY 1
-        ORDER BY 2 DESC
-        LIMIT 8
-        """,
-        [actual_id],
-    ).fetchall()
+    if use_emend_leg:
+        top_emendatori = con.execute(
+            """
+            SELECT legislatura, n_emend
+            FROM emend_leg
+            WHERE target_id = ? AND legislatura IS NOT NULL
+            ORDER BY n_emend DESC
+            LIMIT 8
+            """,
+            [actual_id],
+        ).fetchall()
+    else:
+        top_emendatori = con.execute(
+            """
+            SELECT
+              CAST(NULLIF(regexp_extract(e.source_id, 'senato:emend:(\\d+):', 1), '') AS INTEGER)
+                AS legislatura,
+              COUNT(*) AS cnt
+            FROM edges e
+            WHERE e.target_id = ? AND e.relation = 'emendamento'
+            GROUP BY 1
+            ORDER BY 2 DESC
+            LIMIT 8
+            """,
+            [actual_id],
+        ).fetchall()
     top_emendatori = [
         {"legislatura": r[0], "n_emendamenti": r[1]} for r in top_emendatori if r[0] is not None
     ]
@@ -502,8 +866,19 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         "n_emendamenti": n_emendamenti,
         "note": "n_emendamenti/n_interventi = COUNT(*); liste = campioni LIMIT.",
         "emendamenti": [
-            {"id": r[0], "title": r[1], "anno": r[2], "weight": r[3]} for r in emendamenti
+            {
+                "id": r[0],
+                "title": r[1],
+                "anno": r[2],
+                "weight": r[3],
+                "source_filename": r[4],
+            }
+            for r in emendamenti
         ],
+        "emendamenti_note": (
+            "LEFT JOIN su nodes; se title è NULL l'id emendamento è comunque reale. "
+            "Nomi 'DDL N' nei titoli emendamento indicano il disegno di legge collegato."
+        ),
         "emendamenti_per_legislatura": top_emendatori,
         "n_interventi": n_interventi,
         "interventi": [{"id": r[0], "title": r[1], "anno": r[2]} for r in interventi],
@@ -545,183 +920,37 @@ def legal_search(
     )
 
 
-def _impl_search(
-    query: str,
-    tipo: str = "",
-    anno_min: int = 0,
-    anno_max: int = 0,
-    source: str = "",
-    limit: int = 20,
-) -> list[dict[str, Any]]:
-    con = _get_con()
-    limit = min(max(limit, 1), _MAX_ROWS)
-    q = (query or "").strip()
-    folded = _fold(q)
-
-    base_cond = "(anno IS NULL OR anno <= ?)"
-    base_params: list[Any] = [datetime.now(UTC).year + 1]
-    filters = ""
-    filter_params: list[Any] = []
-    if tipo:
-        filters += " AND UPPER(tipo) = ?"
-        filter_params.append(tipo.upper())
-    if anno_min > 0:
-        filters += " AND anno >= ?"
-        filter_params.append(anno_min)
-    if anno_max > 0:
-        filters += " AND anno <= ?"
-        filter_params.append(anno_max)
-    if source:
-        filters += " AND source = ?"
-        filter_params.append(source)
-
-    def _select(where: str, params: list[Any], order: str) -> list[tuple]:
-        return con.execute(
-            f"""
-            SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
-            FROM nodes
-            WHERE {where}
-            ORDER BY {order}
-            LIMIT {limit}
-            """,
-            params,
-        ).fetchall()
-
-    rows: list[tuple] = []
-    seen: set[str] = set()
-
-    def _absorb(batch: list[tuple]) -> None:
-        for r in batch:
-            if r[0] not in seen:
-                rows.append(r)
-                seen.add(r[0])
-
-    # 1) numero atto (231, n. 231, 231/2001) → priorità normativa
-    num_m = re.search(r"(?:n\.?\s*)?(\d{1,4})(?:\s*/\s*(\d{2,4}))?", folded)
-    if num_m:
-        num = num_m.group(1)
-        year = num_m.group(2)
-        if year and len(year) == 2:
-            year = "20" + year
-        id_pattern = f"%{year}%;{num}" if year else f"%;{num}"
-        title_num = f"%{year}%n. {num}%" if year else f"%n. {num}%"
-        metrics_path = str(METRICS_FILE) if METRICS_FILE and METRICS_FILE.exists() else None
-        if metrics_path:
-            order = """
-              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
-              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
-              COALESCE((SELECT m.referenced_by FROM read_parquet(?) m WHERE m.id = nodes.id), 0) DESC,
-              anno DESC NULLS LAST, title
-            """
-            extra_params = [id_pattern, metrics_path]
-        else:
-            order = """
-              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
-              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
-              anno DESC NULLS LAST, title
-            """
-            extra_params = [id_pattern]
-        batch = con.execute(
-            f"""
-            SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
-            FROM nodes
-            WHERE {base_cond}{filters} AND source = 'normativa'
-              AND (id LIKE ? OR LOWER(title) LIKE ? OR LOWER(title) LIKE ?)
-            ORDER BY {order}
-            LIMIT {limit}
-            """,
-            [
-                *base_params,
-                *filter_params,
-                id_pattern,
-                title_num,
-                f"%n.{num}%",
-                *extra_params,
-            ],
-        ).fetchall()
-        _absorb(batch)
-
-    # 2) AND multi-parola su title/id (fold accenti sul termine)
-    if len(rows) < limit and folded:
-        if (q.startswith('"') and q.endswith('"')) or (q.startswith("'") and q.endswith("'")):
-            terms = [_fold(q[1:-1])]
-        else:
-            terms = [t for t in re.split(r"\s+", folded) if t][:8]
-        cond = base_cond + filters
-        params2: list[Any] = [*base_params, *filter_params]
-        for term in terms:
-            cond += " AND (LOWER(title) LIKE ? OR LOWER(id) LIKE ?)"
-            params2.extend([f"%{term}%", f"%{term}%"])
-        # prima i nodi normativa (atti), poi il resto del grafo
-        _absorb(
-            _select(
-                cond + " AND source = 'normativa'",
-                params2,
-                "anno DESC NULLS LAST, title",
-            )
-        )
-        if len(rows) < limit:
-            _absorb(_select(cond, params2, "CASE WHEN source = 'normativa' THEN 0 ELSE 1 END, anno DESC NULLS LAST, title"))
-
-    # 3) fallback OR
-    if len(rows) < min(3, limit) and folded:
-        terms = [t for t in re.split(r"\s+", folded) if t][:6]
-        if terms:
-            parts = " OR ".join(["LOWER(title) LIKE ? OR LOWER(id) LIKE ?"] * len(terms))
-            params3: list[Any] = []
-            for t in terms:
-                params3.extend([f"%{t}%", f"%{t}%"])
-            _absorb(
-                _select(
-                    f"{base_cond}{filters} AND ({parts})",
-                    [*base_params, *filter_params, *params3],
-                    "anno DESC NULLS LAST, title",
-                )
-            )
-
-    return [
-        {
-            "id": r[0],
-            "tipo": r[1],
-            "title": (r[2] or "")[:_TITLE_SEARCH],
-            "data": r[3],
-            "anno": r[4],
-            "source": r[5],
-            "next": f"legal_node(node_id='{r[0]}')",
-        }
-        for r in rows[:limit]
-    ]
-
-
-# ─── Tool 2: legal_node ──────────────────────────────────────────
-
-
 @mcp.tool(
     name="legal_node",
     description=(
         "Contesto di un nodo del grafo. view:\n"
         "  overview (default) — metadati, conteggi relazioni, top edge, intelligence\n"
         "  chain — catena legislativa forward/backward\n"
-        "  jurisprudence — impugnazioni, parametri Cost., citazioni\n"
+        "  jurisprudence — impugnazioni, parametri, citazioni\n"
         "  parliament — emendamenti, interventi, diventa_legge\n"
         "Input: URN completo o id parziale (es. 'decreto.legislativo:2017-07-03;117')."
     ),
     structured_output=True,
 )
-def legal_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str, Any]:
+def legal_node(
+    node_id: str,
+    view: str = "overview",
+    depth: int = 3,
+) -> dict[str, Any]:
     return guard_timed(_impl_node, "legal_node", node_id, view=view, depth=depth)
 
 
 def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str, Any]:
-    view = (view or "overview").lower().strip()
-    if view not in _NODE_VIEWS:
-        return {"error": f"view non valida: {view!r}. Usa una di {_NODE_VIEWS}"}
-
     con = _get_con()
+    view = (view or "overview").strip().lower()
+    if view not in _NODE_VIEWS:
+        return {
+            "error": f"view non valida: {view!r}. Ammesse: {', '.join(_NODE_VIEWS)}"
+        }
     node_row = _find_node(con, node_id)
-    if not node_row:
-        return {"error": f"Nodo non trovato: {node_id}"}
-
+    if node_row is None:
+        return {"error": f"Nodo non trovato: {node_id!r}"}
+    actual_id = node_row[0]
     try:
         if view == "overview":
             return _view_overview(con, node_row)
@@ -732,12 +961,305 @@ def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str
         return _view_parliament(con, node_row)
     except Exception as e:  # noqa: BLE001 — non far crashare l'MCP su nodi pesanti
         return {
-            "error": f"view={view} fallita per {node_row[0]!r}: {type(e).__name__}: {e}",
-            "node_id": node_row[0] if node_row else node_id,
+            "error": f"view={view} fallita per {actual_id!r}: {type(e).__name__}: {e}",
+            "node_id": actual_id,
         }
 
 
-# ─── Tool 3: legal_text ──────────────────────────────────────────
+def _has_mart_search(con: duckdb.DuckDBPyConnection) -> bool:
+    return _view_exists(con, "search_keys") and _view_exists(con, "metrics")
+
+
+def _parse_intent(q: str, folded: str) -> dict[str, Any]:
+    """Intent dichiarato per legal_search — ranking solo in SQL mart."""
+    if "urn:" in q.lower() or ";" in q:
+        return {"kind": "urn", "value": q.strip().strip("\"'")}
+    cost = _parse_costituzione(folded)
+    if cost is not None:
+        return {"kind": "cost", "art": cost["art"]}
+    sent = _parse_ecli_or_sentenza(folded)
+    if sent is not None:
+        return {"kind": "sent", "year": sent.get("year"), "num": sent.get("num")}
+    dq = _parse_date_query(folded)
+    if dq:
+        return {"kind": "date", **dq}
+    ue = re.search(r"\b(\d{4})\s*/\s*(\d{1,4})\b", folded)
+    if ue:
+        return {"kind": "ue", "pattern": f"{ue.group(1)}/{ue.group(2)}"}
+    tipo_hints = []
+    if "decreto legislativo" in folded or "d.lgs" in folded or "dlgs" in folded:
+        tipo_hints.append("DECRETO LEGISLATIVO")
+    if "decreto-legge" in folded or "decreto legge" in folded:
+        tipo_hints.append("DECRETO-LEGGE")
+    if re.search(r"\blegge\b", folded) and "decreto" not in folded:
+        tipo_hints.append("LEGGE")
+    if "decreto del presidente" in folded or "dpr" in folded:
+        tipo_hints.append("DECRETO DEL PRESIDENTE DELLA REPUBBLICA")
+    num_m = re.search(
+        r"(?:n\.?\s*)?(\d{1,4})(?:\s*/\s*(\d{2,4}))?(?:\s+del\s+(\d{2,4}))?",
+        folded,
+    )
+    if num_m and not (num_m.group(2) or num_m.group(3)):
+        num_m2 = re.search(r"(?:n\.?\s*)?(\d{1,4})\s+(\d{2,4})\b", folded)
+        if num_m2:
+            num_m = num_m2
+    bare_num = bool(
+        re.fullmatch(
+            r"(?:n\.?\s*)?\d{1,4}(?:\s*/\s*\d{2,4})?(?:\s+del\s+\d{2,4})?",
+            folded.strip(),
+        )
+    )
+    if re.fullmatch(r"(19|20)\d{2}", folded.strip()) and not tipo_hints:
+        return {"kind": "year", "year": folded.strip()}
+    has_year = bool(num_m and (num_m.group(2) or num_m.group(3)))
+    if num_m and (bare_num or has_year or tipo_hints or re.search(r"\bn\.\s*\d", folded)):
+        num = num_m.group(1)
+        year = num_m.group(2) or num_m.group(3)
+        if year and len(year) == 2:
+            year = "20" + year
+        return {
+            "kind": "number",
+            "num": num,
+            "year": year,
+            "bare": bool(bare_num and not year),
+            "tipo_hints": tipo_hints,
+        }
+    if q.startswith(('"', "'")):
+        raw = [_fold(q[1:-1])]
+    else:
+        raw = [t for t in re.split(r"\s+", folded) if t][:8]
+    expanded: list[str] = []
+    for term in raw:
+        expanded.append(term)
+        expanded.extend(_EN_IT_GLOSSARY.get(term, []))
+    terms = [t for t in expanded if t not in _STOP and len(t) >= 2][:6]
+    return {"kind": "phrase", "terms": terms}
+
+
+def _payload(r: tuple) -> dict[str, Any]:
+    return {
+        "id": r[0],
+        "tipo": r[1],
+        "title": (r[2] or "")[:_TITLE_SEARCH],
+        "data": r[3],
+        "anno": r[4],
+        "source": r[5],
+    }
+
+
+_SELECT_SK = """
+    SELECT k.id, k.tipo, k.title, NULL::VARCHAR AS data, k.anno, k.source
+    FROM search_keys k
+    LEFT JOIN metrics m ON m.id = k.id
+"""
+
+
+def _base_order(exact_id: str | None = None) -> str:
+    parts = []
+    if exact_id:
+        parts.append(f"CASE WHEN k.id = '{exact_id}' THEN 0 ELSE 1 END")
+    parts.append("k.is_major")
+    parts.append("COALESCE(m.referenced_by, 0) DESC")
+    parts.extend(["k.anno DESC NULLS LAST", "k.title"])
+    return ", ".join(parts)
+
+
+def _impl_search(
+    query: str,
+    tipo: str = "",
+    anno_min: int = 0,
+    anno_max: int = 0,
+    source: str = "",
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Search thin: intent → 1 SQL su mart search_keys + metrics."""
+    con = _get_con()
+    limit = min(max(limit, 1), _MAX_ROWS)
+    q = (query or "").strip()
+    folded = _fold(q)
+    if not q:
+        return []
+    if not _has_mart_search(con):
+        return [
+            {
+                "error": (
+                    "Mart search assente: esegui `make run` per produrre "
+                    "mart_legal_search_keys + mart_legal_node_metrics."
+                )
+            }
+        ]
+
+    intent = _parse_intent(q, folded)
+    kind = intent["kind"]
+
+    # WHERE base (filtri MCP) sempre in coda ai parametri del kind
+    extra_where = ""
+    extra_params: list[Any] = []
+    if tipo:
+        extra_where += " AND UPPER(k.tipo) = ?"
+        extra_params.append(tipo.upper())
+    if anno_min > 0:
+        extra_where += " AND k.anno >= ?"
+        extra_params.append(anno_min)
+    if anno_max > 0:
+        extra_where += " AND k.anno <= ?"
+        extra_params.append(anno_max)
+    if source:
+        extra_where += " AND k.source = ?"
+        extra_params.append(source)
+
+    where = "1=1"
+    params: list[Any] = []
+    order = _base_order()
+
+    if kind == "urn":
+        val = intent["value"]
+        where = "(k.id = ? OR k.id ILIKE ?)"
+        params = [val, f"%{val}%"]
+        order = _base_order(exact_id=val)
+
+    elif kind == "cost":
+        art = intent["art"]
+        if art:
+            where = (
+                "k.source = 'costituzione' AND ("
+                "k.id = ? OR k.id LIKE ? OR LOWER(k.title) IN (?, ?)"
+                ")"
+            )
+            params = [
+                f"costituzione:art:{art}",
+                f"costituzione:art:{art}%",
+                f"art. {art}",
+                f"articolo {art}",
+            ]
+            order = _base_order(exact_id=f"costituzione:art:{art}")
+        else:
+            where = "k.source = 'costituzione'"
+            order = _base_order(exact_id="costituzione:art:1")
+
+    elif kind == "sent":
+        where = (
+            "k.source = 'costituzione' AND ("
+            "k.id LIKE 'sentenza:%' OR LOWER(k.title) LIKE '%ecli%'"
+            ")"
+        )
+        year, num = intent.get("year"), intent.get("num")
+        if year and num:
+            where += " AND (k.id LIKE ? OR LOWER(k.title) LIKE ?)"
+            params.extend([f"%{year}%{int(num)}%", f"%{year}%:{int(num)}%"])
+            order = _base_order(exact_id=f"sentenza:{year}-{int(num):04d}")
+        elif year:
+            where += " AND (k.id LIKE ? OR LOWER(k.title) LIKE ?)"
+            params.extend([f"%{year}%", f"%{year}%"])
+            order = "k.id"
+        else:
+            order = "k.id"
+
+    elif kind == "date":
+        d = intent["date"]
+        where = (
+            "k.source = 'normativa' AND (k.id LIKE ? OR k.id LIKE ?)"
+        )
+        params = [f"%{d}%", f"%{d[:4]}%;{d[5:7]}%"]
+        # id path URN: :YYYY-MM-; se data nota meglio LIKE data
+        where = "k.source = 'normativa' AND (k.id LIKE ? OR CAST(k.anno AS VARCHAR) = ?)"
+        params = [f"%{d}%", d[:4]]
+        order = _base_order(exact_id=None)
+        order = f"CASE WHEN k.id LIKE '%{d}%' THEN 0 ELSE 1 END, " + _base_order()
+
+    elif kind == "ue":
+        pat = intent["pattern"]
+        where = "k.source = 'normativa' AND LOWER(k.title_folded) LIKE ?"
+        params = [f"%{pat}%"]
+        order = _base_order()
+
+    elif kind == "year":
+        y = intent["year"]
+        where = (
+            "k.source = 'normativa' AND (k.id_year = ? OR CAST(k.anno AS VARCHAR) = ?)"
+        )
+        params = [y, y]
+        order = _base_order()
+
+    elif kind == "number":
+        num = intent["num"]
+        year = intent.get("year")
+        hints = intent.get("tipo_hints") or []
+        if year:
+            where = (
+                "k.source = 'normativa' AND ("
+                "(k.id_year = ? AND k.id_num = ?) "
+                "OR (k.id_year = ? AND LOWER(k.title_folded) LIKE ?)"
+                ")"
+            )
+            params.extend([year, num, year, f"%n. {num}%"])
+            order = f"CASE WHEN k.id LIKE '%{year}%;{num}' THEN 0 ELSE 1 END, " + _base_order()
+        else:
+            where = (
+                "k.source = 'normativa' AND ("
+                "k.id_num = ? OR k.id LIKE ? OR LOWER(k.title_folded) LIKE ?"
+                ")"
+            )
+            params.extend([num, f"%;{num}", f"%n. {num}%"])
+            order = f"CASE WHEN k.id LIKE '%;{num}' THEN 0 ELSE 1 END, " + _base_order()
+        if hints:
+            where += " AND UPPER(k.tipo) IN ({})".format(
+                ",".join("?" for _ in hints)
+            )
+            params.extend([h.upper() for h in hints])
+
+    else:  # phrase
+        terms = intent.get("terms") or []
+        if not terms:
+            return []
+        anchors = [t for t in terms if re.fullmatch(r"\d{4}/\d{1,4}", t)]
+        if anchors:
+            where = "k.source = 'normativa' AND (" + " OR ".join(
+                "LOWER(k.title_folded) LIKE ?" for _ in anchors
+            ) + ")"
+            params.extend([f"%{a}%" for a in anchors])
+            order = _base_order()
+        else:
+            clauses = []
+            for term in terms:
+                stem = _stem_prefix(term)
+                if stem != term:
+                    clauses.append(
+                        "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
+                        " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                    )
+                    params.extend(
+                        [f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"]
+                    )
+                else:
+                    clauses.append(
+                        "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                    )
+                    params.extend([f"%{term}%", f"%{term}%"])
+            where = " AND ".join(clauses)
+            boost_terms = [t for t in terms if len(t) >= 5]
+            if boost_terms:
+                boosts = [
+                    "CASE WHEN LOWER(k.title_folded) LIKE ? THEN -1000 ELSE 0 END"
+                    for _ in boost_terms
+                ]
+                order = ", ".join(boosts) + ", " + _base_order()
+                params.extend([f"%{t}%" for t in boost_terms])
+            else:
+                order = _base_order()
+
+    sql = _SELECT_SK + f" WHERE {where}{extra_where} ORDER BY {order} LIMIT {limit}"
+    rows = con.execute(sql, [*params, *extra_params]).fetchall()
+    out = [_payload(r) for r in rows]
+    if kind == "cost" and intent.get("art") is None and out:
+        out[0] = {
+            **out[0],
+            "note": (
+                "Non esiste un nodo unico 'Costituzione': il documento è in "
+                "nodes come costituzione:art:N. art. 1 per primo."
+            ),
+        }
+    return out
 
 
 @mcp.tool(
@@ -812,22 +1334,76 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     if first in {"SELECT", "WITH"} and "LIMIT" not in sql_clean.upper():
         sql_clean = f"{sql_clean.rstrip()} LIMIT {limit}"
     try:
+        # alias comuni: PRAGMA table_info(nodes) / SHOW TABLES / DESCRIBE nodes
+        if first == "PRAGMA":
+            m = re.match(
+                r"PRAGMA\s+(table_info|table_xinfo|database_list|tables)\s*\(\s*['\"]?(\w+)['\"]?\s*\)",
+                sql_clean,
+                re.IGNORECASE,
+            )
+            if m:
+                pragma_fn, tbl = m.group(1).lower(), m.group(2)
+                if pragma_fn in {"table_info", "table_xinfo"}:
+                    sql_clean = f"PRAGMA {pragma_fn}('{tbl}')"
+                else:
+                    sql_clean = f"PRAGMA {pragma_fn}"
+        if first in {"DESCRIBE", "SHOW"}:
+            sql_clean = re.sub(r"\s+LIMIT\s+\d+\s*$", "", sql_clean, flags=re.IGNORECASE)
+            # DESCRIBE nodes → DESCRIBE SELECT * FROM nodes (compatibile DuckDB)
+            m = re.match(r"DESCRIBE\s+(?:TABLE\s+)?(\w+)\s*$", sql_clean, re.IGNORECASE)
+            if m and m.group(1).upper() not in {"SELECT", "FROM"}:
+                sql_clean = f"DESCRIBE (SELECT * FROM {m.group(1)} LIMIT {limit})"
         result = con.execute(sql_clean)
+        if first in {"DESCRIBE", "SHOW", "PRAGMA"}:
+            columns = [desc[0] for desc in (result.description or [])]
+            rows = result.fetchall()[:limit]
+            if not columns:
+                return [
+                    {
+                        "ok": True,
+                        "note": "comando meta senza tabella risultati",
+                        "rows": len(rows),
+                        "hint": "PRAGMA table_info(nodes) | DESCRIBE nodes | SHOW TABLES",
+                    }
+                ]
+            out = []
+            for row in rows:
+                d = dict(zip(columns, row))
+                out.append(
+                    {
+                        "column_name": d.get("column_name") or d.get("name"),
+                        "column_type": d.get("column_type") or d.get("type"),
+                        "nullable": d.get("null") if "null" in d else d.get("notnull"),
+                        "key": d.get("key"),
+                        "default": d.get("default") or d.get("dflt_value"),
+                        "extra": d.get("extra"),
+                    }
+                )
+            return out
         if result.description is None:
-            # PRAGMA/SHOW senza description: restituisci almeno ok + columns note
             try:
                 raw = result.fetchall()
             except duckdb.Error:
                 raw = []
-            if raw and isinstance(raw[0], (tuple, list)):
-                # heuristic: PRAGMA table_info -> campi noti
-                cols = ["cid", "name", "type", "notnull", "dflt_value", "pk"]
-                return [dict(zip(cols, list(r))) for r in raw[:limit]]
-            return [{"ok": True, "note": "PRAGMA/SHOW eseguito senza tabella risultati", "rows": len(raw)}]
+            return [{"ok": True, "note": "eseguito senza tabella risultati", "rows": len(raw)}]
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()[:limit]
     except duckdb.Error as e:
-        return [{"error": str(e)[:200]}]
+        err = str(e)[:200]
+        hint = ""
+        if "Binder" in err or "Referenced table" in err:
+            hint = "Controlla alias tabelle (nodes/edges) e nomi colonne."
+        if "LIMIT" in err.upper() or "syntax" in err.lower():
+            hint = "PRAGMA/DESCRIBE non accettano LIMIT; SELECT sì."
+        return [{"error": err, "hint": hint} if hint else {"error": err}]
+    if not rows and first == "SELECT":
+        return [
+            {
+                "note": "SELECT valida ma 0 righe",
+                "sql": sql_clean[:200],
+                "hint": "Verifica WHERE/relation; tabelle: nodes, edges[, temporal].",
+            }
+        ]
     return [dict(zip(columns, row)) for row in rows]
 
 
@@ -848,16 +1424,15 @@ def legal_insights(report: str = "summary") -> dict[str, Any]:
 
 
 def _impl_insights(report: str = "summary") -> dict[str, Any]:
-    if METRICS_FILE is None or not METRICS_FILE.exists():
+    con = _get_con()
+    if not _view_exists(con, "metrics"):
         return {
-            "error": "Metriche non calcolate. Esegui: python scripts/graph_intelligence.py",
+            "error": (
+                "Metriche non presenti nel mart. Esegui `make run` "
+                "(mart_legal_node_metrics) oppure scripts/graph_intelligence.py."
+            ),
             "hint": "Senza metrics, usa legal_query su edges per impatto grezzo.",
         }
-
-    con = _get_con()
-    con.execute(
-        f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{METRICS_FILE}')"
-    )
     report_type = (report or "summary").lower().strip()
 
     if report_type == "critical":

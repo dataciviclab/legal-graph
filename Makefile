@@ -16,7 +16,11 @@ lint:
 
 .PHONY: intelligence
 intelligence:
-	$(PYTHON) scripts/graph_intelligence.py
+	@if [ -f out/data/mart/legal_graph/$(YEAR)/mart_legal_node_metrics.parquet ]; then \
+		echo "metrics gia' nel mart compose (make run)"; \
+	else \
+		$(PYTHON) scripts/graph_intelligence.py; \
+	fi
 
 .PHONY: clean
 clean:
