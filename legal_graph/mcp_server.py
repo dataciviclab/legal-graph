@@ -15,6 +15,8 @@ View di legal_node:
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,8 +47,19 @@ _CHAIN_RELS = (
     "collega_ue",
     "cita_costituzione",
 )
+_TITLE_SEARCH = 200
+_TITLE_NODE = 500
+_TITLE_EDGE = 120
 
 _cached_con: duckdb.DuckDBPyConnection | None = None
+
+
+def _fold(text: str) -> str:
+    """Minuscole + rimozione accenti (responsabilità → responsabilita)."""
+    if not text:
+        return ""
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
@@ -79,7 +92,7 @@ mcp = create_mcp_server(
         "  2) legal_node(node_id, view) per contesto/viste:\n"
         "     overview | chain | jurisprudence | parliament\n"
         "  3) legal_text(node_id) per il testo integrale (solo source=normativa)\n"
-        "  4) legal_query per SQL (SELECT only) su nodes/edges\n"
+        "  4) legal_query per SQL (SELECT/PRAGMA/DESCRIBE) su nodes/edges\n"
         "  5) legal_insights per report di sistema (critici/obsoleti)\n"
         "Preferisci legal_node + legal_text; usa query solo se serve analisi ad hoc."
     ),
@@ -90,16 +103,27 @@ mcp = create_mcp_server(
 
 
 def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
+    """Preferisci match esatto; LIKE solo se l'id esatto non esiste."""
+    exact = con.execute(
+        """
+        SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
+               length_chars, length_words, celex, collezione, source_filename
+        FROM nodes WHERE id = ? LIMIT 1
+        """,
+        [node_id],
+    ).fetchone()
+    if exact:
+        return exact
     return con.execute(
         """
         SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
                length_chars, length_words, celex, collezione, source_filename
         FROM nodes
-        WHERE id = ? OR id LIKE ?
-        ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, length(id)
+        WHERE id LIKE ?
+        ORDER BY length(id)
         LIMIT 1
         """,
-        [node_id, f"%{node_id}%", node_id],
+        [f"%{node_id}%"],
     ).fetchone()
 
 
@@ -107,7 +131,7 @@ def _node_payload(row: tuple) -> dict[str, Any]:
     return {
         "id": row[0],
         "tipo": row[1],
-        "title": (row[2] or "")[:200],
+        "title": (row[2] or "")[:_TITLE_NODE],
         "data": row[3],
         "anno": row[4],
         "source": row[5],
@@ -301,13 +325,50 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             [actual_id],
         ).fetchall()
 
+    top_riferimenti_in: list[dict[str, Any]] = []
+    top_riferimenti_out: list[dict[str, Any]] = []
+    if not backward:
+        rows_in = con.execute(
+            """
+            SELECT e.source_id, e.weight, n.tipo, LEFT(n.title, 120), n.anno
+            FROM edges e JOIN nodes n ON n.id = e.source_id
+            WHERE e.target_id = ? AND e.relation = 'riferimento'
+            ORDER BY e.weight DESC LIMIT 5
+            """,
+            [actual_id],
+        ).fetchall()
+        top_riferimenti_in = [
+            {"source_id": r[0], "weight": r[1], "tipo": r[2], "title": r[3], "anno": r[4]}
+            for r in rows_in
+        ]
+    if not forward:
+        rows_out = con.execute(
+            """
+            SELECT e.target_id, e.weight, n.tipo, LEFT(n.title, 120), n.anno
+            FROM edges e JOIN nodes n ON n.id = e.target_id
+            WHERE e.source_id = ? AND e.relation = 'riferimento'
+            ORDER BY e.weight DESC LIMIT 5
+            """,
+            [actual_id],
+        ).fetchall()
+        top_riferimenti_out = [
+            {"target_id": r[0], "weight": r[1], "tipo": r[2], "title": r[3], "anno": r[4]}
+            for r in rows_out
+        ]
+
     return {
         "view": "chain",
         "depth": depth,
         "node": _node_payload(node_row),
         "chain_forward": forward,
         "chain_backward": backward,
+        "top_riferimenti_out": top_riferimenti_out,
+        "top_riferimenti_in": top_riferimenti_in,
         "temporal": [{"relation": t[0], "evidence": t[1]} for t in temporal],
+        "note": (
+            "chain_* = relazioni legislative tipizzate. "
+            "top_riferimenti_* = campione riferimento se la chain è vuota."
+        ),
     }
 
 
@@ -315,7 +376,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     actual_id = node_row[0]
     impugna = con.execute(
         """
-        SELECT e.target_id, n.tipo, LEFT(n.title, 100), n.anno, e.weight
+        SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'impugna'
         ORDER BY e.weight DESC LIMIT 15
@@ -324,7 +385,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     ).fetchall()
     impugnata_da = con.execute(
         """
-        SELECT e.source_id, n.tipo, LEFT(n.title, 100), n.anno, e.weight
+        SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'impugna'
         ORDER BY e.weight DESC LIMIT 15
@@ -333,7 +394,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     ).fetchall()
     parametri = con.execute(
         """
-        SELECT e.target_id, LEFT(n.title, 80), e.weight
+        SELECT e.target_id, LEFT(n.title, 120), e.weight
         FROM edges e JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'invoca_parametro'
         ORDER BY e.weight DESC LIMIT 15
@@ -342,7 +403,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
     ).fetchall()
     citata_da = con.execute(
         """
-        SELECT e.source_id, n.tipo, LEFT(n.title, 100), n.anno, e.weight
+        SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
         ORDER BY e.weight DESC LIMIT 15
@@ -372,9 +433,13 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
 
 def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
+    n_emendamenti = con.execute(
+        "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'emendamento'",
+        [actual_id],
+    ).fetchone()[0]
     emendamenti = con.execute(
         """
-        SELECT e.source_id, LEFT(n.title, 100), n.anno, e.weight
+        SELECT e.source_id, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'emendamento'
         ORDER BY e.weight DESC LIMIT 15
@@ -396,7 +461,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     ).fetchone()[0]
     interventi = con.execute(
         """
-        SELECT e.source_id, LEFT(n.title, 80), n.anno
+        SELECT e.source_id, LEFT(n.title, 120), n.anno
         FROM edges e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'intervento'
         ORDER BY n.anno DESC LIMIT 10
@@ -405,7 +470,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     ).fetchall()
     diventa = con.execute(
         """
-        SELECT e.target_id, LEFT(n.title, 100), n.anno
+        SELECT e.target_id, LEFT(n.title, 120), n.anno
         FROM edges e JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'diventa_legge'
         LIMIT 5
@@ -414,7 +479,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     ).fetchall()
     testo = con.execute(
         """
-        SELECT e.target_id, LEFT(n.title, 100)
+        SELECT e.target_id, LEFT(n.title, 120)
         FROM edges e JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'testo_atto'
         LIMIT 5
@@ -424,7 +489,8 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     return {
         "view": "parliament",
         "node": _node_payload(node_row),
-        "n_emendamenti": len(emendamenti),
+        "n_emendamenti": n_emendamenti,
+        "note": "n_emendamenti/n_interventi = COUNT(*); liste = campioni LIMIT.",
         "emendamenti": [
             {"id": r[0], "title": r[1], "anno": r[2], "weight": r[3]} for r in emendamenti
         ],
@@ -445,8 +511,9 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     name="legal_search",
     description=(
         "Trova atti/nodi nel grafo. Multi-parola = AND; frase tra virgolette = LIKE intero. "
-        "Filtri: tipo, anno_min/anno_max, source (normativa/senato/costituzione/...). "
-        "Usa il risultato come input di legal_node / legal_text."
+        "Numeri (es. '231', '231/2001', 'n. 231') → priorità a normativa. "
+        "Accenti flessibili (responsabilità ~ responsabilita). "
+        "Filtri: tipo, anno_min/anno_max, source. Input per legal_node / legal_text."
     ),
     structured_output=True,
 )
@@ -480,53 +547,129 @@ def _impl_search(
 ) -> list[dict[str, Any]]:
     con = _get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
-
-    conditions = ["(anno IS NULL OR anno <= ?)"]
-    params: list[Any] = [datetime.now(UTC).year + 1]
-
     q = (query or "").strip()
-    if q:
-        if (q.startswith('"') and q.endswith('"')) or (q.startswith("'") and q.endswith("'")):
-            terms = [q[1:-1]]
-        else:
-            terms = [w for w in q.split() if w][:8]
-        for term in terms:
-            conditions.append("(LOWER(title) LIKE ? OR LOWER(id) LIKE ?)")
-            params.extend([f"%{term.lower()}%", f"%{term.lower()}%"])
-    if tipo:
-        conditions.append("UPPER(tipo) = ?")
-        params.append(tipo.upper())
-    if anno_min > 0:
-        conditions.append("anno >= ?")
-        params.append(anno_min)
-    if anno_max > 0:
-        conditions.append("anno <= ?")
-        params.append(anno_max)
-    if source:
-        conditions.append("source = ?")
-        params.append(source)
+    folded = _fold(q)
 
-    rows = con.execute(
-        f"""
-        SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
-        FROM nodes
-        WHERE {' AND '.join(conditions)}
-        ORDER BY anno DESC NULLS LAST, title
-        LIMIT {limit}
-        """,
-        params,
-    ).fetchall()
+    base_cond = "(anno IS NULL OR anno <= ?)"
+    base_params: list[Any] = [datetime.now(UTC).year + 1]
+    filters = ""
+    filter_params: list[Any] = []
+    if tipo:
+        filters += " AND UPPER(tipo) = ?"
+        filter_params.append(tipo.upper())
+    if anno_min > 0:
+        filters += " AND anno >= ?"
+        filter_params.append(anno_min)
+    if anno_max > 0:
+        filters += " AND anno <= ?"
+        filter_params.append(anno_max)
+    if source:
+        filters += " AND source = ?"
+        filter_params.append(source)
+
+    def _select(where: str, params: list[Any], order: str) -> list[tuple]:
+        return con.execute(
+            f"""
+            SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
+            FROM nodes
+            WHERE {where}
+            ORDER BY {order}
+            LIMIT {limit}
+            """,
+            params,
+        ).fetchall()
+
+    rows: list[tuple] = []
+    seen: set[str] = set()
+
+    def _absorb(batch: list[tuple]) -> None:
+        for r in batch:
+            if r[0] not in seen:
+                rows.append(r)
+                seen.add(r[0])
+
+    # 1) numero atto (231, n. 231, 231/2001) → priorità normativa
+    num_m = re.search(r"(?:n\.?\s*)?(\d{1,4})(?:\s*/\s*(\d{2,4}))?", folded)
+    if num_m:
+        num = num_m.group(1)
+        year = num_m.group(2)
+        if year and len(year) == 2:
+            year = "20" + year
+        # ura tipo urn:nir:...:2001-06-08;231
+        id_pattern = f"%{year}%;{num}" if year else f"%;{num}"
+        title_num = f"%n. {num}%" if not year else f"%{year}%n. {num}%"
+        batch = con.execute(
+            f"""
+            SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
+            FROM nodes
+            WHERE {base_cond}{filters} AND source = 'normativa'
+              AND (id LIKE ? OR LOWER(title) LIKE ? OR LOWER(title) LIKE ?)
+            ORDER BY
+              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
+              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
+              anno DESC NULLS LAST, title
+            LIMIT {limit}
+            """,
+            [
+                *base_params,
+                *filter_params,
+                id_pattern,
+                title_num,
+                f"%n.{num}%",
+                id_pattern,
+            ],
+        ).fetchall()
+        _absorb(batch)
+
+    # 2) AND multi-parola su title/id (fold accenti sul termine)
+    if len(rows) < limit and folded:
+        if (q.startswith('"') and q.endswith('"')) or (q.startswith("'") and q.endswith("'")):
+            terms = [_fold(q[1:-1])]
+        else:
+            terms = [t for t in re.split(r"\s+", folded) if t][:8]
+        cond = base_cond + filters
+        params2: list[Any] = [*base_params, *filter_params]
+        for term in terms:
+            cond += " AND (LOWER(title) LIKE ? OR LOWER(id) LIKE ?)"
+            params2.extend([f"%{term}%", f"%{term}%"])
+        # prima i nodi normativa (atti), poi il resto del grafo
+        _absorb(
+            _select(
+                cond + " AND source = 'normativa'",
+                params2,
+                "anno DESC NULLS LAST, title",
+            )
+        )
+        if len(rows) < limit:
+            _absorb(_select(cond, params2, "CASE WHEN source = 'normativa' THEN 0 ELSE 1 END, anno DESC NULLS LAST, title"))
+
+    # 3) fallback OR
+    if len(rows) < min(3, limit) and folded:
+        terms = [t for t in re.split(r"\s+", folded) if t][:6]
+        if terms:
+            parts = " OR ".join(["LOWER(title) LIKE ? OR LOWER(id) LIKE ?"] * len(terms))
+            params3: list[Any] = []
+            for t in terms:
+                params3.extend([f"%{t}%", f"%{t}%"])
+            _absorb(
+                _select(
+                    f"{base_cond}{filters} AND ({parts})",
+                    [*base_params, *filter_params, *params3],
+                    "anno DESC NULLS LAST, title",
+                )
+            )
+
     return [
         {
             "id": r[0],
             "tipo": r[1],
-            "title": (r[2] or "")[:100],
+            "title": (r[2] or "")[:_TITLE_SEARCH],
             "data": r[3],
             "anno": r[4],
             "source": r[5],
             "next": f"legal_node(node_id='{r[0]}')",
         }
-        for r in rows
+        for r in rows[:limit]
     ]
 
 
@@ -623,8 +766,8 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
 @mcp.tool(
     name="legal_query",
     description=(
-        "SQL sul grafo (solo SELECT). Tabelle: nodes, edges, [temporal]. "
-        "Per stats/conteggi usa aggregazioni SQL. Per un nodo usa legal_node."
+        "SQL sul grafo. Ammessi: SELECT, WITH, PRAGMA, DESCRIBE, SHOW, EXPLAIN. "
+        "Tabelle: nodes, edges, [temporal]. Niente scritture."
     ),
     structured_output=True,
 )
@@ -636,9 +779,11 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     con = _get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
     sql_clean = (sql or "").strip()
-    if not sql_clean.upper().startswith("SELECT"):
-        return [{"error": "Solo SELECT consentito"}]
-    if "LIMIT" not in sql_clean.upper():
+    first = sql_clean.upper().split(None, 1)[0] if sql_clean else ""
+    allowed = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
+    if first not in allowed:
+        return [{"error": f"Comando non consentito: {first!r}. Usa SELECT/WITH/PRAGMA/DESCRIBE/SHOW/EXPLAIN."}]
+    if first in {"SELECT", "WITH"} and "LIMIT" not in sql_clean.upper():
         sql_clean = f"{sql_clean.rstrip()} LIMIT {limit}"
     try:
         result = con.execute(sql_clean)
@@ -655,9 +800,9 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
 @mcp.tool(
     name="legal_insights",
     description=(
-        "Report di sistema sul grafo. report:\n"
-        "  summary (default) | critical | obsolete | complex | dormant\n"
-        "Richiede graph_intelligence (python -m legal_graph.graph_intelligence)."
+        "Report di sistema sul grafo. report: summary | critical | obsolete | complex | dormant. "
+        "obsolete = candidati per età/anagrafica storica, NON lista abrogazioni formali. "
+        "Richiede: python scripts/graph_intelligence.py"
     ),
     structured_output=True,
 )
@@ -704,6 +849,7 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
         ).fetchall()
         return {
             "report": "obsolete",
+            "note": "Segmento per age_years (candidati storici), non per abrogazione ufficiale.",
             "nodes": [
                 {"id": r[0], "title": (r[1] or r[0])[:70], "age": r[2], "refs": r[3]} for r in rows
             ],
