@@ -17,6 +17,7 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 |---|---|
 | **Nodi** | ~472.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
 | **Archi** | ~710.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, bridge DDL→legge |
+| **Mart** | nodes · edges · node_metrics · search_keys · node_rel · emend_leg |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `emendamento`, `riferimento` |
 
@@ -54,13 +55,26 @@ legal_search("responsabilita amministrativa")
 ### 2. Build locale (compose toolkit)
 
 ```bash
-make run          # costruisce nodi e archi leggendo le fonti da rete
-make test         # 32 test di integrità
-make intelligence # metriche per legal_insights
+make run          # compose: 6 mart da rete (GitHub raw / GCS)
+make test         # integrità + golden search (~50 test)
+make lint
+# make intelligence  # solo se metriche mancanti dal mart (fallback)
 ```
 
-Output: `out/data/mart/legal_graph/2026/` — i mart sono **committati** dalla pipeline
-(source of truth del repo, come altri compose del Lab). Le fonti upstream si leggono da rete.
+Output: `out/data/mart/legal_graph/2026/`
+
+| Tabella | Ruolo |
+|---|---|
+| `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо |
+| `mart_legal_node_metrics` | intelligence (referenced_by, impact, età) |
+| `mart_legal_search_keys` | ranking search (id_num, title_folded, search_text) |
+| `mart_legal_node_rel` | pre-aggregato relazioni per view MCP |
+| `mart_legal_emend_leg` | emendamenti per DDL/legislatura |
+
+Ordine obbligato nel compose: nodes → edges → derivate (stessa sessione DuckDB).  
+I mart sono **committati** dalla pipeline (source of truth, come pil-intelligence). Le fonti upstream si leggono da rete.
+
+MCP senza search mart → errore con hint `make run`.
 
 ### 3. SQL diretto (DuckDB)
 
@@ -77,18 +91,29 @@ LIMIT 10;
 
 ## Architettura (in breve)
 
-Il grafo è un **compose mart-only toolkit**: legge i clean/derived di altri repo Lab da rete (GitHub raw e GCS), li unisce in nodi e archi, li espone via MCP. Non clona i repo dati e non duplica i testi — per il testo si usa `legal_text`.
+Compose **mart-only toolkit**: legge i clean/derived di altri repo Lab da rete, produce nodi/archi + tabelle derivate (metrics, search keys, pre-aggregati), li espone via MCP. Non clona i repo dati e non duplica i testi — per il testo si usa `legal_text`.
+
+```text
+upstream (GitHub raw / GCS)
+  → make run (dataset.yml + sql/mart_legal_*.sql)
+  → out/data/mart/legal_graph/2026/  (committato)
+  → MCP thin: legal_search (intent → SQL) · legal_node(view) · legal_text · query · insights
+```
+
+`legal_search` è **thin**: parse intent (numero/anno, ECLI, Cost., data, frase) → **1 query** su `search_keys` + `metrics`.  
+`attua_delega` è un **edge tipizzato** nel mart (delega→attuazione), non solo un euristica runtime.
 
 Documenti di dettaglio:
 
-- [COMPOSE.md](COMPOSE.md) — come è costruito, cosa è pronto, limiti
+- [COMPOSE.md](COMPOSE.md) — come è costruito, mart, CI, limiti
 - [KEYS.md](KEYS.md) — chiavi cross-repo (URN, id_ddl, atto_num)
 
 ## Limiti
 
 - `legal_text` copre gli atti di **normativa** (italia-corpus); per altri testi restano i repo dati
-- Nessuna ricerca full-text dentro i corpus di testo (si cerca su titoli e relazioni del grafo)
-- Relazioni UE e archi temporali sono opzionali e non nel compose principale
+- Nessun FTS nei corpi di testo (search su titoli/id/metrics del mart)
+- L. 40/2004 e L. 194/1978 possono mancare dal mart normativa (gap corpus)
+- Relazioni UE e archi temporali opzionali (legacy `data/`)
 
 ## Partecipa
 

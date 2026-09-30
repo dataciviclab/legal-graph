@@ -10,8 +10,11 @@ Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 upstream (GCS / GitHub raw)
   → compose toolkit (dataset.yml + sql/mart_legal_*.sql)
   → out/data/mart/legal_graph/2026/
-  → MCP legal-graph (search / chain / jurisprudence / legal_text)
+      mart_legal_nodes · edges · node_metrics · search_keys · node_rel · emend_leg
+  → MCP legal-graph (search thin / node views / legal_text / query / insights)
 ```
+
+`attua_delega`: edge tipizzato nel mart (D.Lgs → legge-base), non solo hint runtime.
 
 ## Le Chiavi
 
@@ -68,18 +71,18 @@ open-politica.urn_normattiva  ←→  italia-corpus.urn   [1:1, 14% coverage]
 
 Catena completa: `emend.fase → DDL.fase → DDL.id_ddl → corpus.atto_num → DDL.urn_normattiva → normativa.urn`
 
-## I Marts (ciò che la dashboard consuma)
+## I Marts del compose legal-graph (2026)
 
-| Dataset | Mart | Key | Righe | Uso |
-|---------|------|-----|-------|-----|
-| corpus | `mart_per_atto` | `atto_num` | ~2,000 | KPI per atto |
-| corpus | `mart_per_legislatura` | `legislatura` | 4 | Panoramica |
-| emendamenti | `mart_emendamenti_per_fase` | `fase` | ~1,600 | Intensità emendativa |
-| emendamenti | `mart_per_legislatura` | `legislatura` | 6 | Panoramica |
-| dibattito | `mart_dib_per_atto` | `atto_num` | ~1,800 | Dibattito per atto |
-| dibattito | `mart_interventi_per_persona` | `senatore_id` | ~5,000 | Top oratori |
-| dibattito | `mart_dibattito_per_seduta` | `data_seduta` | ~1,200 | Timeline |
-| dibattito | `mart_per_legislatura` | `legislatura` | 3 | Panoramica |
+| Mart | Key | Uso |
+|------|-----|-----|
+| `mart_legal_nodes` | `id` (URN / namespace) | grafo nodi |
+| `mart_legal_edges` | `(source_id, relation, target_id)` | grafo relazioni |
+| `mart_legal_node_metrics` | `id` | intelligence MCP (insights, ranking) |
+| `mart_legal_search_keys` | `id` + `id_num`/`id_year` | ranking `legal_search` |
+| `mart_legal_node_rel` | `(id, relation)` | conteggi view overview/parliament |
+| `mart_legal_emend_leg` | `(target_id, legislatura)` | emendamenti per DDL |
+
+> Storico dashboard (senato-akn `mart_per_*`) non fa più parte di questo repo.
 
 ## Bug Fixati
 
