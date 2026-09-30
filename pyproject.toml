@@ -1,21 +1,27 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "legal-graph"
-version = "0.1.0"
-description = "Legal Knowledge Graph — 25.000+ atti normativi, 500.000+ relazioni"
-requires-python = ">=3.11"
+version = "0.3.0"
+description = "Legal Knowledge Graph: compose toolkit + MCP sul diritto italiano"
+requires-python = ">=3.12"
+license = { text = "MIT" }
 dependencies = [
     "duckdb>=1.0",
-    "lab-connectors[mcp] @ git+https://github.com/dataciviclab/lab-connectors.git",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "ruff>=0.5",
+]
+mcp = [
+    "lab-connectors[mcp] @ git+https://github.com/dataciviclab/lab-connectors.git",
+]
+pipeline = [
+    "dataciviclab-toolkit @ git+https://github.com/dataciviclab/toolkit.git",
 ]
 
 [project.scripts]
@@ -25,7 +31,7 @@ legal-graph-mcp = "legal_graph.mcp_server:main"
 include = ["legal_graph*"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.pytest.ini_options]

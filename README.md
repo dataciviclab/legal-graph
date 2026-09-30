@@ -1,135 +1,103 @@
-# Legal Knowledge Graph
+# Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**472.610 nodi normativi, 768.953 relazioni. Il sistema giuridico italiano come grafo interrogabile.**
+**472.000 nodi, 710.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
-Non un chatbot che "sa le leggi", ma l'infrastruttura dati che permette di ricostruire il sistema giuridico: ogni claim → source → provision → version → evidence.
+Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
+
+Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera, GU) in un unico grafo interrogabile, per rispondere a domande come:
+
+- *Da dove viene il Codice del Terzo Settore?*
+- *Questa legge è stata impugnata dalla Corte?*
+- *Chi cita l’art. 3 Cost. nelle leggi ordinarie?*
+- *Questa DDL è diventata legge?*
 
 ## Cosa contiene
 
 | | |
 |---|---|
-| **Nodi** | 472.610 (leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, norme, UE) |
-| **Archi statici** | 707.857 (riferimenti, citazioni, impugnazioni, emendamenti, interventi, deleghe, bridge) |
-| **Archi temporali** | 61.096 (modifiche, entrata in vigore) |
-| **Fonti** | 11 repo del Lab collegati |
-| **Relazioni** | 13 tipi (riferimento, cita_costituzione, impugna, diventa_legge, attua_delega, recepisce_direttiva, ...) |
-| **Legislature** | 7 legislature Senato + Camera (XIII-XIX, 1996-2026) |
-
-## Fonti collegate
-
-```
-italia-corpus ─────┐
-costituzione ──────┤
-open-politica ─────┤
-gu-monitor ────────┼──→ LEGAL KNOWLEDGE GRAPH
-senato-akn ────────┤       │
-EUR-Lex ───────────┘       ├── 472.610 nodi
-                           ├── 707.857 archi
-                           ├── 11 fonti
-                           └── MCP server (8 tool)
-```
+| **Nodi** | ~472.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | ~710.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, bridge DDL→legge |
+| **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
+| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `emendamento`, `riferimento` |
 
 ## Esempi di domande
 
-- **Questa legge è stata dichiarata incostituzionale?** → 10.890 sentenze impugnano norme
-- **Quali norme impugna più spesso la Corte?** → D.Lgs. 286/1998 (Testo Unico Immigrazione): 152 impugnazioni
-- **Quali articoli Costituzionali sono più invocati?** → Art. 3 (uguaglianza), Art. 24 (difesa), Art. 117 (autonomia)
-- **DDL Senato è diventata legge?** → 2.757 bridge DDL → legge vigente (7 legislature)
-- **Quali legge è più citata nelle altre?** → Riferimenti incrociati tra 60.595 atti
-- **Quali direttive UE ha recepito l'Italia?** → 1.241 recepimenti da 567 direttive
-- **Chi ha parlato in Senato su un provvedimento?** → 120.926 interventi di dibattito
-- **Timeline delle modifiche legislative?** → Picco 2017 (2.183 modifiche)
-
-## Installazione
-
-```bash
-pip install -e .
-```
-
-## MCP Server
-
-Il grafo è esposto come server MCP con 8 tool:
-
-| Tool | Uso |
+| Domanda | Tool / query |
 |---|---|
-| `legal_search` | Cerca atti per testo, tipo, anno, sorgente |
-| `legal_node_details` | Dettagli nodo + tutti i suoi archi |
-| `legal_graph_query` | SQL arbitrario sul grafo (solo SELECT) |
-| `legal_stats` | Statistiche generali |
-| `legal_intelligence` | Analisi impatto, complessità, obsolescenza |
-| **`legal_chain`** | Catena del diritto: DDL→Legge→D.Lgs→EU |
-| **`legal_jurisprudence`** | Sentenze, impugnazioni, parametri Costituzionali |
-| **`legal_parliament`** | Emendamenti, interventi, stato iter DDL |
+| Trova un atto per nome o tema | `legal_search` |
+| Da dove viene questa legge? (delega, DDL, recepimento UE) | `legal_node(view="chain")` |
+| La Corte ha impugnato questa norma? | `legal_node(view="jurisprudence")` |
+| Emendamenti e iter di una DDL | `legal_node(view="parliament")` |
+| Quali atti citano un articolo della Costituzione? | SQL su `cita_costituzione` |
+| Quali norme sono più critiche o obsolette? | `legal_insights` |
+| Testo integrale di un atto | `legal_text(URN)` |
+
+## Come accedere
+
+### 1. MCP del Lab (per agenti e chi lavora in chat)
+
+```text
+legal_search("responsabilita amministrativa")
+  → legal_node(id)                  # overview del nodo
+  → legal_node(id, view="chain")    # se serve la catena legislativa
+  → legal_text(id)                  # testo (atti normativi)
+```
+
+| Tool | Cosa fa |
+|---|---|
+| `legal_search` | Trova atti (parole, tipo, anno, fonte) |
+| `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
+| `legal_text` | Testo integrale di un atto da URN |
+| `legal_query` | SQL (SELECT) su nodi e archi |
+| `legal_insights` | Report: atti critici, obsoleti, complessi |
+
+### 2. Build locale (compose toolkit)
 
 ```bash
-legal-graph-mcp
+make run          # costruisce nodi e archi leggendo le fonti da rete
+make test         # 32 test di integrità
+make intelligence # metriche per legal_insights
 ```
 
-### Esempio: catena del Codice Terzo Settore
+Output: `out/data/mart/legal_graph/2026/` (parquet nodi + archi).
 
-```
-legal_chain(node_id="urn:nir:stato:decreto.legislativo:2017-07-03;117")
-→ D.Lgs 117/2017 (Codice Terzo Settore)
-→ attua_delega → Legge 106/2016 (Delega Terzo Settore)
-→ cita_costituzione → Art. 2, 3, 11, 18, 118
-```
+### 3. SQL diretto (DuckDB)
 
-### Esempio: sentenza sulla fecondazione assistita
-
-```
-legal_jurisprudence(node_id="sentenza:2009-0151")
-→ Impugna: Legge 40/2004
-→ Parametri: Art. 2, 3, 13, 23, 32 Costituzione
+```sql
+-- Atti che citano l'articolo 3 della Costituzione
+SELECT e.source_id, n.title
+FROM read_parquet('out/data/mart/legal_graph/2026/mart_legal_edges.parquet') e
+JOIN read_parquet('out/data/mart/legal_graph/2026/mart_legal_nodes.parquet') n
+  ON n.id = e.source_id
+WHERE e.relation = 'cita_costituzione'
+  AND e.target_id = 'costituzione:art:3'
+LIMIT 10;
 ```
 
-## Dashboard
+## Architettura (in breve)
 
-```bash
-pip install -r dashboard/requirements.txt
-streamlit run dashboard/app.py
-```
+Il grafo è un **compose mart-only toolkit**: legge i clean/derived di altri repo Lab da rete (GitHub raw e GCS), li unisce in nodi e archi, li espone via MCP. Non clona i repo dati e non duplica i testi — per il testo si usa `legal_text`.
 
-3 tab: Catena del Diritto, Giurisprudenza, Parlamento.
+Documenti di dettaglio:
 
-## Build
+- [COMPOSE.md](COMPOSE.md) — come è costruito, cosa è pronto, limiti
+- [KEYS.md](KEYS.md) — chiavi cross-repo (URN, id_ddl, atto_num)
 
-Rigenera i parquet dai dati sorgente:
+## Limiti
 
-```bash
-python -m legal_graph.build_legal_nodes
-python -m legal_graph.build_legal_edges
-python -m legal_graph.temporal_enrichment
-python -m legal_graph.eu_enrichment
-```
+- `legal_text` copre gli atti di **normativa** (italia-corpus); per altri testi restano i repo dati
+- Nessuna ricerca full-text dentro i corpus di testo (si cerca su titoli e relazioni del grafo)
+- Relazioni UE e archi temporali sono opzionali e non nel compose principale
 
-## Struttura
+## Partecipa
 
-```
-legal-graph/
-├── legal_graph/
-│   ├── __init__.py
-│   ├── mcp_server.py              # MCP server (8 tool)
-│   ├── build_legal_nodes.py       # Unifica nodi da 11 fonti
-│   ├── build_legal_edges.py       # Unifica archi (13 tipi)
-│   ├── temporal_enrichment.py     # Archi temporali
-│   └── eu_enrichment.py           # Arricchimento EUR-Lex
-├── dashboard/
-│   ├── app.py                     # Dashboard Streamlit (3 tab)
-│   └── requirements.txt
-├── data/
-│   ├── legal_nodes.parquet        # 472.610 nodi
-│   ├── legal_edges.parquet        # 707.857 archi statici
-│   ├── legal_edges_temporal.parquet # 61.096 archi temporali
-│   ├── legal_nodes_eu.parquet     # 632 nodi UE
-│   └── legal_edges_eu.parquet     # 1.745 archi EU
-├── pyproject.toml
-├── PIANO.md
-├── notes.md
-└── README.md
-```
+- [Discussions del Lab](https://github.com/orgs/dataciviclab/discussions) — idee, limiti, nuove domande sul grafo
+- [Issue del Lab](https://github.com/dataciviclab/dataciviclab/issues) — bug o proposte cross-repo
+- Contributi al codice: vedi [CONTRIBUTING del Lab](https://github.com/dataciviclab/dataciviclab/blob/main/COME-CONTRIBUIRE.md)
 
-## Licenza
+## Licenza e CI
 
-MIT — dati: pubblico dominio (Normattiva, Corte Costituzionale, EUR-Lex, Senato)
+[![CI](https://github.com/dataciviclab/legal-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/dataciviclab/legal-graph/actions/workflows/ci.yml)
 
-Progetto del [DataCivicLab](https://github.com/dataciviclab).
+Dati: pubblico dominio dalle fonti ufficiali (Normattiva, Corte Costituzionale, Parlamento).  
+Codice: [MIT](LICENSE) — DataCivicLab.

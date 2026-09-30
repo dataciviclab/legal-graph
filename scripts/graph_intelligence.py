@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
-"""Legal Graph — Intelligence layer.
+"""Legal Graph — Intelligence layer (CLI).
 
-Computes graph metrics and generates insights:
-- Impact score: weighted incoming references
-- Complexity score: weighted outgoing references
-- Age: years since enactment
-- Last referenced: when was this law last cited
+Calcola metriche di impatto/complessità/età dal grafo compose e scrive
+`data/graph_metrics.parquet` (letto da MCP legal_insights).
 
 Usage:
-  python -m legal_graph.graph_intelligence
+  python scripts/graph_intelligence.py
+  python scripts/graph_intelligence.py --dry-run
 """
 
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-NODES_FILE = DATA_DIR / "legal_nodes.parquet"
-EDGES_FILE = DATA_DIR / "legal_edges.parquet"
+from legal_graph.paths import (
+    resolve_edges_file,
+    resolve_nodes_file,
+)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_ROOT / "data"
 OUTPUT_FILE = DATA_DIR / "graph_metrics.parquet"
 
 # Relations that matter for intelligence
@@ -34,7 +36,7 @@ ANALYSIS_RELATIONS = (
 
 def compute_metrics(con: duckdb.DuckDBPyConnection) -> None:
     """Compute all graph metrics."""
-    current_year = datetime.now().year
+    current_year = datetime.now(UTC).year
 
     # 1. Incoming edges (impact on this node)
     print("Computing incoming metrics...")
@@ -199,7 +201,7 @@ def generate_report(con: duckdb.DuckDBPyConnection) -> str:
             AVG(age_years) as avg_age
         FROM node_metrics
     """).fetchone()
-    lines.append(f"\n📊 SUMMARY")
+    lines.append("\n📊 SUMMARY")
     lines.append(f"  Total nodes: {stats[0]:,}")
     lines.append(f"  Critical: {stats[1]}")
     lines.append(f"  Important: {stats[2]}")
@@ -219,11 +221,15 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    nodes_file = resolve_nodes_file()
+    edges_file = resolve_edges_file()
     con = duckdb.connect(":memory:")
 
     print("Loading graph data...")
-    con.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{NODES_FILE}')")
-    con.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{EDGES_FILE}')")
+    print(f"  nodes:  {nodes_file}")
+    print(f"  edges:  {edges_file}")
+    con.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{nodes_file}')")
+    con.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges_file}')")
     n_nodes = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
     n_edges = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
     print(f"  {n_nodes:,} nodi, {n_edges:,} archi")

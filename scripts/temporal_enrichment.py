@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Legal Graph — Temporal enrichment from Normattiva API + existing data.
+"""Legal Graph — Temporal enrichment (CLI sperimentale, non nel compose).
 
-Strategy:
-1. Query Normattiva API for validity dates (articoloDataInizioVigenza/FineVigenza)
-2. Add temporal edges: atto modifica atto (based on riferimenti + dates)
-3. Add validity windows to nodes
-4. Produce data/legal_edges_temporal.parquet
+Euristica: modifica/entra_in_vigore da riferimenti + date, parziale API Normattiva.
+Output: data/legal_edges_temporal.parquet
 
 Usage:
   python scripts/temporal_enrichment.py [--sample N]
@@ -21,14 +18,23 @@ from urllib.request import Request, urlopen
 
 import duckdb
 
-WORKSPACE = Path(__file__).resolve().parent.parent.parent.parent
-OUTDIR = Path(__file__).resolve().parent.parent / "data"
+REPO_ROOT = Path(__file__).resolve().parent.parent  # .../legal-graph
+WORKSPACE = REPO_ROOT.parent.parent  # .../dataciviclab-workspace
+OUTDIR = REPO_ROOT / "data"
 
-# Source paths
-NORMATIVA = WORKSPACE / "italia-corpus" / "data" / "derived" / "normativa.parquet"
-RIFERIMENTI = WORKSPACE / "italia-corpus" / "data" / "derived" / "riferimenti.parquet"
-GU_ACTS = WORKSPACE / "gu-monitor" / "data" / "gu_acts.parquet"
-GU_LINKS = WORKSPACE / "gu-monitor" / "data" / "gu_links.json"
+# Fallback locale diritto-legge (script sperimentale; compose legge da rete)
+def _src(*legacy_parts: str) -> Path:
+    return WORKSPACE.joinpath(*legacy_parts)
+
+
+NORMATIVA = _src("diritto-legge", "italia-corpus", "data", "derived", "normativa.parquet")
+RIFERIMENTI = _src("diritto-legge", "italia-corpus", "data", "derived", "riferimenti.parquet")
+GU_ACTS = _src("diritto-legge", "gu-monitor", "data", "gu_acts.parquet")
+GU_LINKS = WORKSPACE / "diritto-legge" / "gu-monitor" / "data" / "gu_links.json"
+if not GU_LINKS.exists():
+    GU_LINKS = WORKSPACE / "gu-monitor" / "data" / "gu_links.json"
+
+# Output: resto in data/ (layer separato dal compose mart)
 LEGAL_NODES = OUTDIR / "legal_nodes.parquet"
 LEGAL_EDGES = OUTDIR / "legal_edges.parquet"
 

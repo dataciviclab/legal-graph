@@ -11,27 +11,31 @@ from __future__ import annotations
 
 import duckdb
 import pytest
-from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-NODES_FILE = DATA_DIR / "legal_nodes.parquet"
-EDGES_FILE = DATA_DIR / "legal_edges.parquet"
-TEMPORAL_FILE = DATA_DIR / "legal_edges_temporal.parquet"
-METRICS_FILE = DATA_DIR / "graph_metrics.parquet"
+from legal_graph.paths import (
+    resolve_edges_file,
+    resolve_metrics_file,
+    resolve_nodes_file,
+    resolve_temporal_file,
+)
 
 
 @pytest.fixture(scope="module")
 def con():
-    """In-memory DuckDB with graph data loaded."""
+    """In-memory DuckDB with graph data loaded (compose o legacy)."""
     c = duckdb.connect(":memory:")
-    if NODES_FILE.exists():
-        c.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{NODES_FILE}')")
-    if EDGES_FILE.exists():
-        c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{EDGES_FILE}')")
-    if TEMPORAL_FILE.exists():
-        c.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{TEMPORAL_FILE}')")
-    if METRICS_FILE.exists():
-        c.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{METRICS_FILE}')")
+    nodes_file = resolve_nodes_file()
+    edges_file = resolve_edges_file()
+    temporal_file = resolve_temporal_file()
+    metrics_file = resolve_metrics_file()
+    if nodes_file.exists():
+        c.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{nodes_file}')")
+    if edges_file.exists():
+        c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges_file}')")
+    if temporal_file is not None and temporal_file.exists():
+        c.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{temporal_file}')")
+    if metrics_file is not None and metrics_file.exists():
+        c.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{metrics_file}')")
     yield c
     c.close()
 

@@ -1,27 +1,16 @@
-# Cross-Repo Key Schema — Piano di Integrazione
+# Cross-Repo Key Schema — Legal Graph
 
-Data: 2026-09-07
-Stato: ATTUALE
+Data: 2026-09-07  
+Aggiornato: 2026-09-30 (compose toolkit)  
+Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 
-## Architettura semplificata
+## Architettura (oggi)
 
 ```
-senato-akn:
-  extract → union → clean → mart
-  3 dataset indipendenti (corpus, emendamenti, dibattito)
-  NO composed, NO edges, NO summaries
-
-open-politica:
-  extract → clean → mart
-  1 dataset: senato_ddl (con atto_num alias + anno)
-
-italia-corpus:
-  extract → clean
-  1 dataset: normativa
-
-legal-graph:
-  legge clean da TUTTI i repo
-  costruisce nodi + edge cross-repo
+upstream (GCS / GitHub raw)
+  → compose toolkit (dataset.yml + sql/mart_legal_*.sql)
+  → out/data/mart/legal_graph/2026/
+  → MCP legal-graph (search / chain / jurisprudence / legal_text)
 ```
 
 ## Le Chiavi

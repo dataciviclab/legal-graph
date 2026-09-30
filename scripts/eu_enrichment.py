@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""Legal Graph — EUR-Lex enrichment.
+"""Legal Graph — EUR-Lex enrichment (CLI sperimentale, non nel compose).
 
-Fetches ELI metadata from EUR-Lex for Italian acts with CELEX identifiers.
-Builds EU nodes (directives, regulations) and edges (recepisce/attua).
-
-Strategy:
-  1. Extract CELEX from italia-corpus (757 acts)
-  2. Fetch EUR-Lex HTML for each CELEX (rate-limited, cached)
-  3. Parse ELI metadata: type, dates, EuroVoc concepts
-  4. Build nodes + edges
+Fetch ELI metadata da EUR-Lex per atti italiani con CELEX.
+Output opzionale in `data/legal_nodes_eu.parquet` + `legal_edges_eu.parquet`.
 
 Usage:
-  python -m legal_graph.eu_enrichment [--limit N] [--cache-only]
+  python scripts/eu_enrichment.py [--limit N] [--cache-only]
 """
 
 from __future__ import annotations
@@ -26,11 +20,17 @@ from urllib.request import Request, urlopen
 
 import duckdb
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-NORMATIVA = Path(__file__).resolve().parent.parent.parent.parent / "italia-corpus" / "data" / "derived" / "normativa.parquet"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_ROOT / "data"
+
 CACHE_FILE = DATA_DIR / "eu_cache.json"
 EU_NODES_FILE = DATA_DIR / "legal_nodes_eu.parquet"
 EU_EDGES_FILE = DATA_DIR / "legal_edges_eu.parquet"
+# CELEX extraction: prefer compose mart, fallback legacy data/
+NORMATIVA_CANDIDATES = [
+    REPO_ROOT / "out/data/mart/legal_graph/2026/mart_legal_nodes.parquet",
+    DATA_DIR / "legal_nodes.parquet",
+]
 
 # CELEX type codes → human-readable
 CELEX_TYPES = {
@@ -59,11 +59,21 @@ def _save_cache(cache: dict) -> None:
 
 
 def _extract_celex_from_normativa() -> list[dict]:
-    """Extract acts with CELEX from italia-corpus."""
+    """Extract acts with CELEX from compose mart (fallback legacy)."""
+    src = next((p for p in NORMATIVA_CANDIDATES if p.exists()), None)
+    if src is None:
+        raise FileNotFoundError("Nessuna fonte normativa per estrazione CELEX")
     con = duckdb.connect(":memory:")
-    con.execute(f"CREATE TABLE n AS SELECT * FROM read_parquet('{NORMATIVA}')")
-    result = con.execute("""
-        SELECT urn, celex, tipo, anno_atto, oggetto, filename
+    con.execute(f"CREATE TABLE n AS SELECT * FROM read_parquet('{src}')")
+    # Compose mart usa `id` come URN; upstream normativa usa `urn`
+    cols = [r[0] for r in con.execute("DESCRIBE n").fetchall()]
+    urn_col = "id" if "id" in cols else "urn"
+    year_col = "anno" if "anno" in cols else "anno_atto"
+    title_col = "title" if "title" in cols else "oggetto"
+    file_col = "source_filename" if "source_filename" in cols else "filename"
+    result = con.execute(f"""
+        SELECT {urn_col} AS urn, celex, tipo, {year_col} AS anno_atto, {title_col} AS oggetto,
+               {file_col} AS filename
         FROM n
         WHERE NULLIF(celex, '') IS NOT NULL
     """).fetchall()
@@ -237,8 +247,15 @@ def main() -> int:
     print("\nCostruzione nodi e archi EU...")
     con = duckdb.connect(":memory:")
 
-    # Load Italia nodes
-    con.execute(f"CREATE TABLE nodes_italia AS SELECT id AS urn, celex, anno FROM read_parquet('{DATA_DIR / 'legal_nodes.parquet'}') WHERE NULLIF(celex, '') IS NOT NULL")
+    # Load Italia nodes (compose mart → upstream → legacy)
+    italia_nodes = next((p for p in NORMATIVA_CANDIDATES if p.exists()), None)
+    if italia_nodes is None:
+        raise FileNotFoundError("Nessuna fonte nodi Italia trovata per eu_enrichment")
+    print(f"  Fonte nodi Italia: {italia_nodes}")
+    con.execute(
+        f"CREATE TABLE nodes_italia AS SELECT id AS urn, celex, anno "
+        f"FROM read_parquet('{italia_nodes}') WHERE NULLIF(celex, '') IS NOT NULL"
+    )
     n_italia = con.execute("SELECT COUNT(*) FROM nodes_italia").fetchone()[0]
     print(f"  Att italiani con CELEX: {n_italia}")
 

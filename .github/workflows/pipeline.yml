@@ -1,0 +1,53 @@
+# Pipeline — legal-graph
+#
+# Mart-only compose: legge nodi/archi da GitHub raw + GCS HTTPS,
+# produce out/data/mart/legal_graph/<year>/.
+# I parquet restano gitignored: la CI li ricostruisce; non sono source of truth.
+#
+# Triggers:
+#   - schedule: ogni lunedì 06:00 UTC (dopo eventuali update upstream)
+#   - push su main: su dataset.yml / sql/**
+#   - workflow_dispatch: manuale
+
+name: Pipeline
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - 'dataset.yml'
+      - 'sql/**'
+  workflow_dispatch:
+
+concurrency:
+  group: legal-graph-pipeline
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dataciviclab/.github/actions/python-setup@main
+        with:
+          install-extras: "dev,pipeline,mcp"
+
+      - name: Build compose
+        run: make run
+
+      - name: Intelligence (metriche)
+        run: make intelligence
+
+      - name: Verify tests on built graph
+        run: make test
+
+      - name: Upload mart artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: legal-graph-mart
+          path: out/data/mart/legal_graph/
+          retention-days: 14

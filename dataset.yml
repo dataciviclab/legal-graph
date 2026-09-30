@@ -1,0 +1,119 @@
+# legal-graph — compose mart-only del Legal Knowledge Graph
+#
+# Modello pil-intelligence: nessun raw/clean propri. I SQL leggono i
+# parquet upstream **direttamente da rete** (GitHub raw / GCS HTTPS)
+# via support type: external — senza materializzarli in locale.
+#
+# Output: out/data/mart/legal_graph/2026/
+#   - mart_legal_nodes.parquet
+#   - mart_legal_edges.parquet
+
+root: "out"
+schema_version: 1
+
+dataset:
+  name: "legal_graph"
+  source_id: "dataciviclab_composite"
+  tags: [diritto, normativa, legal-graph, compose, knowledge-graph]
+  category: normativa
+  description: >
+    Legal Knowledge Graph: nodi unici e relazioni legislative/materiali
+    unificati da italia-corpus, costituzione-italiana, gu-monitor,
+    senato-akn e open-politica. Fonti lette da rete (GCS/GitHub).
+  years: [2026]
+  time_coverage:
+    start_year: 1874
+    end_year: 2026
+
+# Nessuna sezione raw/clean: mart-only compose.
+
+support:
+  # ── italia-corpus (derived committati sul repo GitHub) ──────────
+  - name: normativa
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/normativa.parquet"
+  - name: riferimenti
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/riferimenti.parquet"
+  - name: citazioni_costituzionali
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/citazioni-costituzionali.parquet"
+  - name: pnrr_references
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/pnrr_references.parquet"
+  - name: abrogations_raw
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/abrogations_raw.parquet"
+
+  # ── gu-monitor ──────────────────────────────────────────────────
+  - name: gu_acts
+    type: external
+    uri: "https://raw.githubusercontent.com/dataciviclab/gu-monitor/main/data/gu_acts.parquet"
+
+  # ── costituzione-italiana (GCS clean) ───────────────────────────
+  - name: articoli_costituzione
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/articoli_costituzione/2026/articoli_costituzione_2026_clean.parquet"
+  - name: revisioni_costituzionali
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/revisioni_costituzionali/2026/revisioni_costituzionali_2026_clean.parquet"
+  - name: pronunce_corte_costituzionale
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/pronunce_corte_costituzionale/2026/pronunce_corte_costituzionale_2026_clean.parquet"
+  - name: massime_corte_costituzionale
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/massime_corte_costituzionale/2026/massime_corte_costituzionale_2026_clean.parquet"
+  - name: giudici_corte_costituzionale
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/giudici_corte_costituzionale/2026/giudici_corte_costituzionale_2026_clean.parquet"
+  - name: atti_promovimento
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/atti_promovimento_corte_costituzionale/2026/atti_promovimento_corte_costituzionale_2026_clean.parquet"
+
+  # ── senato-akn (GCS clean — file grandi) ───────────────────────
+  - name: senato_corpus
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_corpus/2026/senato_corpus_2026_clean.parquet"
+  - name: senato_emendamenti
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_emendamenti/2026/senato_emendamenti_2026_clean.parquet"
+  - name: senato_dibattito
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_dibattito/2026/senato_dibattito_2026_clean.parquet"
+
+  # ── open-politica multi-anno (legislature 13–19) ───────────────
+  # SQL usa {support.NAME.outputs} (lista URL) + union_by_name
+  - name: senato_ddl
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_ddl/{year}/senato_ddl_{year}_clean.parquet"
+    years: [13, 14, 15, 16, 17, 18, 19]
+  - name: camera_ddl
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_ddl/{year}/camera_ddl_{year}_clean.parquet"
+    years: [13, 14, 15, 16, 17, 18, 19]
+  - name: camera_leggi
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_leggi/{year}/camera_leggi_{year}_clean.parquet"
+    years: [13, 14, 15, 16, 17, 18, 19]
+
+mart:
+  tables:
+    - name: "mart_legal_nodes"
+      sql: "sql/mart_legal_nodes.sql"
+    - name: "mart_legal_edges"
+      sql: "sql/mart_legal_edges.sql"
+  required_tables:
+    - "mart_legal_nodes"
+    - "mart_legal_edges"
+  validate:
+    table_rules:
+      mart_legal_nodes:
+        required_columns: [id, tipo, title, source]
+        primary_key: [id]
+        min_rows: 10000
+      mart_legal_edges:
+        required_columns: [source_id, relation, target_id, weight]
+        min_rows: 10000
+
+validation:
+  fail_on_error: true
