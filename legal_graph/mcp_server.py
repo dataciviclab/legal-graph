@@ -47,7 +47,7 @@ _CHAIN_RELS = (
     "collega_ue",
     "cita_costituzione",
 )
-_TITLE_SEARCH = 200
+_TITLE_SEARCH = 280
 _TITLE_NODE = 500
 _TITLE_EDGE = 120
 
@@ -446,15 +446,25 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         """,
         [actual_id],
     ).fetchall()
+    # I nodi emendamento hanno titolo unico per emendamento: raggruppare per
+    # title dà sempre n=1. Utile: distribuzione per legislatura (dal source_id).
     top_emendatori = con.execute(
         """
-        SELECT n.title, COUNT(*) AS cnt
-        FROM edges e JOIN nodes n ON e.source_id = n.id
+        SELECT
+          CAST(NULLIF(regexp_extract(e.source_id, 'senato:emend:(\\d+):', 1), '') AS INTEGER)
+            AS legislatura,
+          COUNT(*) AS cnt
+        FROM edges e
         WHERE e.target_id = ? AND e.relation = 'emendamento'
-        GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+        GROUP BY 1
+        ORDER BY 2 DESC
+        LIMIT 8
         """,
         [actual_id],
     ).fetchall()
+    top_emendatori = [
+        {"legislatura": r[0], "n_emendamenti": r[1]} for r in top_emendatori if r[0] is not None
+    ]
     n_interventi = con.execute(
         "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'intervento'",
         [actual_id],
@@ -494,9 +504,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         "emendamenti": [
             {"id": r[0], "title": r[1], "anno": r[2], "weight": r[3]} for r in emendamenti
         ],
-        "top_emendatori": [
-            {"autore": r[0], "n_emendamenti": r[1]} for r in top_emendatori
-        ],
+        "emendamenti_per_legislatura": top_emendatori,
         "n_interventi": n_interventi,
         "interventi": [{"id": r[0], "title": r[1], "anno": r[2]} for r in interventi],
         "diventa_legge": [{"id": r[0], "title": r[1], "anno": r[2]} for r in diventa],
@@ -595,19 +603,31 @@ def _impl_search(
         year = num_m.group(2)
         if year and len(year) == 2:
             year = "20" + year
-        # ura tipo urn:nir:...:2001-06-08;231
         id_pattern = f"%{year}%;{num}" if year else f"%;{num}"
-        title_num = f"%n. {num}%" if not year else f"%{year}%n. {num}%"
+        title_num = f"%{year}%n. {num}%" if year else f"%n. {num}%"
+        metrics_path = str(METRICS_FILE) if METRICS_FILE and METRICS_FILE.exists() else None
+        if metrics_path:
+            order = """
+              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
+              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
+              COALESCE((SELECT m.referenced_by FROM read_parquet(?) m WHERE m.id = nodes.id), 0) DESC,
+              anno DESC NULLS LAST, title
+            """
+            extra_params = [id_pattern, metrics_path]
+        else:
+            order = """
+              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
+              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
+              anno DESC NULLS LAST, title
+            """
+            extra_params = [id_pattern]
         batch = con.execute(
             f"""
             SELECT id, tipo, title, CAST(data AS VARCHAR), anno, source
             FROM nodes
             WHERE {base_cond}{filters} AND source = 'normativa'
               AND (id LIKE ? OR LOWER(title) LIKE ? OR LOWER(title) LIKE ?)
-            ORDER BY
-              CASE WHEN id LIKE ? THEN 0 ELSE 1 END,
-              CASE WHEN tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') THEN 0 ELSE 1 END,
-              anno DESC NULLS LAST, title
+            ORDER BY {order}
             LIMIT {limit}
             """,
             [
@@ -616,7 +636,7 @@ def _impl_search(
                 id_pattern,
                 title_num,
                 f"%n.{num}%",
-                id_pattern,
+                *extra_params,
             ],
         ).fetchall()
         _absorb(batch)
@@ -702,13 +722,19 @@ def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str
     if not node_row:
         return {"error": f"Nodo non trovato: {node_id}"}
 
-    if view == "overview":
-        return _view_overview(con, node_row)
-    if view == "chain":
-        return _view_chain(con, node_row, depth)
-    if view == "jurisprudence":
-        return _view_jurisprudence(con, node_row)
-    return _view_parliament(con, node_row)
+    try:
+        if view == "overview":
+            return _view_overview(con, node_row)
+        if view == "chain":
+            return _view_chain(con, node_row, depth)
+        if view == "jurisprudence":
+            return _view_jurisprudence(con, node_row)
+        return _view_parliament(con, node_row)
+    except Exception as e:  # noqa: BLE001 — non far crashare l'MCP su nodi pesanti
+        return {
+            "error": f"view={view} fallita per {node_row[0]!r}: {type(e).__name__}: {e}",
+            "node_id": node_row[0] if node_row else node_id,
+        }
 
 
 # ─── Tool 3: legal_text ──────────────────────────────────────────
@@ -734,7 +760,7 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
     base = {
         "id": node["id"],
         "tipo": node["tipo"],
-        "title": (node.get("title") or "")[:200],
+        "title": (node.get("title") or "")[:300],
         "data": node.get("data"),
         "anno": node.get("anno"),
         "source": node.get("source"),
@@ -787,6 +813,17 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
         sql_clean = f"{sql_clean.rstrip()} LIMIT {limit}"
     try:
         result = con.execute(sql_clean)
+        if result.description is None:
+            # PRAGMA/SHOW senza description: restituisci almeno ok + columns note
+            try:
+                raw = result.fetchall()
+            except duckdb.Error:
+                raw = []
+            if raw and isinstance(raw[0], (tuple, list)):
+                # heuristic: PRAGMA table_info -> campi noti
+                cols = ["cid", "name", "type", "notnull", "dflt_value", "pk"]
+                return [dict(zip(cols, list(r))) for r in raw[:limit]]
+            return [{"ok": True, "note": "PRAGMA/SHOW eseguito senza tabella risultati", "rows": len(raw)}]
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()[:limit]
     except duckdb.Error as e:
