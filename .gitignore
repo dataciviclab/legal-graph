@@ -5,7 +5,7 @@ data/*.json
 data/*.cache
 data/text_cache/
 out/data/_runs/
-out/data/mart/*/_run/
+out/data/mart/**/_run/
 
 # Python
 __pycache__/
