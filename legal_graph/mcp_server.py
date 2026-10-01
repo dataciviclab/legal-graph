@@ -1194,10 +1194,15 @@ def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _base_order(exact_id: str | None = None) -> str:
+    """Ranking: id esatto → tipi normativi → Cost. → resto → metrics."""
     parts = []
     if exact_id:
         parts.append(f"CASE WHEN k.id = '{exact_id}' THEN 0 ELSE 1 END")
-    parts.append("k.is_major")
+    parts.append(
+        "CASE WHEN k.tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') "
+        "THEN 0 WHEN k.source = 'costituzione' AND k.tipo = 'COSTITUZIONE' THEN 1 "
+        "WHEN k.source = 'costituzione' THEN 2 ELSE 3 END"
+    )
     parts.append("COALESCE(m.referenced_by, 0) DESC")
     parts.extend(["k.anno DESC NULLS LAST", "k.title"])
     return ", ".join(parts)
@@ -1331,16 +1336,15 @@ def _impl_search(
             num, year = am.group(1), am.group(2)
             if len(year) == 2:
                 year = "20" + year
+            # WHERE stretto: solo id_num+id_year o pattern id — niente LIKE titolo
             fw = (
-                "((k.id_num = ? AND k.id_year = ?) OR k.id LIKE ? OR k.id LIKE ? "
-                "OR LOWER(k.title_folded) LIKE ?)"
+                "((k.id_num = ? AND k.id_year = ?) OR k.id LIKE ? OR k.id LIKE ?)"
             )
             fp = [
                 num,
                 year,
                 f"%{year}%;{num}",
                 f"%:{num}:{year}%",
-                f"%n. {num}%",
             ]
             hits = _run_sk(con, fw, fp, _base_order(), extra_where, extra_params, limit)
             hits = [h for h in hits if h.get("id")]
@@ -1361,7 +1365,9 @@ def _impl_search(
                         if tipo in {"LEGGE", "DECRETO LEGISLATIVO", "DECRETO-LEGGE", "DECRETO"}
                         else 1
                     )
-                    return (exact, major, hid)
+                    # preferisci URN/norma legge su sentenza con stesso numero
+                    kind_pen = 0 if hid.startswith(("urn:", "norma:legge")) else 1
+                    return (exact, major, kind_pen, hid)
 
                 hits_sorted = sorted(hits, key=_rank)
                 return hits_sorted[:limit]
