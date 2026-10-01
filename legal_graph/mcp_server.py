@@ -80,6 +80,14 @@ _EN_IT_GLOSSARY: dict[str, list[str]] = {
     "whistleblower": ["segnalazione", "segnalazioni"],
     "ombudsman": ["garante", "difensore"],
     "data": ["dati", "personali"],
+    # Lab themes → ancoraggi a mart (non FTS)
+    "anticorruzione": ["corruzione", "190/2012", "231/2001", "anac"],
+    "anticorrupt": ["corruzione", "190/2012", "231/2001"],
+    "trasparenza": ["accesso civico", "33/2013", "pubblicazione"],
+    "foia": ["accesso civico", "trasparenza", "33/2011", "accesso agli atti"],
+    "open data": ["dati aperti", "accesso civico"],
+    "gdpr": ["protezione dati", "privacy", "101/2018"],
+    "privacy": ["protezione dati", "196/2003", "101/2018"],
 }
 
 # Prefissi stabili per ridurre rumore su match parziale
@@ -542,14 +550,34 @@ def _attua_delega_hint(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[
 
 def _view_overview(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
+    try:
+        counts = _relation_counts(con, actual_id)
+    except Exception:  # noqa: BLE001
+        counts = {"out": {}, "in": {}, "source": "error"}
+    try:
+        top_out = _top_edges(con, column="source_id", actual_id=actual_id)
+    except Exception:  # noqa: BLE001
+        top_out = []
+    try:
+        top_in = _top_edges(con, column="target_id", actual_id=actual_id)
+    except Exception:  # noqa: BLE001
+        top_in = []
+    try:
+        hint = _attua_delega_hint(con, node_row)
+    except Exception:  # noqa: BLE001
+        hint = None
+    try:
+        intel = _node_intelligence(actual_id)
+    except Exception:  # noqa: BLE001
+        intel = None
     return {
         "view": "overview",
         "node": _node_payload(node_row),
-        "relation_counts": _relation_counts(con, actual_id),
-        "top_outgoing": _top_edges(con, column="source_id", actual_id=actual_id),
-        "top_incoming": _top_edges(con, column="target_id", actual_id=actual_id),
-        "attua_delega_hint": _attua_delega_hint(con, node_row),
-        "intelligence": _node_intelligence(actual_id),
+        "relation_counts": counts,
+        "top_outgoing": top_out,
+        "top_incoming": top_in,
+        "attua_delega_hint": hint,
+        "intelligence": intel,
         "next": [
             "legal_text(node_id) per il testo (se source=normativa)",
             "legal_node(node_id, view='chain'|'jurisprudence'|'parliament')",
@@ -1294,6 +1322,39 @@ def _impl_search(
         extra_where += " AND k.source = ?"
         extra_params.append(source)
 
+    # glossario Lab: NNN/YYYY o NNNN/YYYY → search numero prioritario
+    if kind == "phrase":
+        for term in list(intent.get("terms") or []):
+            am = re.fullmatch(r"(\d{3,4})/(\d{2,4})", term)
+            if not am:
+                continue
+            num, year = am.group(1), am.group(2)
+            if len(year) == 2:
+                year = "20" + year
+            fw = (
+                "((k.id_num = ? AND k.id_year = ?) OR k.id LIKE ? OR k.id LIKE ? "
+                "OR LOWER(k.title_folded) LIKE ?)"
+            )
+            fp = [
+                num,
+                year,
+                f"%{year}%;{num}",
+                f"%:{num}:{year}%",
+                f"%n. {num}%",
+            ]
+            hits = _run_sk(con, fw, fp, _base_order(), extra_where, extra_params, limit)
+            hits = [h for h in hits if h.get("id")]
+            if hits:
+                def _rank(h: dict[str, Any]) -> tuple:
+                    hid = h.get("id") or ""
+                    tipo = (h.get("tipo") or "").upper()
+                    exact = 0 if (hid.endswith(f":{num}:{year}") or (year in hid and hid.rstrip().endswith(f";{num}"))) else 1
+                    major = 0 if tipo in {"LEGGE", "DECRETO LEGISLATIVO", "DECRETO-LEGGE", "DECRETO"} else 1
+                    return (exact, major, hid)
+
+                hits_sorted = sorted(hits, key=_rank)
+                return hits_sorted[:limit]
+
     # "sentenze"/"pronunce" + filter source costituzione → intent sentenza
     if kind == "phrase" and source == "costituzione":
         raw_terms = " ".join(intent.get("terms") or [])
@@ -1429,12 +1490,33 @@ def _impl_search(
         terms = intent.get("terms") or []
         if not terms:
             return []
-        anchors = [t for t in terms if re.fullmatch(r"\d{4}/\d{1,4}", t)]
+        anchors = [
+            t for t in terms if re.fullmatch(r"\d{3,4}/\d{2,4}", t)
+        ]
         if anchors:
-            where = "k.source = 'normativa' AND (" + " OR ".join(
-                "LOWER(k.title_folded) LIKE ?" for _ in anchors
-            ) + ")"
-            params.extend([f"%{a}%" for a in anchors])
+            # NNN/YYYY o NNNN/YYYY → id_num/id_year + title, non solo LIKE titolo
+            clauses = []
+            for a in anchors:
+                num, year = a.split("/", 1)
+                if len(year) == 2:
+                    year = "20" + year
+                clauses.append(
+                    "(k.id_num = ? AND k.id_year = ?) "
+                    "OR k.id LIKE ? OR k.id LIKE ? "
+                    "OR LOWER(k.title_folded) LIKE ? "
+                    "OR LOWER(k.title_folded) LIKE ?"
+                )
+                params.extend(
+                    [
+                        num,
+                        year,
+                        f"%{year}%;{num}",
+                        f"%:{num}:{year}%",
+                        f"%{a}%",
+                        f"%n. {num}%",
+                    ]
+                )
+            where = "(" + " OR ".join(clauses) + ")"
             order = _base_order()
         else:
             # 1) AND; se vuoto → OR (niente over-filter su topic libero)
@@ -1602,8 +1684,8 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
     name="legal_query",
     description=(
         "SQL sul grafo. Ammessi: SELECT, WITH, PRAGMA, DESCRIBE, SHOW, EXPLAIN. "
-        "Tabelle: nodes, edges, [metrics|search_keys|node_rel|emend_leg|texts|massime|temporal]. "
-        "Niente scritture."
+        "Tabelle: nodes, edges, metrics, search_keys, node_rel, emend_leg, texts, massime. "
+        "URN con ';' in IN/LIKE: stringhe single-quote. Niente scritture."
     ),
     structured_output=True,
 )
@@ -1694,6 +1776,13 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
                 "GROUP BY su edges non dovrebbe essere vuoto: "
                 "usa alias espliciti (es. COUNT(*) AS n) e LIMIT."
             )
+        if " IN (" in sql_clean.upper() and ";" in sql_clean:
+            hint = (
+                "URN con ';' dentro IN: usa stringhe single-quote "
+                "(es. id IN ('urn:...;24')). DuckDB tratta ; come separatore se non quotato."
+            )
+        if "metrics" in sql_clean and "id" in sql_clean and not _view_exists(con, "metrics"):
+            hint = "View metrics assente — make run."
         return [
             {
                 "note": "SELECT valida ma 0 righe",
