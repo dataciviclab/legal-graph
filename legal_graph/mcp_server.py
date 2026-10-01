@@ -1345,11 +1345,22 @@ def _impl_search(
             hits = _run_sk(con, fw, fp, _base_order(), extra_where, extra_params, limit)
             hits = [h for h in hits if h.get("id")]
             if hits:
-                def _rank(h: dict[str, Any]) -> tuple:
+                num_c, year_c = num, year
+
+                def _rank(h: dict[str, Any], _n: str = num_c, _y: str = year_c) -> tuple:
                     hid = h.get("id") or ""
                     tipo = (h.get("tipo") or "").upper()
-                    exact = 0 if (hid.endswith(f":{num}:{year}") or (year in hid and hid.rstrip().endswith(f";{num}"))) else 1
-                    major = 0 if tipo in {"LEGGE", "DECRETO LEGISLATIVO", "DECRETO-LEGGE", "DECRETO"} else 1
+                    exact = (
+                        0
+                        if hid.endswith(f":{_n}:{_y}")
+                        or (_y in hid and hid.rstrip().endswith(f";{_n}"))
+                        else 1
+                    )
+                    major = (
+                        0
+                        if tipo in {"LEGGE", "DECRETO LEGISLATIVO", "DECRETO-LEGGE", "DECRETO"}
+                        else 1
+                    )
                     return (exact, major, hid)
 
                 hits_sorted = sorted(hits, key=_rank)
