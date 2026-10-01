@@ -68,16 +68,21 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose 6 mart + MCP thin | ✅ |
+| Compose mart + MCP thin | ✅ 8 tabelle (nodes, edges, metrics, search_keys, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline commit mart |
+| Copertura onesta | ✅ [docs/COVERAGE.md](docs/COVERAGE.md) |
+| Bank analisi / Discussion | ✅ [docs/ANALISI.md](docs/ANALISI.md) |
 | Repo pubblico / MCP template org | ⏳ non ancora |
-| FTS testi / body sentenze | ❌ gap corpus |
-| L.40/2004, L.194/1978 nel mart | ❌ gap corpus |
+| Hub FOIA 33/2011, 241/1990 | ❌ gap (solo `norma:*`) |
+| Codici c.c./c.p. navigabili | ❌ gap |
+| FTS / giurisprudenza ordinaria / PNRR dataset | ❌ fuori grafo |
 
 ## Prossimi passi
 
-1. Repo pubblico + scheda projects + MCP nel template org
-2. Solo nodes+edges in git; derivate via `make derived` (storia git leggera)
-3. Dopo: explorer `normativa`, corpus testi per FTS
+1. Discussion attive su questo repo come strumento di analisi (bank ANALISI.md)
+2. Repo pubblico + scheda projects + MCP nel template org
+3. Hub Lab: 33/2013, 241/1990, 190/2012 cercabili
+4. Solo nodes+edges in git; derivate via `make derived` (storia git leggera)
+5. Dopo: explorer `normativa`, dataset PNRR dedicato, non “Normattiva in grafo”

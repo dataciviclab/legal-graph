@@ -107,20 +107,26 @@ Documenti di dettaglio:
 
 - [COMPOSE.md](COMPOSE.md) — come è costruito, mart, CI, limiti
 - [KEYS.md](KEYS.md) — chiavi cross-repo (URN, id_ddl, atto_num)
+- [docs/COVERAGE.md](docs/COVERAGE.md) — mappa onesta di cosa copre / non copre
+- [docs/ANALISI.md](docs/ANALISI.md) — bank di domande per Discussion e agenti
 
-## Limiti
+## Limiti (sintesi)
 
-- `legal_text`: normativa (IC) + mart texts (articoli Cost. con testo, pronunce Corte con dispositivo)
-- Massime Corte: view `massime` per SQL (testo troncato); FTS profondo non dedicato
-- L.40/2004 e L.194/1978: nodi `norma:*` cercabili da numero+anno (titolo sintetico)
-- Relazioni UE e archi temporali opzionali (legacy `data/`)
+Legal Graph è un **motore di contesto relazionale** (processo Senato + Costituzione +
+normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 
+- Coperto bene: catene legislative, `attua_delega`, Corte Cost., D.Lgs “di sistema”
+- Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
+- `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts)
+- Ranking tema umano: in miglioramento; per atti precisi usare **numero/URN/direttiva**
+- Sempre: *dal mart legal-graph, non da Normattiva live*
 
 ## Partecipa
 
-- [Discussions del Lab](https://github.com/orgs/dataciviclab/discussions) — idee, limiti, nuove domande sul grafo
-- [Issue del Lab](https://github.com/dataciviclab/dataciviclab/issues) — bug o proposte cross-repo
-- Contributi al codice: vedi [CONTRIBUTING del Lab](https://github.com/dataciviclab/dataciviclab/blob/main/COME-CONTRIBUIRE.md)
+- **Analisi e confronto**: [Discussions di questo repo](../../discussions) — bank in [docs/ANALISI.md](docs/ANALISI.md)
+- Intake pubblico Lab: [Discussions del Lab](https://github.com/orgs/dataciviclab/discussions)
+- Issue cross-repo: [dataciviclab/dataciviclab](https://github.com/dataciviclab/dataciviclab/issues)
+- Contributi codice: [CONTRIBUTING del Lab](https://github.com/dataciviclab/dataciviclab/blob/main/COME-CONTRIBUIRE.md)
 
 ## Licenza e CI
 
