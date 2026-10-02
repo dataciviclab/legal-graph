@@ -278,6 +278,53 @@ edges_abro AS (
         WHERE NULLIF(urn, '') IS NOT NULL
     ) n ON s.abrogated_year = n.anno_atto
        AND s.abrogated_number = TRY_CAST(n.numero AS INTEGER)
+),
+
+-- Relatori Senato (open-politica senato_relatori): senatore → ddl
+-- Solo se entrambi gli endpoint esistono in mart_legal_nodes
+edges_relatore AS (
+    SELECT
+        'senatore:' || CAST(r.senatore_id AS VARCHAR) AS source_id,
+        'relatore' AS relation,
+        'senato:' || CAST(r.ddl_id AS VARCHAR) AS target_id,
+        1 AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(r.relatore_label, ''), 200) AS evidence
+    FROM read_parquet({support.senato_relatori.outputs}, union_by_name = true) r
+    WHERE r.senatore_id IS NOT NULL
+      AND r.ddl_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senatore:' || CAST(r.senatore_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(r.ddl_id AS VARCHAR)
+      )
+),
+
+-- Firmatari Camera (open-politica camera_firmatari): deputato → atto
+edges_firmatario AS (
+    SELECT
+        'deputato:' || CAST(f.persona_id AS VARCHAR) AS source_id,
+        'firmatario' AS relation,
+        'camera:' || CAST(f.atto_id AS VARCHAR) AS target_id,
+        1 AS weight,
+        f.legislatura AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(f.ruolo, ''), 200) AS evidence
+    FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true) f
+    WHERE f.persona_id IS NOT NULL
+      AND f.atto_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'deputato:' || CAST(f.persona_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
+      )
 )
 
 SELECT
@@ -316,5 +363,9 @@ FROM (
     SELECT * FROM edges_pnrr
     UNION ALL
     SELECT * FROM edges_abro
+    UNION ALL
+    SELECT * FROM edges_relatore
+    UNION ALL
+    SELECT * FROM edges_firmatario
 )
 GROUP BY source_id, relation, target_id

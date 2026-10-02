@@ -95,6 +95,15 @@ support:
     type: external
     uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_leggi/{year}/camera_leggi_{year}_clean.parquet"
     years: [13, 14, 15, 16, 17, 18, 19]
+  # ── open-politica ponti persona↔atto (PR #41/#42) ───────────────
+  - name: senato_relatori
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_relatori/{year}/senato_relatori_{year}_clean.parquet"
+    years: [2026]
+  - name: camera_firmatari
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_firmatari/{year}/camera_firmatari_{year}_clean.parquet"
+    years: [13, 14, 15, 16, 17, 18, 19]
 
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti

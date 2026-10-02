@@ -1,52 +1,52 @@
 {
   "metadata_schema_version": 1,
-  "timestamp_utc": "2026-09-30T23:17:20.114209+00:00",
+  "timestamp_utc": "2026-10-02T14:44:05.018084+00:00",
   "toolkit_version": "1.52.0",
   "layer": "mart",
   "dataset": "legal_graph",
   "year": 2026,
-  "config_hash": "317106e55a514ac47335e88b8b76d22b1b37576ae1d88894977440e29c7ed30e",
+  "config_hash": "03a2371975ff9cfb11b77a4bb05e7eda816947adb6093f8c4ffe76e488f1d4ff",
   "inputs": [],
   "outputs": [
     {
       "file": "mart_legal_nodes.parquet",
-      "sha256": "e42ab996435db1a3f1457db28681c27fb9c388dd8a628d8373cd30f49f52709a",
-      "bytes": 14889408
+      "sha256": "a0102517d6d36031e7fcd5029d8fad30480e40c2d2b1a3649d9f7b2a3cc063d5",
+      "bytes": 14948904
     },
     {
       "file": "mart_legal_edges.parquet",
-      "sha256": "b657198731a4fbd7b4068cfb5890452544140700f11d2d4456a428f59dbe2146",
-      "bytes": 8951621
+      "sha256": "ad62268ccfbd9058d530d84a52e492ede82375763bce8f4abe997dd3b06893a6",
+      "bytes": 14005551
     },
     {
       "file": "mart_legal_node_metrics.parquet",
-      "sha256": "0a33be50099eb776586e7b4aaa07dbd8da89d74b73e6c73a43eafb44dfd5d879",
-      "bytes": 11779401
+      "sha256": "f72140ec39330b7f1f6e9489b60e4cf97c58a4cc0160942dfba72c163390834f",
+      "bytes": 11844076
     },
     {
       "file": "mart_legal_search_keys.parquet",
-      "sha256": "0c9dcbbdf5f0fbab66f22006d3f617a05620f77643772a6485f1c06883fcf29b",
-      "bytes": 34764147
+      "sha256": "df1c04a7a10ce41b93126be973e045846e87f517f4844a60908312663511aa32",
+      "bytes": 34768036
     },
     {
       "file": "mart_legal_node_rel.parquet",
-      "sha256": "fbc8ba0814c6328999cc6b057d8993a4a495998c2fed3101701e04227ea3b11b",
-      "bytes": 2120294
+      "sha256": "5c2fe3d7c3e88c2b465dec16f30209b1a580c0239c337ad484259c7618dba1e2",
+      "bytes": 3052862
     },
     {
       "file": "mart_legal_emend_leg.parquet",
-      "sha256": "dd6cf49dda77b53ae060296f6d4881f9c4cc175cad58aedcf31c66a54a99155e",
-      "bytes": 11173
+      "sha256": "ecce79f9afa12a7d4811d13888a5c27e2a4b5f8776f751fcbfa1cf75c9b94434",
+      "bytes": 11639
     },
     {
       "file": "mart_legal_texts.parquet",
-      "sha256": "d7cca8207a1860a0aef9bc5112e3e8d9977cf89c66e05bc9f57440ea721ee0b1",
-      "bytes": 4677274
+      "sha256": "e938971f2fa3f85b0a62caf2714181d17a66d71094531f45d3404a8d67074f57",
+      "bytes": 4677402
     },
     {
       "file": "mart_legal_massime.parquet",
-      "sha256": "e7345aed5bc75ec7d5586b595603726e1d9bdfd6a4d3d1a65e85ee1d9263c3ab",
-      "bytes": 11579561
+      "sha256": "b4e855308d3c5a3b7198d4ac3d6e7a01fd510c8201a2a076f19db3382958f96a",
+      "bytes": 11598589
     }
   ],
   "output_paths": [
@@ -117,7 +117,7 @@
   "clean_input_profile": null,
   "table_profiles": {
     "mart_legal_nodes": {
-      "row_count": 472544,
+      "row_count": 475789,
       "columns": [
         {
           "name": "id",
@@ -170,11 +170,27 @@
         {
           "name": "codice_redazionale",
           "type": "VARCHAR"
+        },
+        {
+          "name": "stato",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "materia",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "qualita_score",
+          "type": "BIGINT"
+        },
+        {
+          "name": "sunsetting_score",
+          "type": "BIGINT"
         }
       ]
     },
     "mart_legal_edges": {
-      "row_count": 711774,
+      "row_count": 1037867,
       "columns": [
         {
           "name": "source_id",
@@ -207,7 +223,7 @@
       ]
     },
     "mart_legal_node_metrics": {
-      "row_count": 472544,
+      "row_count": 475789,
       "columns": [
         {
           "name": "id",
@@ -300,7 +316,7 @@
       ]
     },
     "mart_legal_search_keys": {
-      "row_count": 472544,
+      "row_count": 475789,
       "columns": [
         {
           "name": "id",
@@ -353,7 +369,7 @@
       ]
     },
     "mart_legal_node_rel": {
-      "row_count": 405729,
+      "row_count": 420527,
       "columns": [
         {
           "name": "id",
@@ -382,7 +398,7 @@
       ]
     },
     "mart_legal_emend_leg": {
-      "row_count": 1428,
+      "row_count": 1433,
       "columns": [
         {
           "name": "target_id",
@@ -403,7 +419,7 @@
       ]
     },
     "mart_legal_texts": {
-      "row_count": 22528,
+      "row_count": 22530,
       "columns": [
         {
           "name": "id",
@@ -436,7 +452,7 @@
       ]
     },
     "mart_legal_massime": {
-      "row_count": 266831,
+      "row_count": 267345,
       "columns": [
         {
           "name": "sentenza_id",

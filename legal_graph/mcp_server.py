@@ -288,10 +288,14 @@ mcp = create_mcp_server(
 
 def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
     """Preferisci match esatto; LIKE solo se l'id esatto non esiste."""
+    cols = (
+        "id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source, "
+        "length_chars, length_words, celex, collezione, source_filename, "
+        "stato, materia, qualita_score, sunsetting_score"
+    )
     exact = con.execute(
-        """
-        SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
-               length_chars, length_words, celex, collezione, source_filename
+        f"""
+        SELECT {cols}
         FROM nodes WHERE id = ? LIMIT 1
         """,
         [node_id],
@@ -303,9 +307,8 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
     if m:
         padded = f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
         hit = con.execute(
-            """
-            SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
-                   length_chars, length_words, celex, collezione, source_filename
+            f"""
+            SELECT {cols}
             FROM nodes WHERE id = ? LIMIT 1
             """,
             [padded],
@@ -315,9 +318,8 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
     # ECLI parziale nel titolo
     if re.search(r"ecli|:\d{4}:\d+", node_id, re.IGNORECASE):
         hit = con.execute(
-            """
-            SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
-                   length_chars, length_words, celex, collezione, source_filename
+            f"""
+            SELECT {cols}
             FROM nodes
             WHERE source='costituzione' AND LOWER(title) LIKE ?
             ORDER BY id LIMIT 1
@@ -327,9 +329,8 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
         if hit:
             return hit
     return con.execute(
-        """
-        SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source,
-               length_chars, length_words, celex, collezione, source_filename
+        f"""
+        SELECT {cols}
         FROM nodes
         WHERE id LIKE ?
         ORDER BY length(id)
@@ -340,7 +341,7 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
 
 
 def _node_payload(row: tuple) -> dict[str, Any]:
-    return {
+    payload = {
         "id": row[0],
         "tipo": row[1],
         "title": (row[2] or "")[:_TITLE_NODE],
@@ -353,6 +354,13 @@ def _node_payload(row: tuple) -> dict[str, Any]:
         "collezione": row[9],
         "source_filename": row[10],
     }
+    # Qualità IC (opzionali — mart legacy senza colonne)
+    if len(row) > 11:
+        payload["stato"] = row[11]
+        payload["materia"] = row[12]
+        payload["qualita_score"] = row[13]
+        payload["sunsetting_score"] = row[14]
+    return payload
 
 
 def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str, Any]:
@@ -980,7 +988,9 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         "Trova atti/nodi nel grafo. Multi-parola = AND; frase tra virgolette = LIKE intero. "
         "Numeri (es. '231', '231/2001', 'n. 231') → priorità a normativa. "
         "Accenti flessibili (responsabilità ~ responsabilita). "
-        "Filtri: tipo, anno_min/anno_max, source. Input per legal_node / legal_text."
+        "Filtri: tipo, anno_min/anno_max, source, stato "
+        "(vigente|abrogato|decaduto — da marker IC, non vigenza live). "
+        "Input per legal_node / legal_text."
     ),
     structured_output=True,
 )
@@ -990,6 +1000,7 @@ def legal_search(
     anno_min: int = 0,
     anno_max: int = 0,
     source: str = "",
+    stato: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     return guard_timed(
@@ -1000,6 +1011,7 @@ def legal_search(
         anno_min=anno_min,
         anno_max=anno_max,
         source=source,
+        stato=stato,
         limit=limit,
     )
 
@@ -1142,7 +1154,7 @@ def _parse_intent(q: str, folded: str) -> dict[str, Any]:
 
 
 def _payload(r: tuple) -> dict[str, Any]:
-    return {
+    payload = {
         "id": r[0],
         "tipo": r[1],
         "title": (r[2] or "")[:_TITLE_SEARCH],
@@ -1150,6 +1162,10 @@ def _payload(r: tuple) -> dict[str, Any]:
         "anno": r[4],
         "source": r[5],
     }
+    if len(r) > 6:
+        payload["stato"] = r[6]
+        payload["materia"] = r[7]
+    return payload
 
 
 def _select_sk_sql(use_metrics: bool) -> str:
@@ -1157,11 +1173,12 @@ def _select_sk_sql(use_metrics: bool) -> str:
     return f"""
     SELECT k.id, k.tipo, k.title,
            CAST(n.data AS VARCHAR) AS data,
-           k.anno, k.source
+           k.anno, k.source,
+           n.stato, n.materia
     FROM search_keys k
     {metrics_join}
     LEFT JOIN nodes n ON n.id = k.id
-"""
+    """
 
 
 def _ensure_view(
@@ -1285,6 +1302,7 @@ def _impl_search(
     anno_min: int = 0,
     anno_max: int = 0,
     source: str = "",
+    stato: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
@@ -1326,6 +1344,10 @@ def _impl_search(
     if source:
         extra_where += " AND k.source = ?"
         extra_params.append(source)
+    if stato:
+        # join su nodes (presente in _select_sk_sql)
+        extra_where += " AND LOWER(COALESCE(n.stato, '')) = ?"
+        extra_params.append(stato.strip().lower())
 
     # glossario Lab: NNN/YYYY o NNNN/YYYY → search numero prioritario
     if kind == "phrase":

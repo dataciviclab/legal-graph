@@ -82,6 +82,7 @@ class TestNodes:
             "urn:nir:", "costituzione:", "revisione:", "gu:",
             "senato:", "camera:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
+            "deputato:",
         )
         invalid = con.execute(f"""
             SELECT id FROM nodes
@@ -220,11 +221,13 @@ class TestCardinality:
 
     def test_node_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        assert 450_000 <= count <= 500_000, f"Node count {count} outside expected range"
+        # include deputati da camera_firmatari
+        assert 450_000 <= count <= 520_000, f"Node count {count} outside expected range"
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-        assert 700_000 <= count <= 800_000, f"Edge count {count} outside expected range"
+        # include relatore + firmatari da open-politica
+        assert 900_000 <= count <= 1_200_000, f"Edge count {count} outside expected range"
 
     def test_temporal_count_range(self, con):
         if not _has_table(con, "temporal"):
@@ -237,6 +240,37 @@ class TestCardinality:
             SELECT COUNT(*) FROM nodes WHERE source = 'normativa'
         """).fetchone()[0]
         assert 20_000 <= count <= 25_000, f"Normativa nodes {count} outside expected range"
+
+    def test_qualita_ic_columns(self, con):
+        """Colonne qualità IC presenti su nodi normativa."""
+        if not _has_table(con, "nodes"):
+            pytest.skip("nodes non presenti")
+        cols = {r[0] for r in con.execute("DESCRIBE nodes").fetchall()}
+        for c in ("stato", "materia", "qualita_score", "sunsetting_score"):
+            assert c in cols, f"Colonna qualità mancante: {c}"
+        n_stato = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'normativa' AND stato IS NOT NULL AND stato <> ''
+        """).fetchone()[0]
+        assert n_stato > 10_000, f"Poiché nodi normativa con stato: {n_stato}"
+
+    def test_ponti_op_presenti(self, con):
+        """Ponti open-politica: deputati + relazioni relatore/firmatario."""
+        if not _has_table(con, "nodes"):
+            pytest.skip("nodes non presenti")
+        n_dep = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'deputato:%'
+        """).fetchone()[0]
+        assert n_dep > 1_000, f"Nodi deputato bassi: {n_dep}"
+        if _has_table(con, "edges"):
+            n_rel = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'relatore'
+            """).fetchone()[0]
+            n_firm = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'firmatario'
+            """).fetchone()[0]
+            assert n_rel > 1_000, f"Edge relatore bassi: {n_rel}"
+            assert n_firm > 100_000, f"Edge firmatario bassi: {n_firm}"
 
     def test_modifica_edges_range(self, con):
         if not _has_table(con, "temporal"):

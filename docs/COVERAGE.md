@@ -1,6 +1,6 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-01 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
+Data: 2026-10-02 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
 
 ## Cosa è (in sintesi)
 
@@ -22,6 +22,28 @@ Non è un’enciclopedia del diritto italiano né un database giurisprudenza ord
 | Normativa statale (`source=normativa`) | ~4% | Sottocoperta vs corpus pieno (~288k file IC) |
 | Camera DDL | ~2% | Sottocoperto vs Senato |
 | PNRR / GU / revisioni | ~0% | Quasi assente |
+| **Deputati (firmatari Camera)** | ~0,6% | ✅ Ponte OP `camera_firmatari` |
+
+## Qualità IC (stato / materia / score)
+
+Su nodi `source=normativa` il mart espone da **italia-corpus**:
+
+| Colonna | Significato |
+|---|---|
+| `stato` | `vigente` \| `abrogato` \| `decaduto` — **marker tombstone VIGENZA**, non vigenza live di tutto il corpus |
+| `materia` | 25 categorie tematiche (fisco, ambientale, lavoro…) |
+| `qualita_score` | 0–100 (IC: penalizza duplicati/orfani/stato non vigente) |
+| `sunsetting_score` | 0–100 (IC PR #54: propensione a decadere) |
+
+**Limiti**: atti solo ORIGINALE restano `vigente` per costruzione; hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: filtro `legal_search(..., stato='vigente')`.
+
+## Ponti open-politica
+
+| Ponte | Nel grafo |
+|---|---|
+| Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
+| Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
+| Voti ↔ ddl / profilo politico | ❌ compose OP, non grafo |
 
 ## Livelli di copertura
 
@@ -44,7 +66,7 @@ Processo Senato · Costituzione + Corte Cost. · responsabilità enti/anticorruz
 Tributario · penale (modifiche, non TU navigabile) · privacy come corpus articoli · **trasparenza/FOIA (D.Lgs 33/2011 non è hub)** · PNRR (20 nodi, non dataset) · Terzo settore (rumore DDL) · regioni · codici · Camera asimmetrica
 
 ### Scoperti
-Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex · GU come fonte · vigenza live · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
+Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex · GU come fonte · **vigenza live (stato IC = tombstone)** · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
 
 ## Cosa significa per il Lab
 
