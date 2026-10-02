@@ -20,6 +20,11 @@ WITH nodes_normativa AS (
         lunghezza_parole AS length_words,
         NULLIF(celex, '') AS celex,
         NULLIF(codice_redazionale, '') AS codice_redazionale,
+        -- Qualità da italia-corpus (PR #45/#54)
+        stato,
+        materia,
+        qualita_score,
+        sunsetting_score,
         ROW_NUMBER() OVER (PARTITION BY urn ORDER BY filename) AS _rn
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
@@ -27,7 +32,8 @@ WITH nodes_normativa AS (
 normativa AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
     FROM nodes_normativa
     WHERE _rn = 1
 ),
@@ -46,7 +52,11 @@ nodes_articoli AS (
         NULL::BIGINT AS length_chars,
         commi AS length_words,
         NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.articoli_costituzione.path}')
     WHERE articolo IS NOT NULL
 ),
@@ -83,7 +93,11 @@ nodes_gu AS (
         NULL::BIGINT AS length_chars,
         NULL::BIGINT AS length_words,
         NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.gu_acts.path}')
     WHERE NULLIF(urn_normattiva, '') IS NOT NULL
 ),
@@ -122,6 +136,10 @@ nodes_senato AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY id_ddl ORDER BY id_ddl) AS _rn
         FROM read_parquet({support.senato_ddl.outputs}, union_by_name = true)
         WHERE id_ddl IS NOT NULL
@@ -147,6 +165,10 @@ nodes_camera_ddl AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
                 PARTITION BY id_ddl
                 ORDER BY data_presentazione DESC
@@ -175,6 +197,10 @@ nodes_corpus AS (
             paragraphs_count AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY atto_num ORDER BY work_date) AS _rn
         FROM read_parquet('{support.senato_corpus.path}')
         WHERE atto_num IS NOT NULL
@@ -200,6 +226,10 @@ nodes_emend AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
                 PARTITION BY CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT), emend_id
                 ORDER BY document_id
@@ -228,6 +258,10 @@ nodes_dib AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
                 PARTITION BY senatore_id, data_seduta, ordine_intervento
                 ORDER BY document_id
@@ -256,6 +290,10 @@ nodes_senatori AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY senatore_id ORDER BY data_seduta) AS _rn
         FROM read_parquet('{support.senato_dibattito.path}')
         WHERE senatore_id IS NOT NULL
@@ -276,7 +314,11 @@ nodes_pronunce AS (
         NULL::BIGINT AS length_chars,
         NULL::BIGINT AS length_words,
         NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.pronunce_corte_costituzionale.path}')
     WHERE anno_pronuncia IS NOT NULL AND numero_pronuncia IS NOT NULL
 ),
@@ -295,7 +337,11 @@ nodes_giudici AS (
         NULL::BIGINT AS length_chars,
         NULL::BIGINT AS length_words,
         NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.giudici_corte_costituzionale.path}')
     WHERE nome_cognome IS NOT NULL
 ),
@@ -322,6 +368,10 @@ nodes_norme AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
                 PARTITION BY norma_descrizione, norma_numero, YEAR(TRY_CAST(norma_data AS DATE))
                 ORDER BY norma_data DESC
@@ -351,6 +401,10 @@ nodes_promovimento AS (
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
             NULL::VARCHAR AS codice_redazionale,
+                NULL::VARCHAR AS stato,
+                NULL::VARCHAR AS materia,
+                NULL::INTEGER AS qualita_score,
+                NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY anno, numero_atto ORDER BY anno DESC) AS _rn
         FROM read_parquet('{support.atti_promovimento.path}')
         WHERE anno IS NOT NULL AND numero_atto IS NOT NULL
@@ -391,7 +445,11 @@ nodes_pnrr AS (
             NULL::BIGINT,
             NULL::BIGINT,
             NULL::VARCHAR,
-            NULL::VARCHAR
+            NULL::VARCHAR,
+            NULL::VARCHAR,
+            NULL::VARCHAR,
+            NULL::INTEGER,
+            NULL::INTEGER
         FROM read_parquet('{support.pnrr_references.path}')
         WHERE missione IS NOT NULL AND componente IS NOT NULL
     )
@@ -461,5 +519,9 @@ SELECT
     length_chars,
     length_words,
     celex,
-    codice_redazionale
+    codice_redazionale,
+    stato,
+    materia,
+    qualita_score,
+    sunsetting_score
 FROM all_nodes

@@ -127,7 +127,7 @@ mart:
   validate:
     table_rules:
       mart_legal_nodes:
-        required_columns: [id, tipo, title, source]
+        required_columns: [id, tipo, title, source, stato, materia]
         primary_key: [id]
         min_rows: 10000
       mart_legal_edges:
