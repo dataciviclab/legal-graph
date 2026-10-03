@@ -364,6 +364,60 @@ edges_votazione AS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'senato:' || CAST(v.ddl_id AS VARCHAR)
       )
+),
+
+-- Iter Cost.: proposta DDL → atto Camera/Senato
+-- Join solo se il target è davvero una proposta Cost. (atto_num Camera
+-- collide col namespace DDL ordinari — filtriamo sul titolo/tipo).
+edges_itercost_atto AS (
+    SELECT
+        'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS source_id,
+        'proposta_cost' AS relation,
+        i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS target_id,
+        1 AS weight,
+        i.legislatura AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(i.stato, i.proponente, ''), 200) AS evidence
+    FROM read_parquet({support.iter_costituzionale.outputs}, union_by_name = true) i
+    WHERE NULLIF(i.camera_o_senato, '') IS NOT NULL
+      AND i.atto_num IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+            AND (
+                LOWER(COALESCE(n.title, '')) LIKE '%costituz%'
+                OR UPPER(COALESCE(n.tipo, '')) LIKE '%COSTITUZ%'
+            )
+      )
+),
+
+-- Iter Cost.: proposta → legge di revisione (rev_urn) se ha_legge
+edges_itercost_rev AS (
+    SELECT
+        'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS source_id,
+        'diventa_revisione' AS relation,
+        'revisione:' || i.rev_urn AS target_id,
+        1 AS weight,
+        i.legislatura AS source_year,
+        YEAR(i.rev_data) AS target_year,
+        LEFT(COALESCE(i.rev_titolo, i.rev_urn, ''), 200) AS evidence
+    FROM read_parquet({support.iter_costituzionale.outputs}, union_by_name = true) i
+    WHERE NULLIF(i.camera_o_senato, '') IS NOT NULL
+      AND i.atto_num IS NOT NULL
+      AND i.ha_legge = 1
+      AND NULLIF(i.rev_urn, '') IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'revisione:' || i.rev_urn
+      )
 )
 
 SELECT
@@ -408,5 +462,9 @@ FROM (
     SELECT * FROM edges_firmatario
     UNION ALL
     SELECT * FROM edges_votazione
+    UNION ALL
+    SELECT * FROM edges_itercost_atto
+    UNION ALL
+    SELECT * FROM edges_itercost_rev
 )
 GROUP BY source_id, relation, target_id

@@ -44,9 +44,11 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
+| Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
 | Voti individuali / profilo | ❌ compose OP, non grafo |
 
 Nota `vota`: copre DDL presenti in `senato_ddl` clean (~80% dei ddl_id votati).  
+Nota `itercost`: nodi deduplicati (`camera_o_senato`+`atto_num`); `proposta_cost` solo su target **davvero Cost.** (filtro titolo/tipo — `atto_num` Camera collide coi DDL ordinari); `diventa_revisione` solo `ha_legge=1` con `rev_urn` nel mart (~29 revisioni).  
 `diventa_legge` Camera/Senato: solo archi con source **e** target nel mart (niente dangling).
 
 ## Livelli di copertura

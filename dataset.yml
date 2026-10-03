@@ -110,6 +110,12 @@ support:
     uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_votazioni_oggetto/{year}/senato_votazioni_oggetto_{year}_clean.parquet"
     years: [2026]
 
+  # ── costituzione-italiana: iter revisioni Cost. (PR #21) ───────
+  - name: iter_costituzionale
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/iter_costituzionale/{year}/iter_costituzionale_{year}_clean.parquet"
+    years: [2026]
+
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti
   # nella stessa sessione DuckDB del run MART.

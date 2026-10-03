@@ -82,7 +82,7 @@ class TestNodes:
             "urn:nir:", "costituzione:", "revisione:", "gu:",
             "senato:", "camera:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
-            "deputato:", "votazione:",
+            "deputato:", "votazione:", "itercost:",
         )
         invalid = con.execute(f"""
             SELECT id FROM nodes
@@ -221,13 +221,13 @@ class TestCardinality:
 
     def test_node_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        # include deputati da camera_firmatari
-        assert 450_000 <= count <= 520_000, f"Node count {count} outside expected range"
+        # include deputati + votazioni + iter cost da OP/costituzione
+        assert 450_000 <= count <= 560_000, f"Node count {count} outside expected range"
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-        # include relatore + firmatari + votazioni da open-politica
-        assert 1_000_000 <= count <= 1_400_000, f"Edge count {count} outside expected range"
+        # include relatore + firmatari + votazioni + iter cost
+        assert 1_000_000 <= count <= 1_450_000, f"Edge count {count} outside expected range"
 
     def test_temporal_count_range(self, con):
         if not _has_table(con, "temporal"):
@@ -272,9 +272,21 @@ class TestCardinality:
             n_vota = con.execute("""
                 SELECT COUNT(*) FROM edges WHERE relation = 'vota'
             """).fetchone()[0]
+            n_prop = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'proposta_cost'
+            """).fetchone()[0]
+            n_rev = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'diventa_revisione'
+            """).fetchone()[0]
             assert n_rel > 1_000, f"Edge relatore bassi: {n_rel}"
             assert n_firm > 100_000, f"Edge firmatario bassi: {n_firm}"
             assert n_vota > 10_000, f"Edge vota bassi: {n_vota}"
+            assert n_prop > 200, f"Edge proposta_cost bassi: {n_prop}"
+            assert n_rev > 100, f"Edge diventa_revisione bassi: {n_rev}"
+        n_iter = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'itercost:%'
+        """).fetchone()[0]
+        assert n_iter > 2_000, f"Nodi itercost bassi: {n_iter}"
 
     def test_modifica_edges_range(self, con):
         if not _has_table(con, "temporal"):

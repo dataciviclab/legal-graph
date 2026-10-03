@@ -349,6 +349,44 @@ nodes_votazione AS (
     WHERE NULLIF(votazione_id, '') IS NOT NULL
 ),
 
+-- Iter revisioni Costituzionali (costituzione-italiana compose #21)
+-- Dedup: stessa proposta (camera_o_senato + atto_num) può comparire più
+-- volte (più rev_urn / stati); tiene la riga con più informazioni.
+nodes_itercost AS (
+    SELECT
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        SELECT
+            'itercost:' || camera_o_senato || ':' || CAST(atto_num AS VARCHAR) AS id,
+            'DDL COSTITUZIONALE' AS tipo,
+            CAST(data_presentazione AS VARCHAR) AS data,
+            CAST(atto_num AS VARCHAR) AS numero,
+            LEFT(COALESCE(titolo, 'Proposta revisione Costituzionale'), 200) AS title,
+            'Iter Costituzionale' AS collezione,
+            atto_uri AS source_filename,
+            'iter_costituzionale' AS source,
+            legislatura AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            NULL::VARCHAR AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score,
+            ROW_NUMBER() OVER (
+                PARTITION BY camera_o_senato, atto_num
+                ORDER BY ha_legge DESC, rev_data DESC NULLS LAST,
+                         data_presentazione DESC NULLS LAST
+            ) AS _rn
+        FROM read_parquet({support.iter_costituzionale.outputs}, union_by_name = true)
+        WHERE NULLIF(camera_o_senato, '') IS NOT NULL
+          AND atto_num IS NOT NULL
+    ) WHERE _rn = 1
+),
+
 nodes_pronunce AS (
     SELECT
         'sentenza:' || CAST(anno_pronuncia AS VARCHAR) || '-' || LPAD(CAST(numero_pronuncia AS VARCHAR), 4, '0') AS id,
@@ -533,6 +571,8 @@ all_nodes AS (
     UNION ALL
     SELECT * FROM nodes_votazione WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
+    SELECT * FROM nodes_itercost WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
     SELECT * FROM nodes_pronunce WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_giudici WHERE id NOT IN (SELECT id FROM normativa)
@@ -564,6 +604,7 @@ SELECT
         WHEN 'SENATORE' THEN 'Senatore'
         WHEN 'DEPUTATO' THEN 'Deputato'
         WHEN 'VOTAZIONE' THEN 'Votazione'
+        WHEN 'DDL COSTITUZIONALE' THEN 'DDL Costituzionale'
         WHEN 'GIUDICE' THEN 'Giudice'
         WHEN 'PROMOVIMENTO' THEN 'Atto di promovimento'
         ELSE tipo
