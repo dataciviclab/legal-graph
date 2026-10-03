@@ -82,7 +82,7 @@ class TestNodes:
             "urn:nir:", "costituzione:", "revisione:", "gu:",
             "senato:", "camera:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
-            "deputato:",
+            "deputato:", "votazione:",
         )
         invalid = con.execute(f"""
             SELECT id FROM nodes
@@ -226,8 +226,8 @@ class TestCardinality:
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-        # include relatore + firmatari da open-politica
-        assert 900_000 <= count <= 1_200_000, f"Edge count {count} outside expected range"
+        # include relatore + firmatari + votazioni da open-politica
+        assert 1_000_000 <= count <= 1_400_000, f"Edge count {count} outside expected range"
 
     def test_temporal_count_range(self, con):
         if not _has_table(con, "temporal"):
@@ -269,8 +269,12 @@ class TestCardinality:
             n_firm = con.execute("""
                 SELECT COUNT(*) FROM edges WHERE relation = 'firmatario'
             """).fetchone()[0]
+            n_vota = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'vota'
+            """).fetchone()[0]
             assert n_rel > 1_000, f"Edge relatore bassi: {n_rel}"
             assert n_firm > 100_000, f"Edge firmatario bassi: {n_firm}"
+            assert n_vota > 10_000, f"Edge vota bassi: {n_vota}"
 
     def test_modifica_edges_range(self, con):
         if not _has_table(con, "temporal"):

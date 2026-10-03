@@ -104,6 +104,11 @@ support:
     type: external
     uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_firmatari/{year}/camera_firmatari_{year}_clean.parquet"
     years: [13, 14, 15, 16, 17, 18, 19]
+  # ── open-politica: votazioni Senato × DDL (PR #41) ──────────────
+  - name: senato_votazioni_oggetto
+    type: external
+    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_votazioni_oggetto/{year}/senato_votazioni_oggetto_{year}_clean.parquet"
+    years: [2026]
 
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti

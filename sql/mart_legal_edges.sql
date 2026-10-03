@@ -109,6 +109,14 @@ edges_senato AS (
     FROM read_parquet({support.senato_ddl.outputs}, union_by_name = true) s
     WHERE NULLIF(s.urn_normattiva, '') IS NOT NULL
       AND s.id_ddl IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(s.id_ddl AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = s.urn_normattiva
+      )
 ),
 
 edges_camera_leggi AS (
@@ -123,6 +131,14 @@ edges_camera_leggi AS (
     FROM read_parquet({support.camera_leggi.outputs}, union_by_name = true) l
     WHERE NULLIF(l.urn_normattiva, '') IS NOT NULL
       AND l.ddl_numero IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'camera:' || CAST(l.ddl_numero AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = l.urn_normattiva
+      )
 ),
 
 ddl_lookup AS (
@@ -325,6 +341,29 @@ edges_firmatario AS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
       )
+),
+
+-- Votazioni Senato → DDL (senato_votazioni_oggetto)
+edges_votazione AS (
+    SELECT
+        'votazione:' || v.votazione_id AS source_id,
+        'vota' AS relation,
+        'senato:' || CAST(v.ddl_id AS VARCHAR) AS target_id,
+        1 AS weight,
+        v.legislatura AS source_year,
+        NULL::INTEGER AS target_year,
+        COALESCE(v.esito, '') || ' | ' || COALESCE(v.tipo_votazione, '') AS evidence
+    FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true) v
+    WHERE NULLIF(v.votazione_id, '') IS NOT NULL
+      AND v.ddl_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'votazione:' || v.votazione_id
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(v.ddl_id AS VARCHAR)
+      )
 )
 
 SELECT
@@ -367,5 +406,7 @@ FROM (
     SELECT * FROM edges_relatore
     UNION ALL
     SELECT * FROM edges_firmatario
+    UNION ALL
+    SELECT * FROM edges_votazione
 )
 GROUP BY source_id, relation, target_id

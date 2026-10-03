@@ -43,7 +43,11 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 |---|---|
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
-| Voti ↔ ddl / profilo politico | ❌ compose OP, non grafo |
+| Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
+| Voti individuali / profilo | ❌ compose OP, non grafo |
+
+Nota `vota`: copre DDL presenti in `senato_ddl` clean (~80% dei ddl_id votati).  
+`diventa_legge` Camera/Senato: solo archi con source **e** target nel mart (niente dangling).
 
 ## Livelli di copertura
 

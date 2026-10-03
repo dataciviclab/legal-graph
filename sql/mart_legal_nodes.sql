@@ -323,6 +323,32 @@ nodes_deputato AS (
     GROUP BY persona_id
 ),
 
+-- Votazioni Senato su oggetto/DDL (open-politica senato_votazioni_oggetto)
+nodes_votazione AS (
+    SELECT
+        'votazione:' || votazione_id AS id,
+        'VOTAZIONE' AS tipo,
+        NULL::VARCHAR AS data,
+        NULL::VARCHAR AS numero,
+        'Votazione Senato ' || votazione_id
+            || ' — ' || COALESCE(esito, 'esito n/a')
+            || ' (L.' || CAST(legislatura AS VARCHAR) || ')' AS title,
+        'Senato Votazioni' AS collezione,
+        votazione_uri AS source_filename,
+        'senato_votazioni_oggetto' AS source,
+        legislatura AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true)
+    WHERE NULLIF(votazione_id, '') IS NOT NULL
+),
+
 nodes_pronunce AS (
     SELECT
         'sentenza:' || CAST(anno_pronuncia AS VARCHAR) || '-' || LPAD(CAST(numero_pronuncia AS VARCHAR), 4, '0') AS id,
@@ -505,6 +531,8 @@ all_nodes AS (
     UNION ALL
     SELECT * FROM nodes_deputato WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
+    SELECT * FROM nodes_votazione WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
     SELECT * FROM nodes_pronunce WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_giudici WHERE id NOT IN (SELECT id FROM normativa)
@@ -535,6 +563,7 @@ SELECT
         WHEN 'REG_IMPL' THEN 'Regolamento di implementazione'
         WHEN 'SENATORE' THEN 'Senatore'
         WHEN 'DEPUTATO' THEN 'Deputato'
+        WHEN 'VOTAZIONE' THEN 'Votazione'
         WHEN 'GIUDICE' THEN 'Giudice'
         WHEN 'PROMOVIMENTO' THEN 'Atto di promovimento'
         ELSE tipo
