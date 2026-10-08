@@ -60,10 +60,10 @@ Se manca `search_keys`/`metrics`: errore + hint `make run`.
 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
-| `ci.yml` | PR + push main | preflight → mart locale **o download GCS** → ruff + pytest |
-| `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + test + **sync GCS** (6 tabelle) + registry PR |
+| `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
+| `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + **test** + sync GCS + registry PR |
 
-I mart **non** vengono più committati in git. texts/massime restano fuori dal GCS nel primo rilascio.
+I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). texts/massime restano fuori dal GCS nel primo rilascio.
 
 Locale == CI: stessi target Makefile.
 
