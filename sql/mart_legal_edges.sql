@@ -563,7 +563,9 @@ SELECT
     SUM(weight) AS weight,
     MIN(source_year) AS source_year,
     MAX(target_year) AS target_year,
-    FIRST(evidence) AS evidence
+    -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
+    -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
+    MIN(evidence) AS evidence
 FROM (
     SELECT * FROM edges_riferimenti
     UNION ALL
