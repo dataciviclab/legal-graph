@@ -1,9 +1,13 @@
 """Esplora atto — ricerca libera + scheda con relazioni ed ego-network 1-hop."""
 
-import networkx as nx
 import plotly.graph_objects as go
 import streamlit as st
 from sources import mart_sql
+
+try:
+    import networkx as nx
+except ImportError:  # espander ego-network degradabile
+    nx = None
 
 st.title("🔍 Esplora atto")
 
@@ -105,7 +109,12 @@ with tab_in:
     st.dataframe(in_partners, hide_index=True, width="stretch")
 
 with st.expander("🕸️ Ego-network 1-hop (top partner, layout forza)"):
-    if out_partners.empty and in_partners.empty:
+    if nx is None:
+        st.info(
+            "Grafico non disponibile: `networkx` assente nell'ambiente corrente. "
+            "Usa il venv del workspace o `pip install networkx`."
+        )
+    elif out_partners.empty and in_partners.empty:
         st.info("Nessun arco: nodo isolato nel corpus.")
     else:
         G = nx.Graph()
