@@ -58,6 +58,20 @@ support:
     type: external
     repo: italia-corpus
     path: data/derived/abrogations_raw.parquet
+  # repeal/substitution AKN (URN→URN) — più preciso di abrogations_raw (regex)
+  - name: akn_relations
+    type: external
+    repo: italia-corpus
+    slug: akn_relations
+    layer: clean
+    years: [2026]
+  # EIV (entrata in vigore effettiva) per colonne nodi
+  - name: akn_act_meta
+    type: external
+    repo: italia-corpus
+    slug: akn_act_meta
+    layer: clean
+    years: [2026]
 
   # -- gu-monitor (parquet committato, no registry) ----------------
   - name: gu_acts
@@ -148,6 +162,12 @@ support:
     type: external
     repo: open-politica
     slug: senato_relatori
+    layer: clean
+    years: [2026]
+  - name: senato_firmatari
+    type: external
+    repo: open-politica
+    slug: senato_firmatari
     layer: clean
     years: [2026]
   - name: camera_firmatari

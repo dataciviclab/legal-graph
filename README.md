@@ -19,7 +19,7 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 | **Archi** | ~710.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, bridge DDL→legge |
 | **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
-| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `emendamento`, `riferimento` |
+| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore_sentenza`, `emendamento`, `riferimento` |
 
 ## Esempi di domande
 

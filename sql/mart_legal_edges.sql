@@ -37,6 +37,9 @@ edges_riferimenti AS (
     LEFT JOIN urn_lookup lu2
       ON r.bersaglio_filename = lu2.filename
     WHERE r.risolto = true
+      -- Guard: fonte_filename vuoto/malformato → source_id 'file:' dangling
+      -- (drift upstream IC 2026-10; zero nodi file: nel grafo)
+      AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
 ),
 
 edges_citazioni AS (
@@ -296,6 +299,112 @@ edges_abro AS (
        AND s.abrogated_number = TRY_CAST(n.numero AS INTEGER)
 ),
 
+-- Repeal AKN (italia-corpus akn_relations): URN→URN, più preciso di
+-- abrogations_raw (regex su anno/numero). Stessa semantica di edges_abro:
+-- fonte abroga target (activeModification). Dedup finale con edges_abro
+-- via GROUP BY (source_id, relation, target_id).
+edges_akn_abroga AS (
+    SELECT
+        a.fonte_urn AS source_id,
+        'abroga' AS relation,
+        a.target_urn AS target_id,
+        1 AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        'akn:' || a.origin AS evidence
+    FROM read_parquet('{support.akn_relations.path}') a
+    WHERE a.rel_type = 'repeal'
+      AND NULLIF(a.fonte_urn, '') IS NOT NULL
+      AND NULLIF(a.target_urn, '') IS NOT NULL
+      AND a.fonte_urn != a.target_urn
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.fonte_urn
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.target_urn
+      )
+),
+
+-- Substitution AKN: atto sostituisce porzione di altro atto (URN→URN)
+edges_akn_sost AS (
+    SELECT
+        a.fonte_urn AS source_id,
+        'sostituisce' AS relation,
+        a.target_urn AS target_id,
+        1 AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        'akn:' || a.origin AS evidence
+    FROM read_parquet('{support.akn_relations.path}') a
+    WHERE a.rel_type = 'substitution'
+      AND NULLIF(a.fonte_urn, '') IS NOT NULL
+      AND NULLIF(a.target_urn, '') IS NOT NULL
+      AND a.fonte_urn != a.target_urn
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.fonte_urn
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.target_urn
+      )
+),
+
+-- Split/join/renumbering AKN: successioni strutturali oltre repeal/substitution
+edges_akn_modifiche AS (
+    SELECT
+        a.fonte_urn AS source_id,
+        a.rel_type AS relation,
+        a.target_urn AS target_id,
+        1 AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        'akn:' || a.origin AS evidence
+    FROM read_parquet('{support.akn_relations.path}') a
+    WHERE a.rel_type IN ('split', 'join', 'renumbering')
+      AND NULLIF(a.fonte_urn, '') IS NOT NULL
+      AND NULLIF(a.target_urn, '') IS NOT NULL
+      AND a.fonte_urn != a.target_urn
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.fonte_urn
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = a.target_urn
+      )
+),
+
+-- Relatore sentenza: pronunce.relatore_pronuncia → nodo giudice
+-- (match anagrafica con stessa normalizzazione di nodes_giudici;
+-- presidenti non matchabili: formato storico COGNOME uppercase)
+edges_relatore_sentenza AS (
+    SELECT
+        'sentenza:' || CAST(p.anno_pronuncia AS VARCHAR) || '-'
+            || LPAD(CAST(p.numero_pronuncia AS VARCHAR), 4, '0') AS source_id,
+        'relatore_sentenza' AS relation,
+        'giudice:' || REPLACE(REPLACE(p.relatore_pronuncia, ' ', '_'), '.', '') AS target_id,
+        1 AS weight,
+        p.anno_pronuncia AS source_year,
+        NULL::INTEGER AS target_year,
+        p.ecli AS evidence
+    FROM read_parquet('{support.pronunce_corte_costituzionale.path}') p
+    WHERE NULLIF(p.relatore_pronuncia, '') IS NOT NULL
+      AND p.anno_pronuncia IS NOT NULL
+      AND p.numero_pronuncia IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'sentenza:' || CAST(p.anno_pronuncia AS VARCHAR) || '-'
+              || LPAD(CAST(p.numero_pronuncia AS VARCHAR), 4, '0')
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'giudice:' || REPLACE(REPLACE(p.relatore_pronuncia, ' ', '_'), '.', '')
+      )
+),
+
 -- Relatori Senato (open-politica senato_relatori): senatore → ddl
 -- Solo se entrambi gli endpoint esistono in mart_legal_nodes
 edges_relatore AS (
@@ -341,6 +450,34 @@ edges_firmatario AS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
       )
+),
+
+-- Firmatari Senato (open-politica senato_firmatari): senatore → ddl
+-- Speculare a camera_firmatari. Solo firme attive (ritiro NULL) e
+-- soli senatori (presentatori On./governativi non hanno senatore_id).
+-- Dedup (senatore, ddl): la fonte ha più riga per dataAggiuntaFirma.
+edges_firmatario_sen AS (
+    SELECT
+        'senatore:' || CAST(f.senatore_id AS VARCHAR) AS source_id,
+        'firmatario' AS relation,
+        'senato:' || CAST(f.ddl_id AS VARCHAR) AS target_id,
+        CASE WHEN BOOL_OR(f.primo_firmatario) THEN 2 ELSE 1 END AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        CASE WHEN BOOL_OR(f.primo_firmatario) THEN 'primo_firmatario' ELSE 'firmatario' END AS evidence
+    FROM read_parquet('{support.senato_firmatari.path}') f
+    WHERE f.senatore_id IS NOT NULL
+      AND f.ddl_id IS NOT NULL
+      AND f.data_ritiro_firma IS NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senatore:' || CAST(f.senatore_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(f.ddl_id AS VARCHAR)
+      )
+    GROUP BY f.senatore_id, f.ddl_id
 ),
 
 -- Votazioni Senato → DDL (senato_votazioni_oggetto)
@@ -457,9 +594,19 @@ FROM (
     UNION ALL
     SELECT * FROM edges_abro
     UNION ALL
+    SELECT * FROM edges_akn_abroga
+    UNION ALL
+    SELECT * FROM edges_akn_sost
+    UNION ALL
+    SELECT * FROM edges_akn_modifiche
+    UNION ALL
+    SELECT * FROM edges_relatore_sentenza
+    UNION ALL
     SELECT * FROM edges_relatore
     UNION ALL
     SELECT * FROM edges_firmatario
+    UNION ALL
+    SELECT * FROM edges_firmatario_sen
     UNION ALL
     SELECT * FROM edges_votazione
     UNION ALL

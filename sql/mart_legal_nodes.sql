@@ -6,8 +6,19 @@
 -- normativa (backbone).
 -- Qualità IC (stato/materia/qualita_score/sunsetting_score): colonne
 -- in coda; NULL per sorgenti non-normativa.
+-- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
 
-WITH nodes_normativa AS (
+WITH akn_meta AS (
+    SELECT
+        fonte_urn,
+        MIN(eiv) AS eiv
+    FROM read_parquet('{support.akn_act_meta.path}')
+    WHERE NULLIF(fonte_urn, '') IS NOT NULL
+      AND eiv IS NOT NULL
+    GROUP BY fonte_urn
+),
+
+nodes_normativa AS (
     SELECT
         urn AS id,
         tipo,
@@ -623,5 +634,7 @@ SELECT
     stato,
     materia,
     qualita_score,
-    sunsetting_score
-FROM all_nodes
+    sunsetting_score,
+    CAST(a.eiv AS VARCHAR) AS eiv
+FROM all_nodes n
+LEFT JOIN akn_meta a ON n.id = a.fonte_urn
