@@ -25,6 +25,7 @@ Se il grafo non copre, dichiararlo e passare a un dataset Lab o a una fonte este
 | A3 | Quali D.Lgs recepiscono direttive UE nel mart? | `legal_query` title LIKE `%direttiva%` + `source=normativa` |
 | A4 | Qual è la catena privacy pre/post GDPR? | search `196/2003`, `101/2018` → overview + riferimenti |
 | A5 | Quante relazioni `attua_delega` ci sono nel grafo? | `legal_query` GROUP BY relation |
+| A6 | Questo atto cosa abroga o sostituisce? | search atto → `legal_node` view=`chain` (modifiche AKN: abroga/sostituisce/split/join) |
 
 ## B. Costituzione e giurisprudenza (forte)
 
@@ -35,6 +36,7 @@ Se il grafo non copre, dichiararlo e passare a un dataset Lab o a una fonte este
 | B3 | Chi ha impugnato la L. 40/2004? | search `legge 40 2004` → jurisprudence / `impugna` |
 | B4 | Quali parametri Cost. invoca la sentenza 2009/151? | `legal_node(sentenza:2009-0151, view=jurisprudence)` |
 | B5 | Quali massime toccano la L. 190/2012? | `legal_query` su view `massime` WHERE norma_numero |
+| B6 | Chi è il relatore della sentenza X / quali sentenze ha redatto il giudice Y? | `legal_node` view=`jurisprudence` → `relatore` / `sentenze_relatore` |
 
 ## C. Tema Lab (parziale — dichiarare i limiti)
 
@@ -46,6 +48,7 @@ Se il grafo non copre, dichiararlo e passare a un dataset Lab o a una fonte este
 | C4 | L. 241/1990 accesso documenti? | search `241/1990` | Solo `norma:*`, non URN hub |
 | C5 | PNRR nel grafo? | search `PNRR` | ~20 nodi, non dataset milestones |
 | C6 | Appalti: D.Lgs 50/2016 e successori? | search `50/2016`, `36/2023` → chain | |
+| C7 | Atti fisco di alta qualità? | search tema + filtri `materia='fisco'`, `min_score=70` | Qualità = marker IC, non validazione giuridica |
 
 ## D. Cosa NON chiedere al grafo (fuori scope)
 

@@ -1,6 +1,6 @@
 # Legal Graph — Compose toolkit
 
-Stato: **compose + MCP thin in CI** (2026-09-30). Repo `dataciviclab/legal-graph`.
+Stato: **compose + MCP thin in CI** (2026-10-08). Repo `dataciviclab/legal-graph`.
 
 ## Cosa è
 
@@ -21,8 +21,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 ## Mart (ordine compose)
 
 ```text
-1 mart_legal_nodes          ← support esterni
-2 mart_legal_edges          ← support esterni + attua_delega tipizzato
+1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta)
+2 mart_legal_edges          ← support esterni + relazioni tipizzate
+                              (attua_delega, modifiche AKN, relatore_sentenza, firmatario)
 3 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
 4 mart_legal_search_keys    ← FROM mart_legal_nodes
 5 mart_legal_node_rel       ← FROM mart_legal_edges
@@ -36,8 +37,8 @@ Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del r
 ## Come si usa
 
 ```bash
-make run              # compose da rete → 6 mart
-make test             # integrità + golden (~50)
+make run              # compose da rete → 8 mart
+make test             # integrità + golden (68)
 make lint
 make intelligence     # fallback solo se metrics mancanti dal mart
 ```
@@ -48,8 +49,8 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics |
-| `legal_node` | overview · chain · jurisprudence · parliament (usano node_rel/emend_leg) |
+| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; filtri: tipo, anno, source, stato, materia, min_score, collezione |
+| `legal_node` | overview · chain (con modifiche AKN) · jurisprudence (con relatore) · parliament (con firmatari) — usano node_rel/emend_leg |
 | `legal_text` | testo normativa (fetch rete) |
 | `legal_query` | SELECT/PRAGMA/DESCRIBE escape hatch |
 | `legal_insights` | report da metrics mart |
@@ -87,5 +88,4 @@ Locale == CI: stessi target Makefile.
 1. Discussion attive su questo repo come strumento di analisi (bank ANALISI.md)
 2. Repo pubblico + scheda projects + MCP nel template org
 3. Hub Lab: 33/2013, 241/1990, 190/2012 cercabili
-4. Solo nodes+edges in git; derivate via `make derived` (storia git leggera)
-5. Dopo: explorer `normativa`, dataset PNRR dedicato, non “Normattiva in grafo”
+4. Dopo: explorer `normativa`, dataset PNRR dedicato, non “Normattiva in grafo”

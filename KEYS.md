@@ -1,7 +1,7 @@
 # Cross-Repo Key Schema — Legal Graph
 
 Data: 2026-09-07  
-Aggiornato: 2026-09-30 (compose toolkit)  
+Aggiornato: 2026-10-08 (modifiche AKN, relatore_sentenza, firmatario Senato, eiv)  
 Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 
 ## Architettura (oggi)
@@ -75,12 +75,14 @@ Catena completa: `emend.fase → DDL.fase → DDL.id_ddl → corpus.atto_num →
 
 | Mart | Key | Uso |
 |------|-----|-----|
-| `mart_legal_nodes` | `id` (URN / namespace) | grafo nodi |
+| `mart_legal_nodes` | `id` (URN / namespace) | grafo nodi (+ `eiv` da akn_act_meta) |
 | `mart_legal_edges` | `(source_id, relation, target_id)` | grafo relazioni |
 | `mart_legal_node_metrics` | `id` | intelligence MCP (insights, ranking) |
 | `mart_legal_search_keys` | `id` + `id_num`/`id_year` | ranking `legal_search` |
 | `mart_legal_node_rel` | `(id, relation)` | conteggi view overview/parliament |
 | `mart_legal_emend_leg` | `(target_id, legislatura)` | emendamenti per DDL |
+| `mart_legal_texts` | `id` | testi articoli Cost. + pronunce (locale/MCP) |
+| `mart_legal_massime` | `sentenza_id` | massime (locale/MCP) |
 
 > Storico dashboard (senato-akn `mart_per_*`) non fa più parte di questo repo.
 

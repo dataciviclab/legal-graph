@@ -1,6 +1,6 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-02 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
+Data: 2026-10-08 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
 
 ## Cosa è (in sintesi)
 
@@ -12,17 +12,19 @@ Data: 2026-10-02 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiv
 
 Non è un’enciclopedia del diritto italiano né un database giurisprudenza ordinaria.
 
-## Composizione nodi (~472k)
+## Composizione nodi (~508k)
 
 | Blocco | Quota | Stato |
 |---|---:|---|
-| Processo Senato (emend + dibattiti + sommari) | ~78% | Sovrabbondante per “legge su X”, ottimo per process mining |
-| Attributi Senato (DDL/atti) | ~9% | Buono |
-| Costituzione (art. + pronunce + correlati) | ~7% | Buono |
+| Processo Senato (emend + dibattiti) | ~73% | Sovrabbondante per “legge su X”, ottimo per process mining |
+| Votazioni Senato | ~6% | Coperto per DDL in senato_ddl |
+| Attributi Senato (DDL/atti) | ~8% | Buono |
+| Costituzione (art. + pronunce + correlati) | ~6% | Buono |
 | Normativa statale (`source=normativa`) | ~4% | Sottocoperta vs corpus pieno (~288k file IC) |
-| Camera DDL | ~2% | Sottocoperto vs Senato |
-| PNRR / GU / revisioni | ~0% | Quasi assente |
-| **Deputati (firmatari Camera)** | ~0,6% | ✅ Ponte OP `camera_firmatari` |
+| Camera DDL | ~1,5% | Sottocoperto vs Senato |
+| Iter cost. + revisioni | ~0,5% | Ponte OP |
+| Deputati (firmatari Camera) | ~0,5% | ✅ Ponte OP `camera_firmatari` |
+| PNRR / GU | ~0% | Quasi assente |
 
 ## Qualità IC (stato / materia / score)
 
@@ -44,6 +46,7 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 |---|---|
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
+| Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`, weight 2 se primo) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
 | Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
 | Voti individuali / profilo | ❌ compose OP, non grafo |
@@ -80,7 +83,7 @@ Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex ·
 1. **Valore**: “come nascono e si collegano le leggi” (catene, Cost., processo) — non “tutto il diritto”.
 2. **Se chiedi l’art. 2043 c.c. consolidato**: il grafo non basta — usa Normattiva/IC.
 3. **Diritto applicato (PA, enti, gare, giurisprudenza ord.)**: integrare dataset Lab, non solo grafo.
-4. **78% parlamentare**: power/process mining sì; ricerca “umana” solo con search tema + hub.
+4. **~73% è processo Senato** (emend+dibattiti): power/process mining sì; ricerca “umana” solo con search tema + hub.
 
 ## Priorità di copertura
 
