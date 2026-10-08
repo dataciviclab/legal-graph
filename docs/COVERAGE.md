@@ -36,7 +36,7 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 | `materia` | 25 categorie tematiche (fisco, ambientale, lavoro…) |
 | `qualita_score` | 0–100 (IC: penalizza duplicati/orfani/stato non vigente) |
 | `sunsetting_score` | 0–100 (IC PR #54: propensione a decadere) |
-| `eiv` | Entrata in vigore effettiva da AKN (`akn_act_meta`) — ~48% dei nodi normativa; spesso ≠ `data` (emanazione) |
+| `eiv` | Entrata in vigore effettiva da AKN (`akn_act_meta`) — 48% nodi normativa, **per natura**: copertura 100% ≤1944 e ≥2011, ~0% sul 1946-2010 (Normattiva non espone authorialNote EIV in quella finestra — verificato 2026-10-08, non è extraction miss). Spesso ≠ `data` (emanazione) |
 
 **Limiti**: atti solo ORIGINALE restano `vigente` per costruzione; hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: filtro `legal_search(..., stato='vigente')`.
 
