@@ -1325,9 +1325,13 @@ def _run_sk(
             "",
             sql_order,
         )
+    # Wrap `where` in parens: several intent branches build it with top-level
+    # OR (e.g. number → "a OR b OR c"). Without parens, appending extra_where
+    # (which starts with AND) would bind only to the last OR clause due to
+    # SQL precedence, leaking rows that ignore the filters.
     sql = (
         _select_sk_sql(use_metrics)
-        + f" WHERE {where}{extra_where} ORDER BY {sql_order} LIMIT {limit}"
+        + f" WHERE ({where}){extra_where} ORDER BY {sql_order} LIMIT {limit}"
     )
     try:
         rows = con.execute(sql, [*params, *extra_params]).fetchall()
