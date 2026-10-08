@@ -73,7 +73,9 @@ Nota `itercost`: nodi deduplicati (`camera_o_senato`+`atto_num`); `proposta_cost
 Processo Senato · Costituzione + Corte Cost. · responsabilità enti/anticorruzione (parziale) · appalti · lavoro · istruzione/sanità/difesa · recepimento UE via D.Lgs
 
 ### Deboli
-Tributario · penale (modifiche, non TU navigabile) · privacy come corpus articoli · **trasparenza/FOIA (D.Lgs 33/2011 non è hub)** · PNRR (20 nodi, non dataset) · Terzo settore (rumore DDL) · regioni · codici · Camera asimmetrica
+Tributario · penale (modifiche, non TU navigabile) · privacy come corpus articoli · **241/1990 solo nodo `norma:*` (massime, niente testo)** · PNRR (20 nodi, non dataset) · Terzo settore (rumore DDL) · regioni · codici · Camera asimmetrica
+
+> Nota 2026-10-08: il **D.Lgs 33/2013 (FOIA)** è un hub critical del grafo (115 incoming) — prima documentato come gap sull'errato "33/2011".
 
 ### Scoperti
 Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex · GU come fonte · **vigenza live (stato IC = tombstone)** · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
@@ -90,7 +92,7 @@ Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex ·
 | Pri | Azione | Sforzo |
 |---|---|---|
 | P0 | Disclaimer + 1 analisi pubblica su ciò che funziona | Basso |
-| P0 | Hub: 33/2013, 241/1990, 190/2012 cercabili | Basso–medio |
+| P0 | ~~Hub: 33/2013~~ ✅ già hub critical · 241/1990 e 190/2012: servono nodi URN (gap IC) | Basso |
 | P1 | Search tema umano stabile (glossario Lab) | Basso (MCP) |
 | P1 | Hub codici (c.c./c.p.) se servono domande da non-giurista | Medio |
 | P2 | Camera + poche regioni; PNRR come dataset dedicato | Medio–alto |
