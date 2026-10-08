@@ -58,9 +58,12 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
-      - name: GCS Auth (org)
+      # setup-gcloud obbligatorio: il gsutil del runner non supporta le
+      # credenziali WIF external_account (401 Anonymous caller). Stesso
+      # pattern di italia-corpus/build-dataset.yml.
+      - name: Set up gcloud
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
-        uses: dataciviclab/.github/actions/gcs-auth@main
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Sync grafo to GCS (no texts/massime)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
