@@ -42,7 +42,7 @@ class TestFetchNormativaText:
             max_chars=500,
         )
         assert "error" not in result
-        assert result["candidates"][0].startswith("DL e leggi di conversione/")
+        assert result["candidates"][0].startswith("collezioni/DL e leggi di conversione/")
 
     def test_fetch_missing_filename(self):
         result = fetch_normativa_text(collezione="Codici", filename="")

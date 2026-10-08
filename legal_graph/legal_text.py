@@ -18,6 +18,8 @@ from legal_graph.paths import resolve_nodes_file, resolve_texts_file
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
 IC_LOCAL_ROOT = Path("/home/gabry/dev/dataciviclab-workspace/diritto-legge/italia-corpus")
+# Parent delle collezioni legislative in italia-corpus (contratto IC)
+IC_COLLEZIONI_DIRNAME = "collezioni"
 TEXT_CACHE = Path(__file__).resolve().parent.parent / "data" / "text_cache"
 USER_AGENT = "DataCivicLab-legal-graph/0.2"
 _DEFAULT_MAX_CHARS = 8000
@@ -83,11 +85,12 @@ def resolve_node(node_id: str) -> dict | None:
 
 
 def _candidate_paths(collezione: str, filename: str) -> list[str]:
-    """Path relativi al repo italia-corpus (una o più collezioni)."""
+    """Path relativi al repo italia-corpus (sotto collezioni/)."""
     colls = [c.strip() for c in (collezione or "").split(";") if c.strip()]
+    prefix = IC_COLLEZIONI_DIRNAME
     if not colls and filename:
-        return [filename]
-    return [f"{c}/{filename}" for c in colls]
+        return [f"{prefix}/{filename}"]
+    return [f"{prefix}/{c}/{filename}" for c in colls]
 
 
 def _fetch_remote(rel_path: str) -> tuple[str, str]:
