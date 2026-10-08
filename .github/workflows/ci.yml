@@ -23,7 +23,7 @@ jobs:
 
       - uses: dataciviclab/.github/actions/python-setup@main
         with:
-          install-extras: "dev"
+          install-extras: "dev,pipeline"
 
       - name: Preflight dataset.yml
         run: make check

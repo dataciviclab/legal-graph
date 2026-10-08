@@ -1,4 +1,4 @@
-TOOLKIT ?= toolkit
+TOOLKIT ?= python3 -m toolkit.cli.app
 YEAR ?= 2026
 PYTHON ?= python3
 
