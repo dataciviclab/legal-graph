@@ -1908,7 +1908,8 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
                 "GROUP BY su edges non dovrebbe essere vuoto: "
                 "usa alias espliciti (es. COUNT(*) AS n) e LIMIT."
             )
-        if " IN (" in sql_clean.upper() and ";" in sql_clean:
+        # ';' fuori dalle stringhe single-quote → rischio separatore DuckDB
+        if " IN (" in sql_clean.upper() and ";" in re.sub(r"'[^']*'", "", sql_clean):
             hint = (
                 "URN con ';' dentro IN: usa stringhe single-quote "
                 "(es. id IN ('urn:...;24')). DuckDB tratta ; come separatore se non quotato."

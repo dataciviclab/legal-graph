@@ -296,3 +296,25 @@ class TestCardinality:
             SELECT COUNT(*) FROM temporal WHERE relation = 'modifica'
         """).fetchone()[0]
         assert 30_000 <= count <= 60_000, f"Modifica edges {count} outside expected range"
+
+
+class TestTemporalSanity:
+    """Coerenza temporale degli archi di modifica (guard nel compose AKN)."""
+
+    def test_no_modifiche_temporalmente_impossibili(self, con):
+        """Nessun abroga/sostituisce/split/join da atto anteriore al target.
+
+        Rumore noto: ~30 passiveModification AKN estratte al contrario
+        (es. atto 2006 che 'abroga' un codice 2017) — filtrato nel SQL.
+        """
+        if not (_has_table(con, "edges") and _has_table(con, "nodes")):
+            pytest.skip("edges/nodes non presenti")
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            JOIN nodes ns ON ns.id = e.source_id
+            JOIN nodes nt ON nt.id = e.target_id
+            WHERE e.relation IN ('abroga', 'sostituisce', 'split', 'join', 'renumbering')
+              AND ns.anno IS NOT NULL AND nt.anno IS NOT NULL
+              AND ns.anno < nt.anno
+        """).fetchone()[0]
+        assert n == 0, f"{n} archi di modifica con source anteriore al target"
