@@ -93,11 +93,7 @@ jobs:
           path: out/data/mart/legal_graph/
           retention-days: 14
 
-      # ── Registry (stesso job: deriva da out/ locale) ───────────────
-      - name: Registry update PR
-        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
-        uses: dataciviclab/.github/actions/registry-update-pr@main
-        with:
-          prefix: "legal-graph"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Registry update PR rimosso (2026-10-08): toolkit registry build
+      # richiede sezioni {slug}/dataset.yml — incompatibile col layout
+      # compose monorepo con dataset.yml alla root. Da ripristinare con
+      # supporto toolkit per root-level dataset.yml.
