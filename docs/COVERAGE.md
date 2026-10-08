@@ -45,8 +45,10 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 | Ponte | Nel grafo |
 |---|---|
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
+| Relatore → atto Camera | ✅ edge `relatore` (`deputato:*` → `camera:atto:{leg}_{id}`) — ~19% incarichi (atto LOD parziale per design) |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
 | Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`, weight 2 se primo) |
+| DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
 | Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
 | Voti individuali / profilo | ❌ compose OP, non grafo |

@@ -81,9 +81,9 @@ class TestNodes:
         """All node IDs should have a recognized namespace prefix."""
         valid_prefixes = (
             "urn:nir:", "costituzione:", "revisione:", "gu:",
-            "senato:", "camera:", "sentenza:", "giudice:",
+            "senato:", "camera:", "camera:atto:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
-            "deputato:", "votazione:", "itercost:",
+            "deputato:", "votazione:", "itercost:", "dl:",
         )
         invalid = con.execute(f"""
             SELECT id FROM nodes
@@ -284,6 +284,24 @@ class TestCardinality:
             assert n_vota > 10_000, f"Edge vota bassi: {n_vota}"
             assert n_prop > 200, f"Edge proposta_cost bassi: {n_prop}"
             assert n_rev > 100, f"Edge diventa_revisione bassi: {n_rev}"
+            # ponti 2026-10: relatore Camera (atto) + DL conversione
+            n_rel_cam = con.execute("""
+                SELECT COUNT(*) FROM edges
+                WHERE relation = 'relatore' AND source_id LIKE 'deputato:%'
+            """).fetchone()[0]
+            n_converte = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'converte_decreto_legge'
+            """).fetchone()[0]
+            assert n_rel_cam > 500, f"Edge relatore Camera bassi: {n_rel_cam}"
+            assert n_converte > 800, f"Edge converte_decreto_legge bassi: {n_converte}"
+        n_dl = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'dl:%'
+        """).fetchone()[0]
+        assert 800 <= n_dl <= 1_100, f"Nodi dl: fuori range: {n_dl}"
+        n_cam_atti = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'camera:atto:%'
+        """).fetchone()[0]
+        assert n_cam_atti > 1_000, f"Nodi camera:atto: bassi: {n_cam_atti}"
         n_iter = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'itercost:%'
         """).fetchone()[0]
@@ -296,3 +314,25 @@ class TestCardinality:
             SELECT COUNT(*) FROM temporal WHERE relation = 'modifica'
         """).fetchone()[0]
         assert 30_000 <= count <= 60_000, f"Modifica edges {count} outside expected range"
+
+
+class TestTemporalSanity:
+    """Coerenza temporale degli archi di modifica (guard nel compose AKN)."""
+
+    def test_no_modifiche_temporalmente_impossibili(self, con):
+        """Nessun abroga/sostituisce/split/join da atto anteriore al target.
+
+        Rumore noto: ~30 passiveModification AKN estratte al contrario
+        (es. atto 2006 che 'abroga' un codice 2017) — filtrato nel SQL.
+        """
+        if not (_has_table(con, "edges") and _has_table(con, "nodes")):
+            pytest.skip("edges/nodes non presenti")
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            JOIN nodes ns ON ns.id = e.source_id
+            JOIN nodes nt ON nt.id = e.target_id
+            WHERE e.relation IN ('abroga', 'sostituisce', 'split', 'join', 'renumbering')
+              AND ns.anno IS NOT NULL AND nt.anno IS NOT NULL
+              AND ns.anno < nt.anno
+        """).fetchone()[0]
+        assert n == 0, f"{n} archi di modifica con source anteriore al target"

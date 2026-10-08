@@ -287,8 +287,8 @@ edges_abro AS (
         'abroga' AS relation,
         n.urn AS target_id,
         1 AS weight,
-        s.abrogated_year AS source_year,
-        NULL::INTEGER AS target_year,
+        ns.src_anno AS source_year,
+        n.anno_atto AS target_year,
         LEFT(s.context, 200) AS evidence
     FROM abro_source s
     JOIN (
@@ -297,34 +297,43 @@ edges_abro AS (
         WHERE NULLIF(urn, '') IS NOT NULL
     ) n ON s.abrogated_year = n.anno_atto
        AND s.abrogated_number = TRY_CAST(n.numero AS INTEGER)
+    LEFT JOIN (
+        SELECT urn, MIN(anno_atto) AS src_anno
+        FROM read_parquet('{support.normativa.path}')
+        WHERE NULLIF(urn, '') IS NOT NULL
+        GROUP BY urn
+    ) ns ON ns.urn = s.source_id
+    -- Guard anno: regex IC a volte risolve la fonte su un atto anteriore
+    -- al target (contesto menziona atti multipli) — scarta i temporalmente
+    -- impossibili. source_year era prima valorizzato con l'anno del target.
+    WHERE ns.src_anno IS NULL
+       OR n.anno_atto IS NULL
+       OR ns.src_anno >= n.anno_atto
 ),
 
 -- Repeal AKN (italia-corpus akn_relations): URN→URN, più preciso di
 -- abrogations_raw (regex su anno/numero). Stessa semantica di edges_abro:
 -- fonte abroga target (activeModification). Dedup finale con edges_abro
 -- via GROUP BY (source_id, relation, target_id).
+-- Guard anno: esclude archi temporalmente impossibili (source < target,
+-- ~30 casi da rumore passiveModification AKN).
 edges_akn_abroga AS (
     SELECT
         a.fonte_urn AS source_id,
         'abroga' AS relation,
         a.target_urn AS target_id,
         1 AS weight,
-        NULL::INTEGER AS source_year,
-        NULL::INTEGER AS target_year,
+        ns.anno AS source_year,
+        nt.anno AS target_year,
         'akn:' || a.origin AS evidence
     FROM read_parquet('{support.akn_relations.path}') a
+    JOIN mart_legal_nodes ns ON ns.id = a.fonte_urn
+    JOIN mart_legal_nodes nt ON nt.id = a.target_urn
     WHERE a.rel_type = 'repeal'
       AND NULLIF(a.fonte_urn, '') IS NOT NULL
       AND NULLIF(a.target_urn, '') IS NOT NULL
       AND a.fonte_urn != a.target_urn
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.fonte_urn
-      )
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.target_urn
-      )
+      AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
 ),
 
 -- Substitution AKN: atto sostituisce porzione di altro atto (URN→URN)
@@ -334,22 +343,17 @@ edges_akn_sost AS (
         'sostituisce' AS relation,
         a.target_urn AS target_id,
         1 AS weight,
-        NULL::INTEGER AS source_year,
-        NULL::INTEGER AS target_year,
+        ns.anno AS source_year,
+        nt.anno AS target_year,
         'akn:' || a.origin AS evidence
     FROM read_parquet('{support.akn_relations.path}') a
+    JOIN mart_legal_nodes ns ON ns.id = a.fonte_urn
+    JOIN mart_legal_nodes nt ON nt.id = a.target_urn
     WHERE a.rel_type = 'substitution'
       AND NULLIF(a.fonte_urn, '') IS NOT NULL
       AND NULLIF(a.target_urn, '') IS NOT NULL
       AND a.fonte_urn != a.target_urn
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.fonte_urn
-      )
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.target_urn
-      )
+      AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
 ),
 
 -- Split/join/renumbering AKN: successioni strutturali oltre repeal/substitution
@@ -359,22 +363,17 @@ edges_akn_modifiche AS (
         a.rel_type AS relation,
         a.target_urn AS target_id,
         1 AS weight,
-        NULL::INTEGER AS source_year,
-        NULL::INTEGER AS target_year,
+        ns.anno AS source_year,
+        nt.anno AS target_year,
         'akn:' || a.origin AS evidence
     FROM read_parquet('{support.akn_relations.path}') a
+    JOIN mart_legal_nodes ns ON ns.id = a.fonte_urn
+    JOIN mart_legal_nodes nt ON nt.id = a.target_urn
     WHERE a.rel_type IN ('split', 'join', 'renumbering')
       AND NULLIF(a.fonte_urn, '') IS NOT NULL
       AND NULLIF(a.target_urn, '') IS NOT NULL
       AND a.fonte_urn != a.target_urn
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.fonte_urn
-      )
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = a.target_urn
-      )
+      AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
 ),
 
 -- Relatore sentenza: pronunce.relatore_pronuncia → nodo giudice
@@ -449,6 +448,56 @@ edges_firmatario AS (
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
+      )
+),
+
+-- Relatori Camera (open-politica camera_relatori #62): deputato → atto
+-- Chiave atto dedicata camera:atto:{leg}_{id} — l'atto Camera non è un DDL
+-- (evita la collisione numerica di camera:{ddl}). Copertura parziale per
+-- design (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
+edges_relatore_camera AS (
+    SELECT
+        'deputato:' || CAST(r.deputato_id AS VARCHAR) AS source_id,
+        'relatore' AS relation,
+        'camera:atto:' || r.atto_id_leg AS target_id,
+        1 AS weight,
+        YEAR(r.data) AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(r.tipo, ''), 120) AS evidence
+    FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true) r
+    WHERE r.deputato_id IS NOT NULL
+      AND NULLIF(r.atto_id_leg, '') IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'deputato:' || CAST(r.deputato_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'camera:atto:' || r.atto_id_leg
+      )
+),
+
+-- DL conversione (open-politica decreti_legge #63): nodo dl:* → DDL di
+-- conversione Senato. ddl_id representative (ramo S, data recente) —
+-- non univoco se più iter; esito + giorni in evidence.
+edges_converte_dl AS (
+    SELECT
+        'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR) AS source_id,
+        'converte_decreto_legge' AS relation,
+        'senato:' || CAST(d.ddl_id AS VARCHAR) AS target_id,
+        1 AS weight,
+        d.dl_anno AS source_year,
+        YEAR(d.data_conversione) AS target_year,
+        d.esito || ' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)' AS evidence
+    FROM read_parquet('{support.decreti_legge.path}') d
+    WHERE d.ddl_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(d.ddl_id AS VARCHAR)
       )
 ),
 
@@ -564,7 +613,9 @@ SELECT
     SUM(weight) AS weight,
     MIN(source_year) AS source_year,
     MAX(target_year) AS target_year,
-    FIRST(evidence) AS evidence
+    -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
+    -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
+    MIN(evidence) AS evidence
 FROM (
     SELECT * FROM edges_riferimenti
     UNION ALL
@@ -603,6 +654,10 @@ FROM (
     SELECT * FROM edges_relatore_sentenza
     UNION ALL
     SELECT * FROM edges_relatore
+    UNION ALL
+    SELECT * FROM edges_relatore_camera
+    UNION ALL
+    SELECT * FROM edges_converte_dl
     UNION ALL
     SELECT * FROM edges_firmatario
     UNION ALL
