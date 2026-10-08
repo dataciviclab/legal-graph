@@ -1,10 +1,7 @@
 # CI — legal-graph
 #
-# Check leggero su PR/push: preflight config + lint + test.
-# Il build del compose (make run da rete) avviene SOLO in pipeline.yml,
-# che committa i mart in repo. I test girano sul mart già presente.
-#
-# Se il mart manca (clone senza out/data/mart), fallback make run.
+# Su PR/push: solo preflight config + lint. I test sul mart girano in
+# pipeline.yml (dopo make run) o localmente — il mart non è più in git.
 
 name: CI
 
@@ -20,28 +17,16 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
       - uses: dataciviclab/.github/actions/python-setup@main
         with:
-          install-extras: "dev,pipeline,mcp"
+          install-extras: "dev,pipeline"
 
       - name: Preflight dataset.yml
         run: make check
 
-      - name: Ensure mart exists (fallback build)
-        run: |
-          if [ ! -f "out/data/mart/legal_graph/${YEAR:-2026}/mart_legal_nodes.parquet" ]; then
-            echo "Mart assente — build locale (fallback CI)"
-            make run
-          else
-            echo "Mart già nel repo (commit Pipeline) — skip make run"
-          fi
-
-      - uses: dataciviclab/.github/actions/python-ci@main
-        with:
-          lint_paths: "legal_graph tests scripts"
-          test_dir: "tests"
-          pytest_args: "-q"
+      - name: Lint
+        run: make lint

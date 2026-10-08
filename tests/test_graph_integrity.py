@@ -17,6 +17,7 @@ from legal_graph.paths import (
     resolve_metrics_file,
     resolve_nodes_file,
     resolve_temporal_file,
+    source_exists,
 )
 
 
@@ -28,13 +29,13 @@ def con():
     edges_file = resolve_edges_file()
     temporal_file = resolve_temporal_file()
     metrics_file = resolve_metrics_file()
-    if nodes_file.exists():
+    if source_exists(nodes_file):
         c.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{nodes_file}')")
-    if edges_file.exists():
+    if source_exists(edges_file):
         c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if temporal_file is not None and temporal_file.exists():
+    if source_exists(temporal_file):
         c.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{temporal_file}')")
-    if metrics_file is not None and metrics_file.exists():
+    if source_exists(metrics_file):
         c.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{metrics_file}')")
     yield c
     c.close()

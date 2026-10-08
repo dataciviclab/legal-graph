@@ -1,87 +1,129 @@
 """Path resolution per legal-graph.
 
-Priorita':
-1. compose toolkit: out/data/mart/legal_graph/<year>/
-2. legacy build: data/ (solo fallback temporaneo)
+Priorità sorgente mart (tabelle leggere del compose):
+1. Variabile d'ambiente LEGAL_GRAPH_MART_DIR (override locale/CI)
+2. compose toolkit locale: out/data/mart/legal_graph/<year>/
+3. GCS pubblico: gs://dataciviclab-mart/legal-graph/… (HTTPS)
+
+texts / massime / temporal: **solo locale** (non nel primo publish GCS).
+Legacy data/*.parquet: fallback temporaneo per nodes/edges se assente tutto.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+PathLike = Path | str
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
-COMPOSE_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / "2026"
+YEAR = "2026"
 
-COMPOSE_NODES = COMPOSE_MART_DIR / "mart_legal_nodes.parquet"
-COMPOSE_EDGES = COMPOSE_MART_DIR / "mart_legal_edges.parquet"
-COMPOSE_METRICS = COMPOSE_MART_DIR / "mart_legal_node_metrics.parquet"
-COMPOSE_SEARCH_KEYS = COMPOSE_MART_DIR / "mart_legal_search_keys.parquet"
-COMPOSE_NODE_REL = COMPOSE_MART_DIR / "mart_legal_node_rel.parquet"
-COMPOSE_EMEND_LEG = COMPOSE_MART_DIR / "mart_legal_emend_leg.parquet"
-COMPOSE_TEXTS = COMPOSE_MART_DIR / "mart_legal_texts.parquet"
-COMPOSE_MASSIME = COMPOSE_MART_DIR / "mart_legal_massime.parquet"
+DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
+GCS_MART_BASE = (
+    f"https://storage.googleapis.com/dataciviclab-mart/legal-graph/"
+    f"legal_graph/{YEAR}"
+)
+
+# Tabelle pubblicate sul GCS (rilascio 1: grafo, no testi lunghi)
+GCS_MART_TABLES = frozenset(
+    {
+        "mart_legal_nodes",
+        "mart_legal_edges",
+        "mart_legal_node_metrics",
+        "mart_legal_search_keys",
+        "mart_legal_node_rel",
+        "mart_legal_emend_leg",
+    }
+)
 
 LEGACY_NODES = DATA_DIR / "legal_nodes.parquet"
 LEGACY_EDGES = DATA_DIR / "legal_edges.parquet"
 LEGACY_TEMPORAL = DATA_DIR / "legal_edges_temporal.parquet"
 LEGACY_METRICS = DATA_DIR / "graph_metrics.parquet"
-LEGACY_NODES_EU = DATA_DIR / "legal_nodes_eu.parquet"
-LEGACY_EDGES_EU = DATA_DIR / "legal_edges_eu.parquet"
 
 
-def resolve_nodes_file() -> Path:
-    """Ritorna il parquet nodi: compose se presente, altrimenti legacy."""
-    if COMPOSE_NODES.exists():
-        return COMPOSE_NODES
-    return LEGACY_NODES
+def mart_dir() -> Path:
+    """Directory locale dei mart compose (env override inclusa)."""
+    env = os.environ.get("LEGAL_GRAPH_MART_DIR")
+    if env:
+        return Path(env)
+    return DEFAULT_MART_DIR
 
 
-def resolve_edges_file() -> Path:
-    """Ritorna il parquet archi: compose se presente, altrimenti legacy."""
-    if COMPOSE_EDGES.exists():
-        return COMPOSE_EDGES
-    return LEGACY_EDGES
+def gcs_url(table: str) -> str:
+    if table not in GCS_MART_TABLES:
+        raise ValueError(f"tabella non pubblicata su GCS: {table}")
+    return f"{GCS_MART_BASE}/{table}.parquet"
 
 
-def resolve_metrics_file() -> Path | None:
-    """Metriche: preferisci mart compose, fallback script legacy."""
-    if COMPOSE_METRICS.exists():
-        return COMPOSE_METRICS
-    if LEGACY_METRICS.exists():
-        return LEGACY_METRICS
+def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:
+    """Risolvi una tabella mart: locale → GCS (se ammesso)."""
+    local = mart_dir() / f"{table}.parquet"
+    if local.exists():
+        return local
+    if allow_gcs and table in GCS_MART_TABLES:
+        return gcs_url(table)
     return None
 
 
-def resolve_search_keys_file() -> Path | None:
-    if COMPOSE_SEARCH_KEYS.exists():
-        return COMPOSE_SEARCH_KEYS
-    return None
+def is_remote(source: PathLike | None) -> bool:
+    return isinstance(source, str) and source.startswith(("http://", "https://"))
 
 
-def resolve_node_rel_file() -> Path | None:
-    if COMPOSE_NODE_REL.exists():
-        return COMPOSE_NODE_REL
-    return None
+def source_exists(source: PathLike | None) -> bool:
+    """True se la sorgente è leggibile (file locale o URL remote)."""
+    if source is None:
+        return False
+    if is_remote(source):
+        return True
+    return Path(source).exists()
 
 
-def resolve_emend_leg_file() -> Path | None:
-    if COMPOSE_EMEND_LEG.exists():
-        return COMPOSE_EMEND_LEG
-    return None
+# ── API legacy (compat test / MCP) ─────────────────────────────────
 
 
-def resolve_texts_file() -> Path | None:
-    if COMPOSE_TEXTS.exists():
-        return COMPOSE_TEXTS
-    return None
+def resolve_nodes_file() -> PathLike | None:
+    src = resolve("mart_legal_nodes")
+    if src is not None:
+        return src
+    return LEGACY_NODES if LEGACY_NODES.exists() else None
 
 
-def resolve_massime_file() -> Path | None:
-    if COMPOSE_MASSIME.exists():
-        return COMPOSE_MASSIME
-    return None
+def resolve_edges_file() -> PathLike | None:
+    src = resolve("mart_legal_edges")
+    if src is not None:
+        return src
+    return LEGACY_EDGES if LEGACY_EDGES.exists() else None
 
 
-def resolve_temporal_file() -> Path | None:
-    """Archi temporali (solo legacy / step Python separato)."""
+def resolve_metrics_file() -> PathLike | None:
+    src = resolve("mart_legal_node_metrics")
+    if src is not None:
+        return src
+    return LEGACY_METRICS if LEGACY_METRICS.exists() else None
+
+
+def resolve_search_keys_file() -> PathLike | None:
+    return resolve("mart_legal_search_keys")
+
+
+def resolve_node_rel_file() -> PathLike | None:
+    return resolve("mart_legal_node_rel")
+
+
+def resolve_emend_leg_file() -> PathLike | None:
+    return resolve("mart_legal_emend_leg")
+
+
+def resolve_texts_file() -> PathLike | None:
+    # non su GCS nel primo rilascio
+    return resolve("mart_legal_texts", allow_gcs=False)
+
+
+def resolve_massime_file() -> PathLike | None:
+    return resolve("mart_legal_massime", allow_gcs=False)
+
+
+def resolve_temporal_file() -> PathLike | None:
     return LEGACY_TEMPORAL if LEGACY_TEMPORAL.exists() else None

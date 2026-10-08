@@ -7,6 +7,7 @@ un errore strutturato con il ponte note (senato-akn ecc.).
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -14,10 +15,18 @@ from urllib.request import Request, urlopen
 
 import duckdb
 
-from legal_graph.paths import resolve_nodes_file, resolve_texts_file
+from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exists
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
-IC_LOCAL_ROOT = Path("/home/gabry/dev/dataciviclab-workspace/diritto-legge/italia-corpus")
+# Override opzionale: repo IC clonato in locale (sviluppo/offline)
+IC_LOCAL_ROOT = Path(
+    os.environ.get(
+        "ITALIA_CORPUS_ROOT",
+        str(
+            Path(__file__).resolve().parent.parent.parent / "italia-corpus"
+        ),
+    )
+)
 # Parent delle collezioni legislative in italia-corpus (contratto IC)
 IC_COLLEZIONI_DIRNAME = "collezioni"
 TEXT_CACHE = Path(__file__).resolve().parent.parent / "data" / "text_cache"
@@ -57,7 +66,7 @@ def _pad_sentenza(node_id: str) -> str:
 def resolve_node(node_id: str) -> dict | None:
     """Lookup nodo nei mart compose (o legacy). Accetta alias sentenza senza zero-pad."""
     nodes_file = resolve_nodes_file()
-    if not nodes_file.exists():
+    if not source_exists(nodes_file):
         return None
     nid = _pad_sentenza(node_id)
     con = duckdb.connect(":memory:")
