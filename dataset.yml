@@ -1,8 +1,12 @@
 # legal-graph — compose mart-only del Legal Knowledge Graph
 #
 # Modello pil-intelligence: nessun raw/clean propri. I SQL leggono i
-# parquet upstream **direttamente da rete** (GitHub raw / GCS HTTPS)
+# parquet upstream **direttamente da rete** (GCS HTTPS / GitHub raw)
 # via support type: external — senza materializzarli in locale.
+#
+# Forma dichiarativa (toolkit PR dataciviclab/toolkit#497):
+#   repo+slug+layer → path risolto dal registry del produttore
+#   repo+path       → raw.githubusercontent.com (derived non nel registry)
 #
 # Output: out/data/mart/legal_graph/2026/
 #   - mart_legal_nodes.parquet
@@ -28,100 +32,151 @@ dataset:
 # Nessuna sezione raw/clean: mart-only compose.
 
 support:
-  # ── italia-corpus (clean GCS — layer toolkit IC) ────────────────
+  # -- italia-corpus (clean GCS -- layer toolkit IC) ----------------
   # citazioni/pnrr/abrogations: ancora derived GitHub (wave 2 IC)
   - name: normativa
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/italia-corpus/normativa/2026/normativa_2026_clean.parquet"
+    repo: italia-corpus
+    slug: normativa
+    layer: clean
+    years: [2026]
   - name: riferimenti
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/italia-corpus/riferimenti/2026/riferimenti_2026_clean.parquet"
+    repo: italia-corpus
+    slug: riferimenti
+    layer: clean
+    years: [2026]
   - name: citazioni_costituzionali
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/citazioni-costituzionali.parquet"
+    repo: italia-corpus
+    path: data/derived/citazioni-costituzionali.parquet
   - name: pnrr_references
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/pnrr_references.parquet"
+    repo: italia-corpus
+    path: data/derived/pnrr_references.parquet
   - name: abrogations_raw
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/abrogations_raw.parquet"
+    repo: italia-corpus
+    path: data/derived/abrogations_raw.parquet
 
-  # ── gu-monitor ──────────────────────────────────────────────────
+  # -- gu-monitor (parquet committato, no registry) ----------------
   - name: gu_acts
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/gu-monitor/main/data/gu_acts.parquet"
+    repo: gu-monitor
+    path: data/gu_acts.parquet
 
-  # ── costituzione-italiana (GCS clean) ───────────────────────────
+  # -- costituzione-italiana (GCS clean) ----------------------------
   - name: articoli_costituzione
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/articoli_costituzione/2026/articoli_costituzione_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: articoli_costituzione
+    layer: clean
+    years: [2026]
   - name: revisioni_costituzionali
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/revisioni_costituzionali/2026/revisioni_costituzionali_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: revisioni_costituzionali
+    layer: clean
+    years: [2026]
   - name: pronunce_corte_costituzionale
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/pronunce_corte_costituzionale/2026/pronunce_corte_costituzionale_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: pronunce_corte_costituzionale
+    layer: clean
+    years: [2026]
   - name: massime_corte_costituzionale
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/massime_corte_costituzionale/2026/massime_corte_costituzionale_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: massime_corte_costituzionale
+    layer: clean
+    years: [2026]
   - name: giudici_corte_costituzionale
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/giudici_corte_costituzionale/2026/giudici_corte_costituzionale_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: giudici_corte_costituzionale
+    layer: clean
+    years: [2026]
   - name: atti_promovimento
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/atti_promovimento_corte_costituzionale/2026/atti_promovimento_corte_costituzionale_2026_clean.parquet"
+    repo: costituzione-italiana
+    slug: atti_promovimento_corte_costituzionale
+    layer: clean
+    years: [2026]
 
-  # ── senato-akn (GCS clean — file grandi) ───────────────────────
+  # -- senato-akn (GCS clean -- file grandi) -----------------------
   - name: senato_corpus
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_corpus/2026/senato_corpus_2026_clean.parquet"
+    repo: senato-akn
+    slug: senato_corpus
+    layer: clean
+    years: [2026]
   - name: senato_emendamenti
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_emendamenti/2026/senato_emendamenti_2026_clean.parquet"
+    repo: senato-akn
+    slug: senato_emendamenti
+    layer: clean
+    years: [2026]
   - name: senato_dibattito
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/senato-akn/senato_dibattito/2026/senato_dibattito_2026_clean.parquet"
+    repo: senato-akn
+    slug: senato_dibattito
+    layer: clean
+    years: [2026]
 
-  # ── open-politica multi-anno (legislature 13–19) ───────────────
+  # -- open-politica multi-anno (legislature 13-19) ----------------
   # SQL usa {support.NAME.outputs} (lista URL) + union_by_name
   - name: senato_ddl
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_ddl/{year}/senato_ddl_{year}_clean.parquet"
+    repo: open-politica
+    slug: senato_ddl
+    layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
   - name: camera_ddl
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_ddl/{year}/camera_ddl_{year}_clean.parquet"
+    repo: open-politica
+    slug: camera_ddl
+    layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
   - name: camera_leggi
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_leggi/{year}/camera_leggi_{year}_clean.parquet"
+    repo: open-politica
+    slug: camera_leggi
+    layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
-  # ── open-politica ponti persona↔atto (PR #41/#42) ───────────────
+  # -- open-politica ponti persona/atto (PR #41/#42) ---------------
   - name: senato_relatori
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_relatori/{year}/senato_relatori_{year}_clean.parquet"
+    repo: open-politica
+    slug: senato_relatori
+    layer: clean
     years: [2026]
   - name: camera_firmatari
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/camera_firmatari/{year}/camera_firmatari_{year}_clean.parquet"
+    repo: open-politica
+    slug: camera_firmatari
+    layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
-  # ── open-politica: votazioni Senato × DDL (PR #41) ──────────────
+  # -- open-politica: votazioni Senato x DDL (PR #41) --------------
   - name: senato_votazioni_oggetto
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/open-politica/senato_votazioni_oggetto/{year}/senato_votazioni_oggetto_{year}_clean.parquet"
+    repo: open-politica
+    slug: senato_votazioni_oggetto
+    layer: clean
     years: [2026]
 
-  # ── costituzione-italiana: iter revisioni Cost. (PR #21) ───────
+  # -- costituzione-italiana: iter revisioni Cost. (PR #21) -------
   - name: iter_costituzionale
     type: external
-    uri: "https://storage.googleapis.com/dataciviclab-clean/costituzione-italiana/iter_costituzionale/{year}/iter_costituzionale_{year}_clean.parquet"
+    repo: costituzione-italiana
+    slug: iter_costituzionale
+    layer: clean
     years: [2026]
 
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti
   # nella stessa sessione DuckDB del run MART.
-  #   1 mart_legal_nodes / 2 mart_legal_edges  ← support esterni
-  #   3+ metrics, search_keys, rel, emend_leg  ← FROM mart_legal_*
+  #   1 mart_legal_nodes / 2 mart_legal_edges  <- support esterni
+  #   3+ metrics, search_keys, rel, emend_leg  <- FROM mart_legal_*
   tables:
     - name: "mart_legal_nodes"
       sql: "sql/mart_legal_nodes.sql"
