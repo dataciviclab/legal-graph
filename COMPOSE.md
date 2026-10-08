@@ -12,7 +12,8 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | Config | `dataset.yml` (ordine tabelle obbligatorio) |
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
 | SQL derivate | metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
-| Output | `out/data/mart/legal_graph/2026/` (committato) |
+| Output | `out/data/mart/legal_graph/2026/` (gitignored) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` (6 tabelle grafo) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
 | CLI | `scripts/` — intelligence fallback, eu/temporal |
 | Test | `tests/` — integrità + golden search |
@@ -59,8 +60,10 @@ Se manca `search_keys`/`metrics`: errore + hint `make run`.
 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
-| `ci.yml` | PR + push main | preflight → `make run` → ruff + pytest |
-| `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + test + commit mart `[skip ci]` |
+| `ci.yml` | PR + push main | preflight → mart locale **o download GCS** → ruff + pytest |
+| `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + test + **sync GCS** (6 tabelle) + registry PR |
+
+I mart **non** vengono più committati in git. texts/massime restano fuori dal GCS nel primo rilascio.
 
 Locale == CI: stessi target Makefile.
 

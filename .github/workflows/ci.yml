@@ -1,10 +1,9 @@
 # CI — legal-graph
 #
-# Check leggero su PR/push: preflight config + lint + test.
-# Il build del compose (make run da rete) avviene SOLO in pipeline.yml,
-# che committa i mart in repo. I test girano sul mart già presente.
-#
-# Se il mart manca (clone senza out/data/mart), fallback make run.
+# I mart non sono più in git. I test:
+# 1) se c'è out/ locale (dev) → usano quello
+# 2) altrimenti scaricano le 6 tabelle grafo da GCS (httpfs DuckDB)
+# texts/massime: se assenti, i test che li usano skippano (comportamento già soft)
 
 name: CI
 
@@ -31,14 +30,23 @@ jobs:
       - name: Preflight dataset.yml
         run: make check
 
-      - name: Ensure mart exists (fallback build)
+      - name: Ensure mart (locale o GCS)
         run: |
-          if [ ! -f "out/data/mart/legal_graph/${YEAR:-2026}/mart_legal_nodes.parquet" ]; then
-            echo "Mart assente — build locale (fallback CI)"
-            make run
-          else
-            echo "Mart già nel repo (commit Pipeline) — skip make run"
+          set -euo pipefail
+          DIR="out/data/mart/legal_graph/2026"
+          YEAR=2026
+          if [ -f "$DIR/mart_legal_nodes.parquet" ]; then
+            echo "Mart locale presenti — ok"
+            exit 0
           fi
+          echo "Mart assenti — download grafo da GCS (no texts/massime)"
+          mkdir -p "$DIR"
+          BASE="https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/${YEAR}"
+          for t in mart_legal_nodes mart_legal_edges mart_legal_node_metrics \
+                   mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg; do
+            curl -fsSL "$BASE/${t}.parquet" -o "$DIR/${t}.parquet"
+            echo "✅ $t"
+          done
 
       - uses: dataciviclab/.github/actions/python-ci@main
         with:

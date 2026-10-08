@@ -34,6 +34,16 @@ clean-cache:
 test:
 	$(PYTHON) -m pytest tests/ -q
 
+.PHONY: download-gcs
+download-gcs:
+	@DIR=out/data/mart/legal_graph/$(YEAR); \
+	mkdir -p $$DIR; \
+	BASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/$(YEAR); \
+	for t in mart_legal_nodes mart_legal_edges mart_legal_node_metrics \
+	         mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg; do \
+		curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet" && echo "✅ $$t" || exit 1; \
+	done
+
 .PHONY: help
 help:
 	@grep -E '^[a-zA-Z_-]+:' Makefile | sort

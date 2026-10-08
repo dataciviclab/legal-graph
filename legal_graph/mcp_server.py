@@ -35,6 +35,7 @@ from legal_graph.paths import (
     resolve_search_keys_file,
     resolve_temporal_file,
     resolve_texts_file,
+    source_exists,
 )
 
 _MAX_ROWS = 100
@@ -233,33 +234,38 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(":memory:")
     con.execute("SET memory_limit='256MB'")
     con.execute("SET threads=1")
+    if not source_exists(nodes_file) or not source_exists(edges_file):
+        raise FileNotFoundError(
+            "Mart legal-graph non disponibili. Esegui `make run` locale "
+            "oppure assicurati che GCS sia raggiungibile (paths.resolve)."
+        )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if temporal_file is not None and temporal_file.exists():
+    if source_exists(temporal_file):
         con.execute(
             f"CREATE OR REPLACE VIEW temporal AS SELECT * FROM read_parquet('{temporal_file}')"
         )
-    if metrics_file is not None and metrics_file.exists():
+    if source_exists(metrics_file):
         con.execute(
             f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
         )
-    if search_keys_file is not None and search_keys_file.exists():
+    if source_exists(search_keys_file):
         con.execute(
             f"CREATE OR REPLACE VIEW search_keys AS SELECT * FROM read_parquet('{search_keys_file}')"
         )
-    if node_rel_file is not None and node_rel_file.exists():
+    if source_exists(node_rel_file):
         con.execute(
             f"CREATE OR REPLACE VIEW node_rel AS SELECT * FROM read_parquet('{node_rel_file}')"
         )
-    if emend_leg_file is not None and emend_leg_file.exists():
+    if source_exists(emend_leg_file):
         con.execute(
             f"CREATE OR REPLACE VIEW emend_leg AS SELECT * FROM read_parquet('{emend_leg_file}')"
         )
-    if texts_file is not None and texts_file.exists():
+    if source_exists(texts_file):
         con.execute(
             f"CREATE OR REPLACE VIEW texts AS SELECT * FROM read_parquet('{texts_file}')"
         )
-    if massime_file is not None and massime_file.exists():
+    if source_exists(massime_file):
         con.execute(
             f"CREATE OR REPLACE VIEW massime AS SELECT * FROM read_parquet('{massime_file}')"
         )
@@ -1184,10 +1190,10 @@ def _select_sk_sql(use_metrics: bool) -> str:
 def _ensure_view(
     con: duckdb.DuckDBPyConnection,
     name: str,
-    path: Path | None,
+    path: str | Path | None,
 ) -> bool:
-    """Crea la VIEW se il parquet esiste ma la view no (MCP stale / partial run)."""
-    if path is None or not path.exists():
+    """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no."""
+    if not source_exists(path):
         return _view_exists(con, name)
     if _view_exists(con, name):
         return True

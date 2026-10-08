@@ -28,13 +28,14 @@ dataset:
 # Nessuna sezione raw/clean: mart-only compose.
 
 support:
-  # ── italia-corpus (derived committati sul repo GitHub) ──────────
+  # ── italia-corpus (clean GCS — layer toolkit IC) ────────────────
+  # citazioni/pnrr/abrogations: ancora derived GitHub (wave 2 IC)
   - name: normativa
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/normativa.parquet"
+    uri: "https://storage.googleapis.com/dataciviclab-clean/italia-corpus/normativa/2026/normativa_2026_clean.parquet"
   - name: riferimenti
     type: external
-    uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/riferimenti.parquet"
+    uri: "https://storage.googleapis.com/dataciviclab-clean/italia-corpus/riferimenti/2026/riferimenti_2026_clean.parquet"
   - name: citazioni_costituzionali
     type: external
     uri: "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main/data/derived/citazioni-costituzionali.parquet"

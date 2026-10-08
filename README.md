@@ -55,13 +55,22 @@ legal_search("responsabilita amministrativa")
 ### 2. Build locale (compose toolkit)
 
 ```bash
-make run          # compose: 6 mart da rete (GitHub raw / GCS)
+make run          # compose: mart da rete → out/data/mart/ (gitignored)
+make download-gcs # senza build: scarica le 6 tabelle grafo da GCS
 make test         # integrità + golden search (~50 test)
 make lint
-# make intelligence  # solo se metriche mancanti dal mart (fallback)
 ```
 
-Output: `out/data/mart/legal_graph/2026/`
+Output locale: `out/data/mart/legal_graph/2026/` (**non committato**).
+
+**Pubblicazione** (source of truth per i consumatori):
+
+| Tabella | GCS |
+|---|---|
+| `nodes` · `edges` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` |
+| `texts` · `massime` | locale / MCP-only (primo rilascio) |
+
+MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
 
 | Tabella | Ruolo |
 |---|---|
@@ -72,9 +81,9 @@ Output: `out/data/mart/legal_graph/2026/`
 | `mart_legal_emend_leg` | emendamenti per DDL/legislatura |
 
 Ordine obbligato nel compose: nodes → edges → derivate (stessa sessione DuckDB).  
-I mart sono **committati** dalla pipeline (source of truth, come pil-intelligence). Le fonti upstream si leggono da rete.
+I mart **non** sono più committati in git: CI → GCS + registry. Le fonti upstream si leggono da rete.
 
-MCP senza search mart → errore con hint `make run`.
+MCP senza search mart → errore con hint `make run` o `make download-gcs`.
 
 ### 3. SQL diretto (DuckDB)
 
