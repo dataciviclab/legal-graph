@@ -168,3 +168,83 @@ def test_pragma_describe(search_ready):
     assert pr and "column_name" in pr[0]
     de = m.legal_query("DESCRIBE nodes", limit=2)
     assert de and "column_name" in de[0]
+
+
+# ── Arricchimenti 2026-10: AKN, relatore, firmatari, eiv, filtri ──
+
+
+_AKN_RELS = {"abroga", "sostituisce", "split", "join", "renumbering"}
+
+
+def test_chain_modifiche_akn(search_ready):
+    """La chain include le modifiche AKN tipizzate (non solo deleghe/leggi)."""
+    c = m._impl_node("urn:nir:stato:decreto.legislativo:2024-11-05;173", view="chain")
+    assert "error" not in c
+    rels = {e["relation"] for e in c.get("chain_forward", [])}
+    rels |= {e["relation"] for e in c.get("chain_backward", [])}
+    assert rels & _AKN_RELS, f"modifiche AKN assenti dalla chain: {sorted(rels)}"
+
+
+def test_jurisprudence_relatore(search_ready):
+    """Ogni sentenza espone il relatore (edge relatore_sentenza → giudice)."""
+    j = m._impl_node("sentenza:1956-0020", view="jurisprudence")
+    assert "error" not in j
+    rel = j.get("relatore") or []
+    assert rel, "relatore assente su sentenza con relatore noto"
+    assert rel[0]["id"].startswith("giudice:")
+
+
+def test_jurisprudence_sentenze_relatore(search_ready):
+    """Un giudice espone le sentenze da lui redate (inversa relatore_sentenza)."""
+    j = m._impl_node("giudice:Gaetano_Azzariti", view="jurisprudence")
+    assert "error" not in j
+    sent = j.get("sentenze_relatore") or []
+    assert sent, "sentenze_relatore vuoto su giudice con sentenze note"
+    assert sent[0]["id"].startswith("sentenza:")
+
+
+def test_parliament_firmatari(search_ready):
+    """Una DDL espone i firmatari (edge incoming firmatario)."""
+    p = m._impl_node("senato:54386", view="parliament")
+    assert "error" not in p
+    assert (p.get("n_firmatari") or 0) >= 1, "n_firmatari vuoto"
+    firm = p.get("firmatari") or []
+    assert firm and firm[0]["id"].startswith(("senatore:", "deputato:"))
+    # weight 2 = primo firmatario (dedup senato: solo weight 1/2)
+    assert all(f.get("weight") in (1, 2) for f in firm)
+
+
+def test_node_eiv_payload(search_ready):
+    """eiv (AKN) presente nel payload e tipicamente ≠ data (emanazione)."""
+    ov = m._impl_node("urn:nir:stato:decreto.legge:1996-01-24;30", view="overview")
+    assert "error" not in ov
+    node = ov.get("node") or {}
+    assert node.get("eiv"), "eiv assente sul payload nodo"
+    assert node["eiv"] != node.get("data"), "eiv identico a data su DL (inaspettato)"
+
+
+def test_search_filter_materia(search_ready):
+    rows = m._impl_search("231", materia="fisco", limit=5)
+    assert rows, "filtro materia=fisco su '231' vuoto"
+    assert all((r.get("materia") or "").lower() == "fisco" for r in rows)
+
+
+def test_search_filter_min_score(search_ready):
+    rows = m._impl_search("231/2001", min_score=70, limit=3)
+    assert rows, "filtro min_score=70 su atto di alta qualità vuoto"
+    assert any("decreto.legislativo:2001-06-08;231" in r["id"] for r in rows)
+
+
+def test_search_filter_collezione(search_ready):
+    rows = m._impl_search("costituzione", collezione="Costituzione", limit=5)
+    assert rows, "filtro collezione=Costituzione vuoto"
+    assert all(r.get("source") == "costituzione" for r in rows)
+
+
+def test_search_filter_stato_materia_combined(search_ready):
+    """Filtri combinati restano coerenti (regressione extra_where)."""
+    rows = m._impl_search("231", stato="vigente", materia="fisco", limit=5)
+    assert rows, "stato+materia combinati vuoti"
+    for r in rows:
+        assert (r.get("stato") or "").lower() == "vigente"
+        assert (r.get("materia") or "").lower() == "fisco"

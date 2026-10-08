@@ -9,9 +9,10 @@ Flusso consigliato (5 tool):
 
 View di legal_node:
   overview      metadati + conteggi relazioni + top edge + intelligence
-  chain         catena legislativa (DDL→legge→D.Lgs→UE)
-  jurisprudence Corte Costituzionale (impugna, parametri, citazioni)
-  parliament    emendamenti, interventi, diventa_legge
+  chain         catena legislativa (DDL→legge→D.Lgs→UE) + modifiche AKN
+                (abroga, sostituisce, split, join, renumbering)
+  jurisprudence Corte Costituzionale (impugna, parametri, citazioni, relatore)
+  parliament    emendamenti, interventi, firmatari, diventa_legge
 """
 from __future__ import annotations
 
@@ -47,6 +48,12 @@ _CHAIN_RELS = (
     "attua_regolamento",
     "collega_ue",
     "cita_costituzione",
+    # modifiche tipizzate AKN (2026-10): parte della catena normativa
+    "abroga",
+    "sostituisce",
+    "split",
+    "join",
+    "renumbering",
 )
 _TITLE_SEARCH = 280
 _TITLE_NODE = 500
@@ -299,6 +306,12 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
         "length_chars, length_words, celex, collezione, source_filename, "
         "stato, materia, qualita_score, sunsetting_score"
     )
+    # eiv: colonna nuova (akn_act_meta 2026-10) — assente sui mart legacy
+    has_eiv = con.execute(
+        "SELECT COUNT(*) FROM (DESCRIBE nodes) WHERE column_name = 'eiv'"
+    ).fetchone()[0] > 0
+    if has_eiv:
+        cols += ", eiv"
     exact = con.execute(
         f"""
         SELECT {cols}
@@ -366,6 +379,9 @@ def _node_payload(row: tuple) -> dict[str, Any]:
         payload["materia"] = row[12]
         payload["qualita_score"] = row[13]
         payload["sunsetting_score"] = row[14]
+    # EIV AKN (opzionale — mart legacy senza colonna)
+    if len(row) > 15:
+        payload["eiv"] = row[15]
     return payload
 
 
@@ -605,14 +621,15 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
     forward: list[dict[str, Any]] = []
     visited = {actual_id}
     queue: list[tuple[str, int]] = [(actual_id, 0)]
+    in_clause = ",".join("?" * len(_CHAIN_RELS))
     while queue:
         current, d = queue.pop(0)
         if d >= depth:
             continue
         edges = con.execute(
-            """
+            f"""
             SELECT relation, target_id, weight FROM edges
-            WHERE source_id = ? AND relation IN (?,?,?,?,?,?)
+            WHERE source_id = ? AND relation IN ({in_clause})
             ORDER BY weight DESC LIMIT 8
             """,
             [current, *_CHAIN_RELS],
@@ -644,9 +661,9 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         if d >= depth:
             continue
         edges = con.execute(
-            """
+            f"""
             SELECT relation, source_id, weight FROM edges
-            WHERE target_id = ? AND relation IN (?,?,?,?,?,?)
+            WHERE target_id = ? AND relation IN ({in_clause})
             ORDER BY weight DESC LIMIT 8
             """,
             [current, *_CHAIN_RELS],
@@ -719,7 +736,8 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         "attua_delega_hint": _attua_delega_hint(con, node_row),
         "temporal": [{"relation": t[0], "evidence": t[1]} for t in temporal],
         "note": (
-            "chain_* = relazioni legislative tipizzate. "
+            "chain_* = relazioni legislative tipizzate + modifiche AKN "
+            "(abroga, sostituisce, split, join, renumbering). "
             "top_riferimenti_* = campione riferimento se la chain è vuota. "
             "attua_delega_hint = euristica dal titolo (legge-base citata)."
         ),
@@ -781,6 +799,25 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         """,
         [actual_id],
     ).fetchall()
+    # relatore_sentenza: da sentenza → giudice; da giudice → sentenze redate
+    relatore = con.execute(
+        """
+        SELECT e.target_id, LEFT(n.title, 120), e.evidence
+        FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
+        WHERE e.source_id = ? AND e.relation = 'relatore_sentenza'
+        LIMIT 5
+        """,
+        [actual_id],
+    ).fetchall()
+    sentenze_relatore = con.execute(
+        """
+        SELECT e.source_id, LEFT(n.title, 120), n.anno
+        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'relatore_sentenza'
+        ORDER BY n.anno DESC LIMIT 15
+        """,
+        [actual_id],
+    ).fetchall()
     parametri_out = []
     for r in parametri:
         tid = r[0] or ""
@@ -809,6 +846,12 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         "citata_da": [
             {"id": r[0], "tipo": r[1], "title": r[2], "anno": r[3], "weight": r[4]}
             for r in citata_da
+        ],
+        "relatore": [
+            {"id": r[0], "title": r[1], "ecli": r[2]} for r in relatore
+        ],
+        "sentenze_relatore": [
+            {"id": r[0], "title": r[1], "anno": r[2]} for r in sentenze_relatore
         ],
     }
 
@@ -958,6 +1001,20 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         """,
         [actual_id],
     ).fetchall()
+    # firmatari (Camera deputato:*/Senato senatore:* → atto) — edge incoming
+    n_firmatari = con.execute(
+        "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'firmatario'",
+        [actual_id],
+    ).fetchone()[0]
+    firmatari = con.execute(
+        """
+        SELECT e.source_id, LEFT(n.title, 120), e.weight, e.evidence
+        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        WHERE e.target_id = ? AND e.relation = 'firmatario'
+        ORDER BY e.weight DESC, e.source_id LIMIT 15
+        """,
+        [actual_id],
+    ).fetchall()
     return {
         "view": "parliament",
         "node": _node_payload(node_row),
@@ -982,6 +1039,11 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         "interventi": [{"id": r[0], "title": r[1], "anno": r[2]} for r in interventi],
         "diventa_legge": [{"id": r[0], "title": r[1], "anno": r[2]} for r in diventa],
         "testo": [{"id": r[0], "title": r[1]} for r in testo],
+        "n_firmatari": n_firmatari,
+        "firmatari": [
+            {"id": r[0], "title": r[1], "weight": r[2], "ruolo": r[3]}
+            for r in firmatari
+        ],
     }
 
 
@@ -995,7 +1057,9 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         "Numeri (es. '231', '231/2001', 'n. 231') → priorità a normativa. "
         "Accenti flessibili (responsabilità ~ responsabilita). "
         "Filtri: tipo, anno_min/anno_max, source, stato "
-        "(vigente|abrogato|decaduto — da marker IC, non vigenza live). "
+        "(vigente|abrogato|decaduto — da marker IC, non vigenza live), "
+        "materia (es. 'fisco', 'lavoro'), min_score (qualita_score 0-100), "
+        "collezione (es. 'Costituzione'). "
         "Input per legal_node / legal_text."
     ),
     structured_output=True,
@@ -1007,6 +1071,9 @@ def legal_search(
     anno_max: int = 0,
     source: str = "",
     stato: str = "",
+    materia: str = "",
+    min_score: int = 0,
+    collezione: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     return guard_timed(
@@ -1018,6 +1085,9 @@ def legal_search(
         anno_max=anno_max,
         source=source,
         stato=stato,
+        materia=materia,
+        min_score=min_score,
+        collezione=collezione,
         limit=limit,
     )
 
@@ -1027,9 +1097,10 @@ def legal_search(
     description=(
         "Contesto di un nodo del grafo. view:\n"
         "  overview (default) — metadati, conteggi relazioni, top edge, intelligence\n"
-        "  chain — catena legislativa forward/backward\n"
-        "  jurisprudence — impugnazioni, parametri, citazioni\n"
-        "  parliament — emendamenti, interventi, diventa_legge\n"
+        "  chain — catena legislativa forward/backward + modifiche AKN "
+        "(abroga, sostituisce, split, join, renumbering)\n"
+        "  jurisprudence — impugnazioni, parametri, citazioni, relatore sentenza\n"
+        "  parliament — emendamenti, interventi, firmatari, diventa_legge\n"
         "Input: URN completo o id parziale (es. 'decreto.legislativo:2017-07-03;117')."
     ),
     structured_output=True,
@@ -1254,9 +1325,13 @@ def _run_sk(
             "",
             sql_order,
         )
+    # Wrap `where` in parens: several intent branches build it with top-level
+    # OR (e.g. number → "a OR b OR c"). Without parens, appending extra_where
+    # (which starts with AND) would bind only to the last OR clause due to
+    # SQL precedence, leaking rows that ignore the filters.
     sql = (
         _select_sk_sql(use_metrics)
-        + f" WHERE {where}{extra_where} ORDER BY {sql_order} LIMIT {limit}"
+        + f" WHERE ({where}){extra_where} ORDER BY {sql_order} LIMIT {limit}"
     )
     try:
         rows = con.execute(sql, [*params, *extra_params]).fetchall()
@@ -1309,6 +1384,9 @@ def _impl_search(
     anno_max: int = 0,
     source: str = "",
     stato: str = "",
+    materia: str = "",
+    min_score: int = 0,
+    collezione: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
@@ -1354,6 +1432,15 @@ def _impl_search(
         # join su nodes (presente in _select_sk_sql)
         extra_where += " AND LOWER(COALESCE(n.stato, '')) = ?"
         extra_params.append(stato.strip().lower())
+    if materia:
+        extra_where += " AND LOWER(COALESCE(n.materia, '')) = ?"
+        extra_params.append(materia.strip().lower())
+    if min_score > 0:
+        extra_where += " AND COALESCE(n.qualita_score, 0) >= ?"
+        extra_params.append(min_score)
+    if collezione:
+        extra_where += " AND LOWER(COALESCE(n.collezione, '')) = ?"
+        extra_params.append(collezione.strip().lower())
 
     # glossario Lab: NNN/YYYY o NNNN/YYYY → search numero prioritario
     if kind == "phrase":

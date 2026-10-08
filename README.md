@@ -1,6 +1,6 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**472.000 nodi, 710.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**508.000 nodi, 1.100.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
@@ -15,11 +15,11 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | ~472.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | ~710.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, bridge DDL→legge |
+| **Nodi** | ~508.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | ~1.100.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
-| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `emendamento`, `riferimento` |
+| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore_sentenza`, `emendamento`, `riferimento` |
 
 ## Esempi di domande
 
@@ -46,7 +46,7 @@ legal_search("responsabilita amministrativa")
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | Trova atti (parole, tipo, anno, fonte) |
+| `legal_search` | Trova atti (parole, tipo, anno, fonte, stato, materia, min_score, collezione) |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
 | `legal_text` | Testo integrale di un atto da URN |
 | `legal_query` | SQL (SELECT) su nodi e archi |
@@ -57,7 +57,7 @@ legal_search("responsabilita amministrativa")
 ```bash
 make run          # compose: mart da rete → out/data/mart/ (gitignored)
 make download-gcs # senza build: scarica le 6 tabelle grafo da GCS
-make test         # integrità + golden search (~50 test)
+make test         # integrità + golden search (59 test)
 make lint
 ```
 
@@ -105,7 +105,7 @@ Compose **mart-only toolkit**: legge i clean/derived di altri repo Lab da rete, 
 ```text
 upstream (GitHub raw / GCS)
   → make run (dataset.yml + sql/mart_legal_*.sql)
-  → out/data/mart/legal_graph/2026/  (committato)
+  → out/data/mart/legal_graph/2026/  (gitignored)
   → MCP thin: legal_search (intent → SQL) · legal_node(view) · legal_text · query · insights
 ```
 
@@ -124,7 +124,7 @@ Documenti di dettaglio:
 Legal Graph è un **motore di contesto relazionale** (processo Senato + Costituzione +
 normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 
-- Coperto bene: catene legislative, `attua_delega`, Corte Cost., D.Lgs “di sistema”
+- Coperto bene: catene legislative, `attua_delega`, modifiche AKN (`abroga`/`sostituisce`), Corte Cost. (+ relatore), firmatari Camera/Senato, D.Lgs "di sistema"
 - Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
 - `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts)
 - Ranking tema umano: in miglioramento; per atti precisi usare **numero/URN/direttiva**
