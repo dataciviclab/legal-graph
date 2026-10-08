@@ -451,6 +451,56 @@ edges_firmatario AS (
       )
 ),
 
+-- Relatori Camera (open-politica camera_relatori #62): deputato → atto
+-- Chiave atto dedicata camera:atto:{leg}_{id} — l'atto Camera non è un DDL
+-- (evita la collisione numerica di camera:{ddl}). Copertura parziale per
+-- design (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
+edges_relatore_camera AS (
+    SELECT
+        'deputato:' || CAST(r.deputato_id AS VARCHAR) AS source_id,
+        'relatore' AS relation,
+        'camera:atto:' || r.atto_id_leg AS target_id,
+        1 AS weight,
+        YEAR(r.data) AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(r.tipo, ''), 120) AS evidence
+    FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true) r
+    WHERE r.deputato_id IS NOT NULL
+      AND NULLIF(r.atto_id_leg, '') IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'deputato:' || CAST(r.deputato_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'camera:atto:' || r.atto_id_leg
+      )
+),
+
+-- DL conversione (open-politica decreti_legge #63): nodo dl:* → DDL di
+-- conversione Senato. ddl_id representative (ramo S, data recente) —
+-- non univoco se più iter; esito + giorni in evidence.
+edges_converte_dl AS (
+    SELECT
+        'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR) AS source_id,
+        'converte_decreto_legge' AS relation,
+        'senato:' || CAST(d.ddl_id AS VARCHAR) AS target_id,
+        1 AS weight,
+        d.dl_anno AS source_year,
+        YEAR(d.data_conversione) AS target_year,
+        d.esito || ' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)' AS evidence
+    FROM read_parquet('{support.decreti_legge.path}') d
+    WHERE d.ddl_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(d.ddl_id AS VARCHAR)
+      )
+),
+
 -- Firmatari Senato (open-politica senato_firmatari): senatore → ddl
 -- Speculare a camera_firmatari. Solo firme attive (ritiro NULL) e
 -- soli senatori (presentatori On./governativi non hanno senatore_id).
@@ -604,6 +654,10 @@ FROM (
     SELECT * FROM edges_relatore_sentenza
     UNION ALL
     SELECT * FROM edges_relatore
+    UNION ALL
+    SELECT * FROM edges_relatore_camera
+    UNION ALL
+    SELECT * FROM edges_converte_dl
     UNION ALL
     SELECT * FROM edges_firmatario
     UNION ALL

@@ -1,6 +1,6 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**508.000 nodi, 1.100.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**512.000 nodi, 1.100.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
@@ -15,11 +15,11 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | ~508.000 — leggi, decreti, DDL Camera/Senato, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Nodi** | ~512.000 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
 | **Archi** | ~1.100.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
-| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore_sentenza`, `emendamento`, `riferimento` |
+| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento` |
 
 ## Esempi di domande
 

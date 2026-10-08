@@ -557,6 +557,66 @@ nodes_pnrr AS (
     WHERE missione IS NOT NULL AND componente IS NOT NULL
 ),
 
+-- Atti Camera da relatori (OP camera_relatori #62): namespace dedicato
+-- camera:atto:{leg}_{id} — l'atto Camera NON è un DDL (numerazioni diverse),
+-- niente collisione con camera:{ddl}. Titolo assente in fonte: URI in
+-- source_filename.
+nodes_camera_atti AS (
+    SELECT
+        'camera:atto:' || c.atto_id_leg AS id,
+        'ATTO CAMERA' AS tipo,
+        CAST(c.data AS VARCHAR) AS data,
+        CAST(c.atto_id AS VARCHAR) AS numero,
+        NULL::VARCHAR AS title,
+        'Camera atto' AS collezione,
+        c.atto_camera AS source_filename,
+        'camera_relatori' AS source,
+        NULL::INTEGER AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM (
+        SELECT
+            atto_id_leg,
+            MAX(atto_id) AS atto_id,
+            MAX(atto_camera) AS atto_camera,
+            MIN(data) AS data
+        FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true)
+        WHERE NULLIF(atto_id_leg, '') IS NOT NULL
+        GROUP BY atto_id_leg
+    ) c
+),
+
+-- DL emanati (open-politica decreti_legge #63): esito conversione sul
+-- edge converte_decreto_legge (stato resta NULL: esito non è vigenza).
+nodes_dl AS (
+    SELECT
+        'dl:' || CAST(dl_anno AS VARCHAR) || '-' || CAST(dl_numero AS VARCHAR) AS id,
+        'DECRETO-LEGGE' AS tipo,
+        CAST(data_presentazione AS VARCHAR) AS data,
+        CAST(dl_numero AS VARCHAR) AS numero,
+        titolo AS title,
+        'DL conversione' AS collezione,
+        NULL::VARCHAR AS source_filename,
+        'decreti_legge' AS source,
+        dl_anno AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+        FROM read_parquet('{support.decreti_legge.path}')
+    WHERE dl_numero IS NOT NULL AND dl_anno IS NOT NULL
+),
+
 all_nodes AS (
     SELECT * FROM normativa
     UNION ALL
@@ -593,6 +653,10 @@ all_nodes AS (
     SELECT * FROM nodes_promovimento WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_pnrr WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_camera_atti WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_dl WHERE id NOT IN (SELECT id FROM normativa)
 )
 
 SELECT

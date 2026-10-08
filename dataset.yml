@@ -183,6 +183,20 @@ support:
     slug: senato_votazioni_oggetto
     layer: clean
     years: [2026]
+  # -- open-politica: relatori Camera con chiave atto (OP #62) ----
+  - name: camera_relatori
+    type: external
+    repo: open-politica
+    slug: camera_relatori
+    layer: clean
+    years: [16, 17, 18, 19]
+  # -- open-politica: DL conversioni + ddl_id (OP #63) ------------
+  - name: decreti_legge
+    type: external
+    repo: open-politica
+    slug: decreti_legge
+    layer: clean
+    years: [2026]
 
   # -- costituzione-italiana: iter revisioni Cost. (PR #21) -------
   - name: iter_costituzionale

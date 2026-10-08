@@ -48,6 +48,7 @@ _CHAIN_RELS = (
     "attua_regolamento",
     "collega_ue",
     "cita_costituzione",
+    "converte_decreto_legge",
     # modifiche tipizzate AKN (2026-10): parte della catena normativa
     "abroga",
     "sostituisce",

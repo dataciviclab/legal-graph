@@ -21,9 +21,11 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 ## Mart (ordine compose)
 
 ```text
-1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta)
+1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta,
+                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
-                              (attua_delega, modifiche AKN, relatore_sentenza, firmatario)
+                              (attua_delega, modifiche AKN, relatore_sentenza,
+                              relatore Camera, firmatario, converte_decreto_legge)
 3 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
 4 mart_legal_search_keys    ← FROM mart_legal_nodes
 5 mart_legal_node_rel       ← FROM mart_legal_edges

@@ -81,9 +81,9 @@ class TestNodes:
         """All node IDs should have a recognized namespace prefix."""
         valid_prefixes = (
             "urn:nir:", "costituzione:", "revisione:", "gu:",
-            "senato:", "camera:", "sentenza:", "giudice:",
+            "senato:", "camera:", "camera:atto:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
-            "deputato:", "votazione:", "itercost:",
+            "deputato:", "votazione:", "itercost:", "dl:",
         )
         invalid = con.execute(f"""
             SELECT id FROM nodes
@@ -284,6 +284,24 @@ class TestCardinality:
             assert n_vota > 10_000, f"Edge vota bassi: {n_vota}"
             assert n_prop > 200, f"Edge proposta_cost bassi: {n_prop}"
             assert n_rev > 100, f"Edge diventa_revisione bassi: {n_rev}"
+            # ponti 2026-10: relatore Camera (atto) + DL conversione
+            n_rel_cam = con.execute("""
+                SELECT COUNT(*) FROM edges
+                WHERE relation = 'relatore' AND source_id LIKE 'deputato:%'
+            """).fetchone()[0]
+            n_converte = con.execute("""
+                SELECT COUNT(*) FROM edges WHERE relation = 'converte_decreto_legge'
+            """).fetchone()[0]
+            assert n_rel_cam > 500, f"Edge relatore Camera bassi: {n_rel_cam}"
+            assert n_converte > 800, f"Edge converte_decreto_legge bassi: {n_converte}"
+        n_dl = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'dl:%'
+        """).fetchone()[0]
+        assert 800 <= n_dl <= 1_100, f"Nodi dl: fuori range: {n_dl}"
+        n_cam_atti = con.execute("""
+            SELECT COUNT(*) FROM nodes WHERE id LIKE 'camera:atto:%'
+        """).fetchone()[0]
+        assert n_cam_atti > 1_000, f"Nodi camera:atto: bassi: {n_cam_atti}"
         n_iter = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'itercost:%'
         """).fetchone()[0]
