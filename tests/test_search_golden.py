@@ -13,7 +13,7 @@ import legal_graph.mcp_server as m
 
 @pytest.fixture(scope="module")
 def search_ready():
-    m._cached_con = None
+    m._reset_con()
     con = m._get_con()
     if not m._has_mart_search(con):
         pytest.skip("mart search assente — esegui `make run`")

@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "duckdb>=1.0",
+    "lab-connectors @ git+https://github.com/dataciviclab/lab-connectors.git",
 ]
 
 [project.optional-dependencies]
