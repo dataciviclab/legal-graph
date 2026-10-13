@@ -81,9 +81,6 @@ def _stem_prefix(term: str) -> str:
     return term
 
 
-_TIPO_MAJOR = ("DECRETO LEGISLATIVO", "LEGGE", "DECRETO-LEGGE", "DECRETO")
-
-
 def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
     """Riconosce 'sentenza 2009 151', 'ECLI:IT:COST:2009:151', 'corte cost 2009'."""
     ecli = re.search(r"ecli[:\s]*it[:\s]*cost[:\s]*(\d{4})[:\s]*(\d{1,4})", folded)
