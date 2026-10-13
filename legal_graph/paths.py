@@ -3,7 +3,7 @@
 Priorità sorgente mart (tabelle leggere del compose):
 1. Variabile d'ambiente LEGAL_GRAPH_MART_DIR (override locale/CI)
 2. compose toolkit locale: out/data/mart/legal_graph/<year>/
-3. GCS pubblico: gs://dataciviclab-mart/legal-graph/… (HTTPS)
+3. GCS pubblico: via lab_connectors.gcs.paths (path contract Lab)
 
 texts / massime / temporal: **solo locale** (non nel primo publish GCS).
 Legacy data/*.parquet: fallback temporaneo per nodes/edges se assente tutto.
@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from lab_connectors.gcs.paths import https_url
+
 PathLike = Path | str
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,10 +22,6 @@ DATA_DIR = REPO_ROOT / "data"
 YEAR = "2026"
 
 DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
-GCS_MART_BASE = (
-    f"https://storage.googleapis.com/dataciviclab-mart/legal-graph/"
-    f"legal_graph/{YEAR}"
-)
 
 # Tabelle pubblicate sul GCS (rilascio 1: grafo, no testi lunghi)
 GCS_MART_TABLES = frozenset(
@@ -52,9 +50,17 @@ def mart_dir() -> Path:
 
 
 def gcs_url(table: str) -> str:
+    """URL HTTPS pubblico via path contract Lab (bucket mart)."""
     if table not in GCS_MART_TABLES:
         raise ValueError(f"tabella non pubblicata su GCS: {table}")
-    return f"{GCS_MART_BASE}/{table}.parquet"
+    return https_url(
+        "mart",
+        "mart_parquet",
+        prefix="legal-graph/",
+        slug="legal_graph",
+        year=int(YEAR),
+        table=table,
+    )
 
 
 def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:

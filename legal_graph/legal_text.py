@@ -9,11 +9,10 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
 
 import duckdb
+from lab_connectors.http import HttpClient
 
 from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exists
 
@@ -33,6 +32,16 @@ TEXT_CACHE = Path(__file__).resolve().parent.parent / "data" / "text_cache"
 USER_AGENT = "DataCivicLab-legal-graph/0.2"
 _DEFAULT_MAX_CHARS = 8000
 _HARD_MAX_CHARS = 50000
+
+_http: HttpClient | None = None
+
+
+def _get_http() -> HttpClient:
+    """HttpClient condiviso: retry, SSL fallback, 429 handling (lab-connectors)."""
+    global _http
+    if _http is None:
+        _http = HttpClient(timeout=30, user_agent=USER_AGENT)
+    return _http
 
 
 def _cache_path(url: str) -> Path:
@@ -107,9 +116,14 @@ def _fetch_remote(rel_path: str) -> tuple[str, str]:
     cached = _read_cache(url)
     if cached is not None:
         return cached, url
-    req = Request(url, headers={"User-Agent": USER_AGENT})
-    with urlopen(req, timeout=30) as resp:
-        text = resp.read().decode("utf-8", errors="replace")
+    result = _get_http().get(url)
+    if not result.is_ok:
+        raise OSError(str(result.err) if result.err else f"HTTP fallito per {url}")
+    resp = result.response
+    if resp is None or not resp.ok:
+        status = resp.status_code if resp is not None else "?"
+        raise OSError(f"HTTP {status} per {url}")
+    text = resp.text
     _write_cache(url, text)
     return text, url
 
@@ -144,7 +158,7 @@ def fetch_normativa_text(
             text, url = _fetch_remote(rel)
             via = "github_raw"
             break
-        except (HTTPError, URLError, OSError) as exc:
+        except OSError as exc:
             errors.append(f"{rel}: {exc}")
 
     # 2) locale opzionale (repo clonato)
