@@ -21,9 +21,12 @@ LIMIT 10
 sql = st.text_area("SQL", value=DEFAULT_SQL, height=180)
 
 if st.button("Esegui", type="primary"):
-    stripped = sql.strip().upper()
+    stripped = sql.strip().rstrip(";").upper()
     if not stripped.startswith(("SELECT", "WITH", "DESCRIBE", "PRAGMA", "SHOW")):
         st.error("Solo SELECT/WITH/DESCRIBE/PRAGMA/SHOW — niente scritture.")
+        st.stop()
+    if ";" in stripped:
+        st.error("Una sola istruzione per volta (niente multi-statement).")
         st.stop()
     try:
         df = mart_sql(sql)

@@ -1,8 +1,8 @@
-"""Panoramica — il grafo in numeri e i tre indicatori di salute."""
+"""Panoramica — il grafo in numeri (orientamento; salute su pagina dedicata)."""
 
 import plotly.graph_objects as go
 import streamlit as st
-from lab_connectors.formatters import fmt_num, fmt_pct
+from lab_connectors.formatters import fmt_num
 from sources import mart_sql
 
 st.title("📊 Legal Graph — visione d'insieme")
@@ -45,54 +45,12 @@ with col_r:
         SELECT source, COUNT(*) AS n
         FROM nodes GROUP BY 1 ORDER BY n DESC LIMIT 10
     """)
-    fig = go.Figure(
-        go.Pie(labels=df_src["source"], values=df_src["n"], hole=0.45)
-    )
+    fig = go.Figure(go.Pie(labels=df_src["source"], values=df_src["n"], hole=0.45))
     fig.update_layout(height=380, margin={"t": 10, "b": 30})
     st.plotly_chart(fig, width="stretch")
 
-st.subheader("🩺 Tre segnali di salute (dal mart)")
-
-try:
-    salute = mart_sql("""
-        SELECT
-            (SELECT COUNT(*) FROM edges e
-               JOIN nodes s ON s.id = e.source_id
-               JOIN nodes t ON t.id = e.target_id
-             WHERE e.relation = 'riferimento'
-               AND s.stato = 'vigente' AND t.stato = 'abrogato'
-            ) AS citazioni_spenti,
-            (SELECT COUNT(*) FROM edges e
-               JOIN nodes s ON s.id = e.source_id
-               JOIN nodes t ON t.id = e.target_id
-             WHERE e.relation = 'attua_delega'
-               AND s.anno IS NOT NULL AND t.anno IS NOT NULL
-               AND s.anno - t.anno > 15
-            ) AS deleghe_lente,
-            (SELECT COUNT(*) FROM edges
-             WHERE relation IN ('abroga', 'sostituisce') AND weight > 1
-            ) AS modifiche_doppie
-    """).iloc[0]
-    s1, s2, s3 = st.columns(3)
-    s1.metric(
-        "Citazioni a norme abrogate",
-        fmt_num(salute["citazioni_spenti"]),
-        help="Riferimenti da atti vigenti a norme abrogate: lista di triage, non prova d'errore",
-    )
-    s2.metric(
-        "Deleghe attuate a >15 anni",
-        fmt_num(salute["deleghe_lente"]),
-        help="D.Lgs arrivati oltre 15 anni dopo la delega",
-    )
-    s3.metric(
-        "Modifiche AKN dedup (peso>1)",
-        fmt_num(salute["modifiche_doppie"]),
-        help="Abiti abroga/sostituisce confermati da due fonti (regex + AKN)",
-    )
-except Exception as e:  # noqa: BLE001
-    st.warning(f"Indicatori salute non calcolabili: {e}")
-
 st.caption(
     "Disclaimer: dal mart legal-graph (non Normattiva live). "
-    f"Stato normativo = marker corpus. Copertura eiv: finestra {fmt_pct(0.48)} dei nodi normativa."
+    "Stato normativo = marker di corpus, non vigenza live. "
+    "Per un atto singolo: pagina Esplora atto."
 )
