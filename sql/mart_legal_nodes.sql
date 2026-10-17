@@ -307,6 +307,48 @@ nodes_senatori AS (
     ) WHERE _rn = 1
 ),
 
+-- Senatori da senato_anagrafica (open-politica Leg 13-19).
+-- Copre i gap di senato_dibattito: molti senatori non hanno interventi
+-- ma compaiono nel ponte_persona. Issue #24.
+-- Dedup: 1 row per senatore_id (può apparire in più legislature),
+-- solo ID non già presenti da senato_dibattito.
+nodes_senatore_anagrafica AS (
+    SELECT
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        SELECT
+            'senatore:' || CAST(senatore_id AS VARCHAR) AS id,
+            'SENATORE' AS tipo,
+            NULL::VARCHAR AS data,
+            NULL::VARCHAR AS numero,
+            COALESCE(
+                NULLIF(TRIM(CONCAT(COALESCE(nome, ''), ' ', COALESCE(cognome, ''))), ''),
+                'Senatore ' || CAST(senatore_id AS VARCHAR)
+            ) AS title,
+            'Senato Anagrafica' AS collezione,
+            NULL::VARCHAR AS source_filename,
+            'senato_anag' AS source,
+            legislatura AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            NULL::VARCHAR AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score
+        FROM read_parquet({support.senato_anagrafica.outputs}, union_by_name = true)
+        WHERE senatore_id IS NOT NULL
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY senatore_id ORDER BY legislatura DESC) = 1
+    ) x
+    WHERE NOT EXISTS (
+        SELECT 1 FROM nodes_senatori d
+        WHERE d.id = x.id
+    )
+),
+
 nodes_deputato AS (
     SELECT
         'deputato:' || CAST(persona_id AS VARCHAR) AS id,
@@ -674,6 +716,8 @@ all_nodes AS (
     SELECT * FROM nodes_dib WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_senatori WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_senatore_anagrafica WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_deputato WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
