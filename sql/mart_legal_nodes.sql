@@ -211,6 +211,41 @@ nodes_corpus AS (
     ) WHERE _rn = 1
 ),
 
+-- Nodi DDL minimi per atti del corpus Senato assenti da senato_ddl.
+-- Evita i target dangling di testo_atto (Fase 0, 2026-10-17).
+nodes_corpus_ddl AS (
+    SELECT
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        SELECT
+            'senato:' || CAST(atto_num AS VARCHAR) AS id,
+            COALESCE(tipologia, 'DDL del Presidente') AS tipo,
+            CAST(work_date AS VARCHAR) AS data,
+            FRBRnumber AS numero,
+            doc_title AS title,
+            'Senato Corpus' AS collezione,
+            document_id AS source_filename,
+            'senato_corpus' AS source,
+            YEAR(work_date) AS anno,
+            text_len AS length_chars,
+            paragraphs_count AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            NULL::VARCHAR AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score,
+            ROW_NUMBER() OVER (PARTITION BY atto_num ORDER BY work_date) AS _rn
+        FROM read_parquet('{support.senato_corpus.path}')
+        WHERE atto_num IS NOT NULL
+          AND ('senato:' || CAST(atto_num AS VARCHAR)) NOT IN (
+              SELECT id FROM nodes_senato
+          )
+    ) WHERE _rn = 1
+),
+
 nodes_emend AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
@@ -351,29 +386,76 @@ nodes_senatore_anagrafica AS (
 
 nodes_deputato AS (
     SELECT
-        'deputato:' || CAST(persona_id AS VARCHAR) AS id,
-        'DEPUTATO' AS tipo,
-        NULL::VARCHAR AS data,
-        NULL::VARCHAR AS numero,
-        COALESCE(
-            NULLIF(ANY_VALUE(deputato_label), ''),
-            'Deputato ' || CAST(persona_id AS VARCHAR)
-        ) AS title,
-        'Camera DDL' AS collezione,
-        NULL::VARCHAR AS source_filename,
-        'camera_firmatari' AS source,
-        ANY_VALUE(legislatura) AS anno,
-        NULL::BIGINT AS length_chars,
-        NULL::BIGINT AS length_words,
-        NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale,
-        NULL::VARCHAR AS stato,
-        NULL::VARCHAR AS materia,
-        NULL::INTEGER AS qualita_score,
-        NULL::INTEGER AS sunsetting_score
-    FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true)
-    WHERE persona_id IS NOT NULL
-    GROUP BY persona_id
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        -- Anagrafica Camera: tutte le legislature (fonte primaria).
+        -- legislatura e' stringa ('repubblica_19', 'costituente'): anno =
+        -- numero legislatura, coerente con nodes_senatore_anagrafica.
+        SELECT
+            'deputato:' || CAST(persona_id AS VARCHAR) AS id,
+            'DEPUTATO' AS tipo,
+            NULL::VARCHAR AS data,
+            NULL::VARCHAR AS numero,
+            COALESCE(
+                NULLIF(TRIM(CONCAT(COALESCE(nome, ''), ' ', COALESCE(cognome, ''))), ''),
+                'Deputato ' || CAST(persona_id AS VARCHAR)
+            ) AS title,
+            'Camera Anagrafica' AS collezione,
+            NULL::VARCHAR AS source_filename,
+            'camera_deputati_legislature' AS source,
+            TRY_CAST(regexp_extract(legislatura, '(\d+)$', 1) AS INTEGER) AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            NULL::VARCHAR AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score,
+            ROW_NUMBER() OVER (
+                PARTITION BY persona_id
+                ORDER BY TRY_CAST(regexp_extract(legislatura, '(\d+)$', 1) AS INTEGER) DESC NULLS LAST
+            ) AS _rn
+        FROM read_parquet({support.camera_deputati_legislature.outputs}, union_by_name = true)
+        WHERE persona_id IS NOT NULL
+
+        UNION ALL
+
+        -- Firmatari: persone non presenti in anagrafica (es. Renzi).
+        SELECT
+            'deputato:' || CAST(persona_id AS VARCHAR) AS id,
+            'DEPUTATO' AS tipo,
+            NULL::VARCHAR AS data,
+            NULL::VARCHAR AS numero,
+            COALESCE(
+                NULLIF(ANY_VALUE(deputato_label), ''),
+                'Deputato ' || CAST(persona_id AS VARCHAR)
+            ) AS title,
+            'Camera DDL' AS collezione,
+            NULL::VARCHAR AS source_filename,
+            'camera_firmatari' AS source,
+            ANY_VALUE(legislatura) AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            NULL::VARCHAR AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score,
+            1 AS _rn
+        FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true)
+        WHERE persona_id IS NOT NULL
+          AND persona_id NOT IN (
+              SELECT persona_id
+              FROM read_parquet({support.camera_deputati_legislature.outputs}, union_by_name = true)
+              WHERE persona_id IS NOT NULL
+          )
+        GROUP BY persona_id
+    ) x
+    WHERE _rn = 1
 ),
 
 -- Votazioni Senato su oggetto/DDL (open-politica senato_votazioni_oggetto)
@@ -710,6 +792,8 @@ all_nodes AS (
     SELECT * FROM nodes_camera_ddl WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_corpus WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_corpus_ddl WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_emend WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL

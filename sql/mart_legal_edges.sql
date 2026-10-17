@@ -488,6 +488,28 @@ edges_akn_modifiche AS (
       AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
 ),
 
+-- Modifica AKN: atto che inserisce disposizioni in un altro atto.
+-- rel_type 'insertion' e' act-level (URN→URN); solo coppie con entrambi
+-- i nodi nel grafo (Fase 0 gap plan, 2026-10-17).
+edges_akn_modifica AS (
+    SELECT
+        a.fonte_urn AS source_id,
+        'modifica' AS relation,
+        a.target_urn AS target_id,
+        1 AS weight,
+        ns.anno AS source_year,
+        nt.anno AS target_year,
+        'akn:' || a.origin AS evidence
+    FROM read_parquet('{support.akn_relations.path}') a
+    JOIN mart_legal_nodes ns ON ns.id = a.fonte_urn
+    JOIN mart_legal_nodes nt ON nt.id = a.target_urn
+    WHERE a.rel_type = 'insertion'
+      AND NULLIF(a.fonte_urn, '') IS NOT NULL
+      AND NULLIF(a.target_urn, '') IS NOT NULL
+      AND a.fonte_urn != a.target_urn
+      AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
+),
+
 -- Relatore sentenza: pronunce.relatore_pronuncia → nodo giudice
 -- (match anagrafica con stessa normalizzazione di nodes_giudici;
 -- presidenti non matchabili: formato storico COGNOME uppercase)
@@ -787,6 +809,8 @@ FROM (
     SELECT * FROM edges_akn_sost
     UNION ALL
     SELECT * FROM edges_akn_modifiche
+    UNION ALL
+    SELECT * FROM edges_akn_modifica
     UNION ALL
     SELECT * FROM edges_relatore_sentenza
     UNION ALL

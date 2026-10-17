@@ -67,6 +67,17 @@ urn:nir:stato:decreto.legislativo:2023-03-31;43 → urn:nir:stato:legge:2022-06-
 - `normativa_types` unisce **`atti_api`** (leggi fetchate via API): senza, le leggi fuori collezione non sono target. 182 D.Lgs agganciati via leggi API (top: L.124/2015 → 23).
 - Nota produzione: `atti_api` è external da GitHub raw. Prerequisito soddisfatto: italia-corpus #70 merged, 171 atti su main (verificato su raw).
 
+### modifica (AKN insertion — atto che modifica un altro atto)
+
+```
+urn:nir:stato:decreto.legislativo:2026-07-03;136 → urn:nir:stato:decreto.legislativo:2014-07-04;102
+```
+
+- Da 2026-10-17: `akn_relations.rel_type='insertion'` → edge `modifica` (disposizioni inserite in un altro atto).
+- Solo coppie con entrambi i nodi nel grafo: **12.661 edge**, 3.821 sorgenti, 5.376 target.
+- `evidence = akn:activeModification`; guardia temporale `source_year >= target_year`.
+- Non sostituisce `riferimento`: `insertion` è modifica attiva, non citazione.
+
 ### senatore_id / persona_id (chiave persona — cross-chamber)
 
 ```
@@ -77,7 +88,8 @@ senatore:25407 ↔ deputato:302741
 - **open-politica** `senato_anagrafica`: senatore_id da SPARQL Senato (Leg 13-19)
 - **senato-akn** `senato_dibattito`: senatore_id (590 unici)
 - **Stesso namespace** senatore_id tra firmatari e dibattito (189 overlap)
-- **Edge `collega`**: ponte_persona → `senatore:*` ↔ `deputato:*` (396 edge)
+- **Edge `collega`**: ponte_persona → `senatore:*` ↔ `deputato:*` (**505 edge**, copertura piena del ponte)
+- **Nodi persona**: 1.657 `senatore:*` (anagrafica + dibattito), **11.277 `deputato:*`** (anagrafica Camera tutte le legislature, fallback firmatari)
 
 ### filename (chiave Normattiva interna)
 
@@ -141,5 +153,7 @@ Catena emend→atto: `emend.atto_num → DDL.id_ddl → DDL.urn_normattiva → n
 - [ ] Fetch restanti 845 URN leggi ordinarie (IC #68)
 - [x] Backfill leggi-delega mancanti (82 URN in `atti_singoli`, 162/174 fetchati) → title-regex
 - [x] Commit/publish `atti_api.parquet` in italia-corpus — IC #70 merged (171 atti su main)
+- [x] Fase 0 gap: `modifica` da AKN insertion (+12.661 edge), deputati 2.693→11.277, `testo_atto` dangling 2.990→0
+- [ ] Fase 1 gap: voti individuali (Camera+Senato) + interventi Camera
 - [ ] Sync vigenza da API (IC #67)
 - [ ] Article-level edges Corte
