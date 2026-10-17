@@ -251,6 +251,12 @@ edges_corpus AS (
 ),
 
 edges_emend AS (
+    -- Join via atto_num == id_ddl (bridge esatto, KEYS.md).
+    -- Prima: fase+legislatura (euristico, produce falsi positivi).
+    -- Ora: atto_num da senato_emendamenti → id_ddl da senato_ddl.
+    -- NOTA: fase NON è usata nel join — emend.fase è formato Senato (S.NNNN),
+    -- ddl.fase è formato Camera (C.NNNN). La PK di senato_ddl è (id_ddl, fase),
+    -- ma l'atto è identificato da id_ddl alone.
     SELECT
         'senato:emend:' || CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS BIGINT) || ':' || e.emend_id AS source_id,
         'emendamento' AS relation,
@@ -261,11 +267,11 @@ edges_emend AS (
         LEFT(e.text_integrale, 100) AS evidence
     FROM read_parquet('{support.senato_emendamenti.path}') e
     JOIN read_parquet({support.senato_ddl.outputs}, union_by_name = true) d
-      ON e.fase = d.fase
-     AND CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS BIGINT) = d.legislatura
+      ON e.atto_num = d.id_ddl
     LEFT JOIN ddl_lookup ddl ON d.id_ddl = ddl.id_ddl
-    WHERE e.emend_id IS NOT NULL AND e.fase IS NOT NULL
-      AND e.legislatura IS NOT NULL
+    WHERE e.emend_id IS NOT NULL AND e.atto_num IS NOT NULL
+    GROUP BY e.legislatura, e.emend_id, e.work_date, e.text_integrale,
+             d.id_ddl, ddl.resolved_id
 ),
 
 edges_dib AS (
@@ -610,6 +616,31 @@ edges_firmatario_sen AS (
     GROUP BY f.senatore_id, f.ddl_id
 ),
 
+-- Bridge senatore↔deputato via ponte_persona (open-politica).
+-- Unifica i namespace senatore:* e deputato:* (issue #20).
+-- tipo_match: 'exact' | 'fuzzy' — evidence per filtering.
+edges_ponte_persona AS (
+    SELECT
+        'senatore:' || CAST(p.senatore_id AS VARCHAR) AS source_id,
+        'collega' AS relation,
+        'deputato:' || CAST(p.persona_id AS VARCHAR) AS target_id,
+        CASE WHEN p.tipo_match = 'exact' THEN 2 ELSE 1 END AS weight,
+        NULL::INTEGER AS source_year,
+        NULL::INTEGER AS target_year,
+        p.tipo_match AS evidence
+    FROM read_parquet('{support.ponte_persona.path}') p
+    WHERE p.senatore_id IS NOT NULL
+      AND p.persona_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senatore:' || CAST(p.senatore_id AS VARCHAR)
+      )
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'deputato:' || CAST(p.persona_id AS VARCHAR)
+      )
+),
+
 -- Votazioni Senato → DDL (senato_votazioni_oggetto)
 edges_votazione AS (
     SELECT
@@ -743,6 +774,8 @@ FROM (
     SELECT * FROM edges_firmatario
     UNION ALL
     SELECT * FROM edges_firmatario_sen
+    UNION ALL
+    SELECT * FROM edges_ponte_persona
     UNION ALL
     SELECT * FROM edges_votazione
     UNION ALL
