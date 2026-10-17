@@ -2,6 +2,8 @@
 
 **512.000 nodi, 1.100.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
+> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API.
+
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
 Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera, GU) in un unico grafo interrogabile, per rispondere a domande come:
@@ -19,7 +21,7 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 | **Archi** | ~1.100.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
-| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento` |
+| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |
 
 ## Esempi di domande
 
@@ -57,7 +59,7 @@ legal_search("responsabilita amministrativa")
 ```bash
 make run          # compose: mart da rete → out/data/mart/ (gitignored)
 make download-gcs # senza build: scarica le 6 tabelle grafo da GCS
-make test         # integrità + golden search (59 test)
+make test         # integrità + golden search (69 test)
 make lint
 ```
 
@@ -76,7 +78,7 @@ MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTT
 |---|---|
 | `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо |
 | `mart_legal_node_metrics` | intelligence (referenced_by, impact, età) |
-| `mart_legal_search_keys` | ranking search (id_num, title_folded, search_text) |
+| `mart_legal_search_keys` | ranking search (id_num, title_folded) |
 | `mart_legal_node_rel` | pre-aggregato relazioni per view MCP |
 | `mart_legal_emend_leg` | emendamenti per DDL/legislatura |
 
