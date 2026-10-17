@@ -10,6 +10,7 @@ from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
+    _alias_anchor,
     _fold,
     _parse_costituzione,
     _parse_date_query,
@@ -262,6 +263,31 @@ def _impl_search(
     if re.search(r"\b(xyz|foo|bar|baz|qwerty|asdf|non esiste|non esistono)\b", folded):
         return []
 
+    # codici non navigabili (COVERAGE: c.c./c.p. fuori grafo) → errore
+    # strutturato, mai atti a caso. "codice del terzo settore" ecc. restano
+    # cercabili: il pattern cattura solo i codici sistematici.
+    if re.search(
+        r"codice\s+(?:del\s+)?(?:civile|penale|procedura\s+civile|procedura\s+penale)\b",
+        folded,
+    ):
+        return [
+            {
+                "error": (
+                    "Fuori copertura: codici sistematici (c.c., c.p., c.p.c., "
+                    "c.p.p.) non navigabili nel grafo — vedi docs/COVERAGE.md. "
+                    "Cerca l'atto che li modifica (es. 'decreto legislativo "
+                    "N/AAAA') o usa legal_query sui nodi normativa."
+                )
+            }
+        ]
+
+    # alias culturali ("mani puliti" → 231/2001): anteponi l'ancoraggio
+    # numerico così l'intent numero risolve l'atto, non un numero a caso
+    anchor = _alias_anchor(folded)
+    if anchor:
+        q = f"{anchor} {q}"
+        folded = _fold(q)
+
     intent = _parse_intent(q, folded)
     kind = intent["kind"]
 
@@ -459,6 +485,9 @@ def _impl_search(
                 + _base_order()
             )
         if hints:
+            # wrap: l'AND del filtro tipo deve valere su tutta la catena OR
+            # (precedenza SQL: senza parentesi si applicherebbe solo all'ultima)
+            where = f"({where})"
             where += " AND UPPER(k.tipo) IN ({})".format(
                 ",".join("?" for _ in hints)
             )
@@ -466,8 +495,6 @@ def _impl_search(
         residual = intent.get("residual") or []
         if residual:
             fallthrough_phrase = residual
-        if year and hints == ["LEGGE"]:
-            fallthrough_phrase = fallthrough_phrase or ["194", "1978"]
 
     else:  # phrase
         terms = intent.get("terms") or []

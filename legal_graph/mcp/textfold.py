@@ -81,6 +81,24 @@ def _stem_prefix(term: str) -> str:
     return term
 
 
+# Alias culturali → ancoraggio numerico (N/AAAA). Il cittadino cita il nome
+# mediatico, non gli estremi: "mani puliti", "basaglia". Riconoscimento alla
+# Normattiva (riferimenti normativi in linguaggio naturale).
+_ALIAS_ANCHORS: dict[str, str] = {
+    "mani puliti": "231/2001",
+    "basaglia": "180/1978",
+    "follicelli": "180/1978",
+}
+
+
+def _alias_anchor(folded: str) -> str | None:
+    """Ancoraggio numerico se la query contiene un alias culturale noto."""
+    for alias, anchor in _ALIAS_ANCHORS.items():
+        if alias in folded:
+            return anchor
+    return None
+
+
 def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
     """Riconosce 'sentenza 2009 151', 'ECLI:IT:COST:2009:151', 'corte cost 2009'."""
     ecli = re.search(r"ecli[:\s]*it[:\s]*cost[:\s]*(\d{4})[:\s]*(\d{1,4})", folded)
@@ -93,6 +111,14 @@ def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
     )
     if sent:
         return {"year": sent.group(1), "num": sent.group(2), "ecli": False}
+    # num-first: "sentenza 316 2004 corte costituzionale" (anno dopo il numero)
+    sent_rev = re.search(
+        r"(?:sentenza|ordinanza|pronuncia|corte\s+costituzionale|corte\s+cost)"
+        r".*?(\d{1,4})\D{0,8}(\d{4})",
+        folded,
+    )
+    if sent_rev:
+        return {"year": sent_rev.group(2), "num": sent_rev.group(1), "ecli": False}
     year_only = re.search(
         r"(?:sentenza|ordinanza|pronuncia|corte\s+costituzionale|corte\s+cost)"
         r".*?(\d{4})",
@@ -109,13 +135,24 @@ def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
 
 
 def _parse_costituzione(folded: str) -> dict[str, Any] | None:
-    """'art. 3 della costituzione', 'costituzione', 'articolo 13 cost'."""
-    if not re.search(r"costituzion", folded):
-        return None
+    """'art. 3 della costituzione', 'costituzione', 'articolo 13 cost'.
+
+    Anche bare 'articolo N' / 'art. N' senza keyword 'Costituzione',
+    purché non ci sia un segnale di atto normativo (legge/decreto/…):
+    altrimenti il numero finisce nell'intent numero e restituisce atti a caso.
+    """
     if re.search(r"corte\s+cost|sentenza|ordinanza|pronuncia", folded):
         return None
     art = re.search(r"(?:art\.?|articolo)\s*(\d{1,3})", folded)
-    return {"art": art.group(1) if art else None}
+    if re.search(r"costituzion", folded):
+        return {"art": art.group(1) if art else None}
+    # bare articolo: solo se nessun tipo di atto menzionato
+    if art and not re.search(
+        r"decreto|dlgs|d\.lgs|regio|\bdl\b|legge|dpr|circolare|direttiva",
+        folded,
+    ):
+        return {"art": art.group(1)}
+    return None
 
 
 def _parse_date_query(folded: str) -> dict[str, str] | None:
