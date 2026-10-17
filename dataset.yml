@@ -116,6 +116,13 @@ support:
     slug: atti_promovimento_corte_costituzionale
     layer: clean
     years: [2026]
+  # Atti fetchati singolarmente via Normattiva API (dettaglio-atto-urn).
+  # Leggi ordinarie non in collezioni ZIP. Produce nodi con vigenza reale.
+  # Generato da: python -m lab_tools.fetch_urn_acts (italia-corpus)
+  - name: atti_api
+    type: external
+    repo: italia-corpus
+    path: data/derived/atti_api.parquet
 
   # -- senato-akn (GCS clean -- file grandi) -----------------------
   - name: senato_corpus

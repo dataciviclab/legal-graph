@@ -30,7 +30,9 @@ edges_riferimenti AS (
         r.peso AS weight,
         r.fonte_anno AS source_year,
         r.bersaglio_anno AS target_year,
-        NULL::VARCHAR AS evidence
+        -- Evidence: contesto del link capturato da grafo_riferimenti.py
+        -- (colonna 'contesto' nel parquet; NULL se upstream non la produce ancora)
+        LEFT(r.contesto, 200) AS evidence
     FROM read_parquet('{support.riferimenti.path}') r
     LEFT JOIN urn_lookup lu
       ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
@@ -40,6 +42,17 @@ edges_riferimenti AS (
       -- Guard: fonte_filename vuoto/malformato → source_id 'file:' dangling
       -- (drift upstream IC 2026-10; zero nodi file: nel grafo)
       AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
+      -- Temporal guard: un atto non può riferire un atto pubblicato dopo di esso.
+      -- Tolleranza 1y su anno (date imprecise nei metadati upstream).
+      -- Applicata solo ad edge con peso ≥5: edge deboli (citazioni isolate)
+      -- con anno anomalo possono essere falsi positivi dei metadati, non del link.
+      -- (cross-check LcnT 2026-10: 852 edge con source_year < target_year - 5)
+      AND (
+          r.fonte_anno IS NULL
+          OR r.bersaglio_anno IS NULL
+          OR r.fonte_anno >= r.bersaglio_anno - 1
+          OR r.peso < 5
+      )
 ),
 
 edges_citazioni AS (
@@ -57,21 +70,89 @@ edges_citazioni AS (
     WHERE c.articolo IS NOT NULL
 ),
 
+-- Lookup: mappa (norma_codice, numero, anno) dalle massime Corte → URN ID.
+-- Chiuso 2026-10 (gap documentato in COMPOSE.md/ANALISI.md/COVERAGE.md).
+-- ~959 / 2.444 norme state mappabili; i non-match sono atti pre-1960
+-- non presenti nel corpus normativa.
+-- Codici Corte → URN tipo: solo state-level (regionali esclusi: lr*).
+norma_urn_lookup AS (
+    SELECT
+        CASE m.norma_codice
+            WHEN 'l'   THEN 'legge'
+            WHEN 'dl'  THEN 'decreto.legge'
+            WHEN 'dlgs' THEN 'decreto.legislativo'
+            WHEN 'dpr' THEN 'decreto.del.presidente.della.repubblica'
+            WHEN 'rd'  THEN 'regio.decreto'
+            WHEN 'rdl' THEN 'regio.decreto.legge'
+        END AS urn_tipo,
+        TRY_CAST(m.norma_numero AS BIGINT) AS norma_numero,
+        YEAR(TRY_CAST(m.norma_data AS DATE)) AS norma_anno,
+        n.id AS urn_id
+    FROM (
+        SELECT DISTINCT
+            norma_codice,
+            norma_numero,
+            norma_data
+        FROM read_parquet('{support.massime_corte_costituzionale.path}')
+        WHERE NULLIF(norma_numero, '') IS NOT NULL
+          AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+          AND norma_codice IN ('l', 'dl', 'dlgs', 'dpr', 'rd', 'rdl')
+    ) m
+    JOIN (
+        SELECT
+            id,
+            regexp_extract(id, 'urn:nir:stato:([^:]+):\d{4}-\d{2}-\d{2};(\d+)$', 1) AS tipo,
+            CAST(regexp_extract(id, 'urn:nir:stato:([^:]+):\d{4}-\d{2}-\d{2};(\d+)$', 2) AS BIGINT) AS numero,
+            CAST(regexp_extract(id, 'urn:nir:stato:[^:]+:(\d{4})-\d{2}-\d{2};\d+$', 1) AS INTEGER) AS anno
+        FROM mart_legal_nodes
+        WHERE id LIKE 'urn:nir:stato:%'
+    ) n
+      ON  n.tipo = CASE m.norma_codice
+            WHEN 'l'   THEN 'legge'
+            WHEN 'dl'  THEN 'decreto.legge'
+            WHEN 'dlgs' THEN 'decreto.legislativo'
+            WHEN 'dpr' THEN 'decreto.del.presidente.della.repubblica'
+            WHEN 'rd'  THEN 'regio.decreto'
+            WHEN 'rdl' THEN 'regio.decreto.legge'
+          END
+      AND n.numero = TRY_CAST(m.norma_numero AS BIGINT)
+      AND n.anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY m.norma_codice, m.norma_numero, YEAR(TRY_CAST(m.norma_data AS DATE))
+        ORDER BY n.id
+    ) = 1
+),
+
 edges_massime AS (
     SELECT
         'sentenza:' || CAST(anno_pronuncia AS VARCHAR) || '-' || LPAD(CAST(numero_pronuncia AS VARCHAR), 4, '0') AS source_id,
         'impugna' AS relation,
-        'norma:' || LOWER(COALESCE(norma_descrizione, 'legge'))
-               || ':' || CAST(norma_numero AS VARCHAR)
-               || ':' || CAST(YEAR(TRY_CAST(norma_data AS DATE)) AS VARCHAR) AS target_id,
+        -- Target: URN se mappato, altrimenti fallback norma:* (backward-compat)
+        COALESCE(
+            ul.urn_id,
+            'norma:' || LOWER(COALESCE(m.norma_descrizione, 'legge'))
+                   || ':' || CAST(m.norma_numero AS VARCHAR)
+                   || ':' || CAST(YEAR(TRY_CAST(m.norma_data AS DATE)) AS VARCHAR)
+        ) AS target_id,
         1 AS weight,
-        anno_pronuncia AS source_year,
+        m.anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
-        norma_descrizione AS evidence
-    FROM read_parquet('{support.massime_corte_costituzionale.path}')
-    WHERE esito IN ('illegittimo', 'misto')
-      AND NULLIF(norma_numero, '') IS NOT NULL
-      AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+        m.norma_descrizione AS evidence
+    FROM read_parquet('{support.massime_corte_costituzionale.path}') m
+    LEFT JOIN norma_urn_lookup ul
+      ON  ul.urn_tipo = CASE m.norma_codice
+            WHEN 'l'   THEN 'legge'
+            WHEN 'dl'  THEN 'decreto.legge'
+            WHEN 'dlgs' THEN 'decreto.legislativo'
+            WHEN 'dpr' THEN 'decreto.del.presidente.della.repubblica'
+            WHEN 'rd'  THEN 'regio.decreto'
+            WHEN 'rdl' THEN 'regio.decreto.legge'
+          END
+      AND ul.norma_numero = TRY_CAST(m.norma_numero AS BIGINT)
+      AND ul.norma_anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+    WHERE m.esito IN ('illegittimo', 'misto')
+      AND NULLIF(m.norma_numero, '') IS NOT NULL
+      AND TRY_CAST(m.norma_data AS DATE) IS NOT NULL
 ),
 
 edges_parametri AS (
