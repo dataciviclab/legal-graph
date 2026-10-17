@@ -2,6 +2,9 @@
 --
 -- Dipende da mart_legal_nodes (stessa sessione MART, ordine in dataset.yml).
 -- Colonne pensate per 1 query di scoring: id_num/id_year/title_folded/is_major.
+--
+-- Ottimizzazione 2026-10: rimossa search_text (title+numero+tipo+collezione+
+-- filename). Era ridondante con title_folded + colonne separate. −25 MB.
 
 WITH folded AS (
     SELECT
@@ -12,21 +15,7 @@ WITH folded AS (
                 'àáâãäåèéêëìíîïòóôõöùúûüñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÑÇ',
                 'aaaaaaeeeeiiiiooooouuuuncAAAAAAEEEEIIIIOOOOOUUUUNC'
             )
-        ) AS title_folded,
-        lower(
-            translate(
-                concat_ws(
-                    ' ',
-                    coalesce(n.title, ''),
-                    coalesce(CAST(n.numero AS VARCHAR), ''),
-                    coalesce(n.tipo, ''),
-                    coalesce(n.collezione, ''),
-                    coalesce(n.source_filename, '')
-                ),
-                'àáâãäåèéêëìíîïòóôõöùúûüñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÑÇ',
-                'aaaaaaeeeeiiiiooooouuuuncAAAAAAEEEEIIIIOOOOOUUUUNC'
-            )
-        ) AS search_text
+        ) AS title_folded
     FROM mart_legal_nodes n
 )
 
@@ -56,6 +45,5 @@ SELECT
         WHEN source = 'costituzione' THEN 0
         ELSE 2
     END AS is_major,
-    title_folded,
-    search_text
+    title_folded
 FROM folded

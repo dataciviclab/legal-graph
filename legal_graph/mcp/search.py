@@ -193,7 +193,12 @@ def _run_sk(
 
 
 def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
-    """mode: 'and' | 'or' — costruisce WHERE su title_folded/search_text."""
+    """mode: 'and' | 'or' — costruisce WHERE su title_folded.
+
+    Nota: search_text è stata rimossa dal mart (ottimizzazione 2026-10).
+    La ricerca su numero/tipo/collezione avviene tramite le colonne
+    dedicate (id_num, tipo, collezione) nei filtri del chiamante.
+    """
     if mode == "or":
         clauses = []
         params: list[Any] = []
@@ -201,15 +206,12 @@ def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
             stem = _stem_prefix(term)
             if stem != term:
                 clauses.append(
-                    "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
-                    " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                    "(LOWER(k.title_folded) LIKE ? OR LOWER(k.title_folded) LIKE ?)"
                 )
-                params.extend([f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"])
+                params.extend([f"%{stem}%", f"%{term}%"])
             else:
-                clauses.append(
-                    "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
-                )
-                params.extend([f"%{term}%", f"%{term}%"])
+                clauses.append("LOWER(k.title_folded) LIKE ?")
+                params.append(f"%{term}%")
         return "(" + " OR ".join(clauses) + ")", params
     clauses = []
     params = []
@@ -217,15 +219,12 @@ def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
         stem = _stem_prefix(term)
         if stem != term:
             clauses.append(
-                "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?"
-                " OR LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
+                "(LOWER(k.title_folded) LIKE ? OR LOWER(k.title_folded) LIKE ?)"
             )
-            params.extend([f"%{stem}%", f"%{stem}%", f"%{term}%", f"%{term}%"])
+            params.extend([f"%{stem}%", f"%{term}%"])
         else:
-            clauses.append(
-                "(LOWER(k.title_folded) LIKE ? OR LOWER(k.search_text) LIKE ?)"
-            )
-            params.extend([f"%{term}%", f"%{term}%"])
+            clauses.append("LOWER(k.title_folded) LIKE ?")
+            params.append(f"%{term}%")
     return " AND ".join(clauses) if clauses else "1=1", params
 
 
