@@ -481,6 +481,40 @@ nodes_norme AS (
     ) WHERE _rn = 1
 ),
 
+-- Nodi da Normattiva API (dettaglio-atto-urn): leggi ordinarie non in
+-- collezioni ZIP, con vigenza reale dall'API. Aggiunto 2026-10.
+-- La dedup vs nodes_normativa è gestita dal WHERE esterno nel UNION ALL.
+nodes_atti_api AS (
+    SELECT
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        SELECT
+            urn AS id,
+            COALESCE(NULLIF(tipo_descrizione, ''), 'LEGGE') AS tipo,
+            vigenza_inizio AS data,
+            CAST(numero AS VARCHAR) AS numero,
+            titolo AS title,
+            'Normattiva API' AS collezione,
+            urn AS source_filename,
+            'normativa' AS source,
+            anno AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULL::VARCHAR AS codice_redazionale,
+            -- Vigenza reale dall'API (non tombstone detection)
+            stato AS stato,
+            NULL::VARCHAR AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score
+        FROM read_parquet('{support.atti_api.path}')
+        WHERE NULLIF(urn, '') IS NOT NULL
+          AND numero IS NOT NULL
+    )
+),
+
 nodes_promovimento AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
@@ -649,6 +683,8 @@ all_nodes AS (
     SELECT * FROM nodes_giudici WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_norme WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_atti_api WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_promovimento WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL

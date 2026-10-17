@@ -94,7 +94,7 @@ Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex ·
 | Pri | Azione | Sforzo |
 |---|---|---|
 | P0 | Disclaimer + 1 analisi pubblica su ciò che funziona | Basso |
-| P0 | ~~Hub: 33/2013~~ ✅ già hub critical · 241/1990 e 190/2012: servono nodi URN (gap IC) | Basso |
+| P0 | ~~Hub: 33/2013~~ ✅ · ~~241/1990 e 190/2012~~ ⚠️ L. 241/1990 in grafo via API; L. 33/2011 ancora assente; nodi `norma:*` residui per atti non in corpus | Basso |
 | P1 | Search tema umano stabile (glossario Lab) | Basso (MCP) |
 | P1 | Hub codici (c.c./c.p.) se servono domande da non-giurista | Medio |
 | P2 | Camera + poche regioni; PNRR come dataset dedicato | Medio–alto |
