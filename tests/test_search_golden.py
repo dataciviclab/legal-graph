@@ -293,3 +293,24 @@ def test_search_codici_sistematici_fuori_copertura(search_ready):
     assert any("2017-07-03;117" in (r.get("id") or "") for r in rows3), rows3
     rows4 = m._impl_search("codice della strada", limit=5)
     assert any("1992-04-30;285" in (r.get("id") or "") for r in rows4), rows4
+
+
+def test_search_tipo_hint_filtra_tutta_la_or(search_ready):
+    """Il filtro tipo_hints vale su tutta la catena OR (precedenza SQL)."""
+    rows = m._impl_search("legge 180", limit=8)
+    assert rows, "legge 180 vuoto"
+    assert all((r.get("tipo") or "").upper() == "LEGGE" for r in rows), [
+        (r.get("id"), r.get("tipo")) for r in rows
+    ]
+
+
+def test_search_alias_culturali(search_ready):
+    """Alias mediatici → ancoraggio numerico (citizen language)."""
+    rows = m._impl_search("mani puliti", limit=5)
+    assert any("decreto.legislativo:2001-06-08;231" in r["id"] for r in rows), [
+        r["id"] for r in rows
+    ]
+    rows2 = m._impl_search("legge 180 follicelli", limit=5)
+    assert any("180:1978" in r["id"] for r in rows2), [r["id"] for r in rows2]
+    rows3 = m._impl_search("basaglia", limit=5)
+    assert any("180:1978" in r["id"] for r in rows3), [r["id"] for r in rows3]

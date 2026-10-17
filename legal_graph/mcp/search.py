@@ -10,6 +10,7 @@ from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
+    _alias_anchor,
     _fold,
     _parse_costituzione,
     _parse_date_query,
@@ -280,6 +281,13 @@ def _impl_search(
             }
         ]
 
+    # alias culturali ("mani puliti" → 231/2001): anteponi l'ancoraggio
+    # numerico così l'intent numero risolve l'atto, non un numero a caso
+    anchor = _alias_anchor(folded)
+    if anchor:
+        q = f"{anchor} {q}"
+        folded = _fold(q)
+
     intent = _parse_intent(q, folded)
     kind = intent["kind"]
 
@@ -477,6 +485,9 @@ def _impl_search(
                 + _base_order()
             )
         if hints:
+            # wrap: l'AND del filtro tipo deve valere su tutta la catena OR
+            # (precedenza SQL: senza parentesi si applicherebbe solo all'ultima)
+            where = f"({where})"
             where += " AND UPPER(k.tipo) IN ({})".format(
                 ",".join("?" for _ in hints)
             )

@@ -81,6 +81,24 @@ def _stem_prefix(term: str) -> str:
     return term
 
 
+# Alias culturali → ancoraggio numerico (N/AAAA). Il cittadino cita il nome
+# mediatico, non gli estremi: "mani puliti", "basaglia". Riconoscimento alla
+# Normattiva (riferimenti normativi in linguaggio naturale).
+_ALIAS_ANCHORS: dict[str, str] = {
+    "mani puliti": "231/2001",
+    "basaglia": "180/1978",
+    "follicelli": "180/1978",
+}
+
+
+def _alias_anchor(folded: str) -> str | None:
+    """Ancoraggio numerico se la query contiene un alias culturale noto."""
+    for alias, anchor in _ALIAS_ANCHORS.items():
+        if alias in folded:
+            return anchor
+    return None
+
+
 def _parse_ecli_or_sentenza(folded: str) -> dict[str, Any] | None:
     """Riconosce 'sentenza 2009 151', 'ECLI:IT:COST:2009:151', 'corte cost 2009'."""
     ecli = re.search(r"ecli[:\s]*it[:\s]*cost[:\s]*(\d{4})[:\s]*(\d{1,4})", folded)
