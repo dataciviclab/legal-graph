@@ -75,7 +75,7 @@ Nota `itercost`: nodi deduplicati (`camera_o_senato`+`atto_num`); `proposta_cost
 Processo Senato · Costituzione + Corte Cost. · responsabilità enti/anticorruzione (parziale) · appalti · lavoro · istruzione/sanità/difesa · recepimento UE via D.Lgs
 
 ### Deboli
-Tributario · penale (modifiche, non TU navigabile) · privacy come corpus articoli · **241/1990 solo nodo `norma:*` (massime, niente testo)** · PNRR (20 nodi, non dataset) · Terzo settore (rumore DDL) · regioni · codici · Camera asimmetrica
+Tributario · penale (modifiche, non TU navigabile) · privacy come corpus articoli · **241/1990 in grafo via Normattiva API (vigenza 2020)** · PNRR (20 nodi, non dataset) · Terzo settore (rumore DDL) · regioni · codici · Camera asimmetrica
 
 > Nota 2026-10-08: il **D.Lgs 33/2013 (FOIA)** è un hub critical del grafo (115 incoming) — prima documentato come gap sull'errato "33/2011".
 
