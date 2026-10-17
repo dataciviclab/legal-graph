@@ -1,7 +1,7 @@
 # Cross-Repo Key Schema — Legal Graph
 
 Data: 2026-09-07  
-Aggiornato: 2026-10-17 (atto_num bridge, ponte_persona, atti_api, senato_anagrafica)  
+Aggiornato: 2026-10-17 (atto_num bridge, ponte_persona, atti_api, senato_anagrafica, attua_delega peso>=1)  
 Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 
 ## Architettura (oggi)
@@ -50,9 +50,22 @@ urn:nir:stato:legge:2012-12-24;234
 ```
 
 - **italia-corpus**: 100% coverage (22,449 atti)
-- **open-politica**: ~100% sui DDL promulgati (4,326 con URN); 941 URN non in corpus (legate semplici)
+- **open-politica**: ~100% sui DDL promulgati (4,326 con URN); 845 URN non in corpus (misurato 2026-10-17 su `senato_ddl`)
 - **Copre solo**: leggi, decreti diventati legge
 - **Fetch API**: leggi ordinarie mancanti via `dettaglio-atto-urn` (atti_api support)
+
+### attua_delega (D.Lgs → legge delega)
+
+```
+urn:nir:stato:decreto.legislativo:2023-03-31;43 → urn:nir:stato:legge:2022-06-21;78
+```
+
+- **Da 2026-10-17**: soglia `peso >= 1` (prima `>= 5`, che azzerava i D.Lgs post-2015 perché le citazioni nei preamboli valgono 1) + guardia temporale.
+- `weight` = peso reale della citazione: **`weight < 5` = edge debole/euristico** (cross-reference possibili), `>= 5` = forte.
+- Copertura: **1.375/3.356 D.Lgs (41,0%)**; 2022–2026: 85–100% per anno. Prima del fix: 498 (14,8%).
+- Due euristiche: citation (`delega al governo` nel titolo della legge) + title-regex ("…della legge N/YYYY").
+- `normativa_types` unisce **`atti_api`** (leggi fetchate via API): senza, le leggi fuori collezione non sono target. 182 D.Lgs agganciati via leggi API (top: L.124/2015 → 23).
+- Nota produzione: `atti_api` è external da GitHub raw; il fix è visibile dopo il commit del file in italia-corpus (CI giornaliera).
 
 ### senatore_id / persona_id (chiave persona — cross-chamber)
 
@@ -121,9 +134,12 @@ Catena emend→atto: `emend.atto_num → DDL.id_ddl → DDL.urn_normattiva → n
 
 ## Prossimi passi
 
-- [x] Estendere coverage di `urn_normattiva` — ~100% sui promulgati; 941 leggi ordinarie mancanti (IC #68)
+- [x] Estendere coverage di `urn_normattiva` — ~100% sui promulgati; 845 leggi ordinarie mancanti (IC #68, dato 2026-10-17)
 - [x] Materializzare nodi senatore da anagrafica (PR #25, issue #24)
 - [x] Bridge senatore↔deputato via ponte_persona (PR #23)
-- [ ] Fetch restanti 841 URN leggi ordinarie (IC #68)
+- [x] `attua_delega`: soglia `peso >= 1` + guardia temporale (2026-10-17, 14,8% → 41,0%)
+- [ ] Fetch restanti 845 URN leggi ordinarie (IC #68)
+- [x] Backfill leggi-delega mancanti (82 URN in `atti_singoli`, 162/174 fetchati) → title-regex
+- [ ] Commit/publish `atti_api.parquet` in italia-corpus per rendere il fix visibile in produzione
 - [ ] Sync vigenza da API (IC #67)
 - [ ] Article-level edges Corte
