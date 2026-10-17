@@ -546,6 +546,9 @@ nodes_promovimento AS (
 ),
 
 nodes_pnrr AS (
+    -- Missione: tipo='missione' (upstream ha tipo come discriminante;
+    -- componente è sempre NOT NULL — il vecchio filtro componente IS NULL
+    -- produceva 0 righe, issue #19)
     SELECT DISTINCT
         'pnrr:missione:' || CAST(missione AS VARCHAR) AS id,
         'MISSIONE PNRR' AS tipo,
@@ -565,7 +568,7 @@ nodes_pnrr AS (
         NULL::INTEGER AS qualita_score,
         NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.pnrr_references.path}')
-    WHERE missione IS NOT NULL AND componente IS NULL
+    WHERE missione IS NOT NULL AND tipo = 'missione'
 
     UNION
 
@@ -588,7 +591,7 @@ nodes_pnrr AS (
         NULL::INTEGER,
         NULL::INTEGER
     FROM read_parquet('{support.pnrr_references.path}')
-    WHERE missione IS NOT NULL AND componente IS NOT NULL
+    WHERE missione IS NOT NULL AND componente IS NOT NULL AND tipo != 'missione'
 ),
 
 -- Atti Camera da relatori (OP camera_relatori #62): namespace dedicato
