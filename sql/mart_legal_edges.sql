@@ -20,6 +20,22 @@ normativa_types AS (
     SELECT urn, tipo, oggetto, numero, anno_atto
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
+    UNION ALL
+    -- Atti fetchati via API Normattiva (leggi ordinarie assenti dalle
+    -- collezioni): servono da target per l'euristica title-regex di
+    -- attua_delega. Anti-join per non duplicare URN gia' in normativa.
+    SELECT
+        a.urn,
+        a.tipo_descrizione AS tipo,
+        a.titolo AS oggetto,
+        CAST(a.numero AS VARCHAR) AS numero,
+        a.anno AS anno_atto
+    FROM read_parquet('{support.atti_api.path}') a
+    WHERE NULLIF(a.urn, '') IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM read_parquet('{support.normativa.path}') n
+          WHERE n.urn = a.urn
+      )
 ),
 
 edges_riferimenti AS (
@@ -288,7 +304,11 @@ edges_dib AS (
 ),
 
 -- Heuristica documentata: D.Lgs che referenzia leggi con "Delega al Governo"
--- nel titolo con peso >= 5. Stessa logica dello storico build_legal_edges.py.
+-- nel titolo. Soglia peso >= 1 (dal 2026-10): le citazioni nei preamboli
+-- recenti ("Visti ...") valgono 1, quindi la vecchia soglia >= 5 azzerava
+-- tutti i D.Lgs post-2015. Il peso resta quello reale della citazione:
+-- weight = 1 segnala edge debole/euristico, il consumatore puo' filtrarlo.
+-- Guardia temporale: un D.Lgs non puo' attuare una delega successiva.
 edges_delega AS (
     SELECT
         e.source_id,
@@ -304,7 +324,12 @@ edges_delega AS (
     WHERE n1.tipo = 'DECRETO LEGISLATIVO'
       AND n2.tipo = 'LEGGE'
       AND LOWER(n2.oggetto) LIKE '%delega al governo%'
-      AND e.weight >= 5
+      AND e.weight >= 1
+      AND (
+          e.source_year IS NULL
+          OR e.target_year IS NULL
+          OR e.source_year >= e.target_year - 1
+      )
 ),
 
 -- Euristica titolo: "articolo X della legge DD mese YYYY, n. Y" nel D.Lgs
