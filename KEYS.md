@@ -1,7 +1,7 @@
 # Cross-Repo Key Schema — Legal Graph
 
 Data: 2026-09-07  
-Aggiornato: 2026-10-08 (modifiche AKN, relatore_sentenza, firmatario Senato, eiv)  
+Aggiornato: 2026-10-17 (atto_num bridge, ponte_persona, atti_api, senato_anagrafica)  
 Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 
 ## Architettura (oggi)
@@ -38,8 +38,8 @@ S.1670
 - **open-politica**: dal SPARQL `osr:fase` — 9,861 valori unici (Leg14-19)
 - **senato-akn** (`senato_emendamenti`): da work_uri regex — 1,614 fasi uniche
 - **1:1 con id_ddl dentro una legislatura**, many-to-many cross-legge
-- **Join corretto**: `fase + legislatura` → 1:1 con `id_ddl`
-- **Coverage**: 64% delle fasi emendamento matchano nel DDL
+- **Join corretto**: `atto_num == id_ddl` (bridge esatto, PR #23)
+- ⚠️ `fase` NON è usata nel join emend→atto: emend.fase è formato Senato (S.NNNN), ddl.fase è formato Camera (C.NNNN)
 
 ⚠️ **fase numero ≠ id_ddl**: il numero nella fase (es. 1689) è diverso da id_ddl (es. 55177). Sono due sistemi di numerazione diversi.
 
@@ -50,8 +50,21 @@ urn:nir:stato:legge:2012-12-24;234
 ```
 
 - **italia-corpus**: 100% coverage (22,449 atti)
-- **open-politica**: 14% coverage (733/5,165 DDL hanno URN)
+- **open-politica**: ~100% sui DDL promulgati (4,326 con URN); 941 URN non in corpus (legate semplici)
 - **Copre solo**: leggi, decreti diventati legge
+- **Fetch API**: leggi ordinarie mancanti via `dettaglio-atto-urn` (atti_api support)
+
+### senatore_id / persona_id (chiave persona — cross-chamber)
+
+```
+senatore:25407 ↔ deputato:302741
+```
+
+- **open-politica** `ponte_persona`: match cognome+nome (Leg 13-19, 505 righe)
+- **open-politica** `senato_anagrafica`: senatore_id da SPARQL Senato (Leg 13-19)
+- **senato-akn** `senato_dibattito`: senatore_id (590 unici)
+- **Stesso namespace** senatore_id tra firmatari e dibattito (189 overlap)
+- **Edge `collega`**: ponte_persona → `senatore:*` ↔ `deputato:*` (396 edge)
 
 ### filename (chiave Normattiva interna)
 
@@ -65,11 +78,12 @@ urn:nir:stato:legge:2012-12-24;234
 
 ```
 open-politica.id_ddl  ←→  senato-akn.atto_num        [1:1, esplicito]
-open-politica.fase    ←→  senato-akn.emendamenti.fase  [1:1 dentro legislatura]
-open-politica.urn_normattiva  ←→  italia-corpus.urn   [1:1, 14% coverage]
+open-politica.fase    ←→  senato-akn.emendamenti.fase  [NO — formati diversi]
+open-politica.urn_normattiva  ←→  italia-corpus.urn   [1:1, ~100% sui promulgati]
+open-politica.ponte_persona   ←→  senatore:* ↔ deputato:*  [collega edge]
 ```
 
-Catena completa: `emend.fase → DDL.fase → DDL.id_ddl → corpus.atto_num → DDL.urn_normattiva → normativa.urn`
+Catena emend→atto: `emend.atto_num → DDL.id_ddl → DDL.urn_normattiva → normativa.urn`
 
 ## I Marts del compose legal-graph (2026)
 
@@ -107,6 +121,9 @@ Catena completa: `emend.fase → DDL.fase → DDL.id_ddl → corpus.atto_num →
 
 ## Prossimi passi
 
-- [ ] Estendere coverage di `urn_normattiva` in open-politica (da 14% a 100% sui DDL diventati legge)
-- [ ] Materializzare nodi mancanti nel graph (senatore, norma)
-- [ ] Aggiornare status.md in senato-akn
+- [x] Estendere coverage di `urn_normattiva` — ~100% sui promulgati; 941 leggi ordinarie mancanti (IC #68)
+- [x] Materializzare nodi senatore da anagrafica (PR #25, issue #24)
+- [x] Bridge senatore↔deputato via ponte_persona (PR #23)
+- [ ] Fetch restanti 841 URN leggi ordinarie (IC #68)
+- [ ] Sync vigenza da API (IC #67)
+- [ ] Article-level edges Corte
