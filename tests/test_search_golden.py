@@ -251,3 +251,45 @@ def test_search_filter_stato_materia_combined(search_ready):
     for r in rows:
         assert (r.get("stato") or "").lower() == "vigente"
         assert (r.get("materia") or "").lower() == "fisco"
+
+
+# ── Regressioni eval cittadino 2026-10-17 ──────────────────────────
+
+
+def test_search_articolo_bare_costituzione(search_ready):
+    """'articolo N' senza keyword Costituzione → nodo Cost., non D.Lgs a caso."""
+    rows = m._impl_search("articolo 21", limit=5)
+    assert any("costituzione:art:21" in r["id"] for r in rows), [r["id"] for r in rows]
+    rows2 = m._impl_search("articolo 32 salute", limit=5)
+    assert any("costituzione:art:32" in r["id"] for r in rows2), [r["id"] for r in rows2]
+    rows3 = m._impl_search("articolo 48", limit=5)
+    assert any("costituzione:art:48" in r["id"] for r in rows3), [r["id"] for r in rows3]
+
+
+def test_search_articolo_with_atto_not_cost(search_ready):
+    """'articolo N' + tipo atto resta sull'atto, non ruba la Costituzione."""
+    rows = m._impl_search("decreto legislativo 231 articolo 3", limit=5)
+    assert rows, "query atto+articolo vuota"
+    # non deve risolvere SOLO su Costituzione
+    assert any("costituzione:art:" not in r["id"] for r in rows)
+
+
+def test_search_sentenza_num_first(search_ready):
+    """'sentenza 316 2004' (numero prima dell'anno, con parole extra)."""
+    rows = m._impl_search("sentenza 316 2004 corte costituzionale", limit=5)
+    assert any("sentenza:2004-0316" in r["id"] for r in rows), [r["id"] for r in rows]
+    # formato classico anno-prima resta protetto (golden esistente)
+
+
+def test_search_codici_sistematici_fuori_copertura(search_ready):
+    """c.c./c.p. → errore strutturato, mai atti a caso. Codici tematici ok."""
+    rows = m._impl_search("codice civile articolo 1173", limit=5)
+    assert rows and "error" in rows[0], rows
+    assert "copertura" in rows[0]["error"].lower()
+    rows2 = m._impl_search("codice penale articolo 646", limit=5)
+    assert rows2 and "error" in rows2[0], rows2
+    # codici NON sistematici coperti dal grafo devono restare cercabili
+    rows3 = m._impl_search("codice del terzo settore", limit=5)
+    assert any("2017-07-03;117" in (r.get("id") or "") for r in rows3), rows3
+    rows4 = m._impl_search("codice della strada", limit=5)
+    assert any("1992-04-30;285" in (r.get("id") or "") for r in rows4), rows4

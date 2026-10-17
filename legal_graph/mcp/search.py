@@ -262,6 +262,24 @@ def _impl_search(
     if re.search(r"\b(xyz|foo|bar|baz|qwerty|asdf|non esiste|non esistono)\b", folded):
         return []
 
+    # codici non navigabili (COVERAGE: c.c./c.p. fuori grafo) → errore
+    # strutturato, mai atti a caso. "codice del terzo settore" ecc. restano
+    # cercabili: il pattern cattura solo i codici sistematici.
+    if re.search(
+        r"codice\s+(?:del\s+)?(?:civile|penale|procedura\s+civile|procedura\s+penale)\b",
+        folded,
+    ):
+        return [
+            {
+                "error": (
+                    "Fuori copertura: codici sistematici (c.c., c.p., c.p.c., "
+                    "c.p.p.) non navigabili nel grafo — vedi docs/COVERAGE.md. "
+                    "Cerca l'atto che li modifica (es. 'decreto legislativo "
+                    "N/AAAA') o usa legal_query sui nodi normativa."
+                )
+            }
+        ]
+
     intent = _parse_intent(q, folded)
     kind = intent["kind"]
 
@@ -466,8 +484,6 @@ def _impl_search(
         residual = intent.get("residual") or []
         if residual:
             fallthrough_phrase = residual
-        if year and hints == ["LEGGE"]:
-            fallthrough_phrase = fallthrough_phrase or ["194", "1978"]
 
     else:  # phrase
         terms = intent.get("terms") or []
