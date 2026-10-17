@@ -183,6 +183,13 @@ support:
     slug: camera_firmatari
     layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
+  # -- open-politica: anagrafica deputati (tutte le legislature) -----
+  - name: camera_deputati_legislature
+    type: external
+    repo: open-politica
+    slug: camera_deputati_legislature
+    layer: clean
+    years: [2026]
   # -- open-politica: ponte senatore↔persona (issue #20) -----------
   - name: ponte_persona
     type: external
