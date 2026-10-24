@@ -51,15 +51,17 @@ nodes_normativa AS (
 -- filename) mantenendo gli altri metadati dalla riga dedotta da
 -- nodes_normativa. Issue #67 (D.Lgs 50/2016).
 -- Le URN con più snapshot VIGENZA hanno stato concorde (verificato).
+-- Nota: `LIKE '%\_VIGENZA\_%'` NON matcha in DuckDB (backslash non è escape
+-- di default per LIKE) → usare contains() per la sottostringa esatta.
 stato_per_urn AS (
     SELECT
         urn,
         FIRST(stato ORDER BY
-            CASE WHEN filename LIKE '%\_VIGENZA\_%' THEN 0 ELSE 1 END,
+            CASE WHEN contains(filename, '_VIGENZA_') THEN 0 ELSE 1 END,
             filename
         ) AS stato_best,
         FIRST(vigenza_fonte ORDER BY
-            CASE WHEN filename LIKE '%\_VIGENZA\_%' THEN 0 ELSE 1 END,
+            CASE WHEN contains(filename, '_VIGENZA_') THEN 0 ELSE 1 END,
             filename
         ) AS fonte_best
     FROM read_parquet('{support.normativa.path}')

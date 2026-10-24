@@ -262,6 +262,28 @@ class TestCardinality:
         """).fetchone()[0]
         assert n_fonte > 10_000, f"Poiché nodi normativa con vigenza_fonte: {n_fonte}"
 
+    def test_dedup_stato_conflitto_vigenza(self, con):
+        """Regressione #67: URN con ORIGINALE=vigente e VIGENZA=abrogato
+        (tombstone-only, nessun override AKN) → nodo `abrogato`.
+
+        Il dedup per URN deve preferire lo snapshot VIGENZA. Un vecchio
+        pattern `LIKE '%\\_VIGENZA\\_%'` non matchava in DuckDB (backslash
+        non è escape di default) → veniva scelto ORIGINALE (vigente).
+        """
+        if not _has_table(con, "nodes"):
+            pytest.skip("nodes non presenti")
+        conflitti = [
+            "urn:nir:stato:decreto.legislativo:1991-08-08;256",
+            "urn:nir:stato:decreto.legislativo:1991-08-15;277",
+            "urn:nir:stato:decreto.legislativo:1991-11-23;392",
+        ]
+        for urn in conflitti:
+            row = con.execute(
+                "SELECT stato FROM nodes WHERE id = ?", [urn]
+            ).fetchone()
+            assert row is not None, f"nodo assente: {urn}"
+            assert row[0] == "abrogato", f"{urn} → {row[0]} (atteso abrogato)"
+
     def test_ponti_op_presenti(self, con):
         """Ponti open-politica: deputati + relazioni relatore/firmatario."""
         if not _has_table(con, "nodes"):
