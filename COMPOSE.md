@@ -51,7 +51,7 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; filtri: tipo, anno, source, stato, materia, min_score, collezione |
+| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; filtri: tipo, anno, source, stato, vigenza_fonte, materia, min_score, collezione |
 | `legal_node` | overview · chain (con modifiche AKN) · jurisprudence (con relatore) · parliament (con firmatari) — usano node_rel/emend_leg |
 | `legal_text` | testo normativa (fetch rete) |
 | `legal_query` | SELECT/PRAGMA/DESCRIBE escape hatch |

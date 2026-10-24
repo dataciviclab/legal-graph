@@ -36,6 +36,15 @@ def _view_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
     return name in names
 
 
+def _has_col(con: duckdb.DuckDBPyConnection, view: str, col: str) -> bool:
+    """True se `view` espone la colonna `col` (mart legacy senza la colonna)."""
+    try:
+        rows = con.execute(f"DESCRIBE {view}").fetchall()
+    except duckdb.Error:
+        return False
+    return any(r[0] == col for r in rows)
+
+
 def _get_con() -> duckdb.DuckDBPyConnection:
     """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
     global _cached_con

@@ -59,7 +59,11 @@ mcp = create_mcp_server(
         "Numeri (es. '231', '231/2001', 'n. 231') → priorità a normativa. "
         "Accenti flessibili (responsabilità ~ responsabilita). "
         "Filtri: tipo, anno_min/anno_max, source, stato "
-        "(vigente|abrogato|decaduto — da marker IC, non vigenza live), "
+        "(vigente|abrogato|decaduto — tombstone IC su snapshot VIGENZA + override "
+        "AKN repeal/substitution; NON vigenza live: gli atti solo ORIGINALE senza "
+        "segnale risultano 'vigente' non verificato), "
+        "vigenza_fonte (vigenza_snapshot|akn|regex|unknown — origine di `stato`; "
+        "'unknown' = non verificato), "
         "materia (es. 'fisco', 'lavoro'), min_score (qualita_score 0-100), "
         "collezione (es. 'Costituzione'). "
         "Input per legal_node / legal_text."
@@ -76,6 +80,7 @@ def legal_search(
     materia: str = "",
     min_score: int = 0,
     collezione: str = "",
+    vigenza_fonte: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     return guard_timed(
@@ -90,6 +95,7 @@ def legal_search(
         materia=materia,
         min_score=min_score,
         collezione=collezione,
+        vigenza_fonte=vigenza_fonte,
         limit=limit,
     )
 

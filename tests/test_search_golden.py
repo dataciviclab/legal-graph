@@ -253,6 +253,20 @@ def test_search_filter_stato_materia_combined(search_ready):
         assert (r.get("materia") or "").lower() == "fisco"
 
 
+def test_search_filter_vigenza_fonte(search_ready):
+    """Filtro vigenza_fonte: solo la fonte richiesta (IC #74)."""
+    rows = m._impl_search("231", vigenza_fonte="vigenza_snapshot", limit=5)
+    assert rows, "vigenza_fonte=vigenza_snapshot vuoto"
+    for r in rows:
+        assert (r.get("vigenza_fonte") or "").lower() == "vigenza_snapshot"
+
+
+def test_overview_espone_vigenza_fonte(search_ready):
+    """La card nodo espone vigenza_fonte (origine di stato, IC #74)."""
+    ov = m._impl_node("urn:nir:stato:decreto.legislativo:2001-06-08;231", view="overview")
+    assert "vigenza_fonte" in ov["node"], ov["node"].keys()
+
+
 # ── Regressioni eval cittadino 2026-10-17 ──────────────────────────
 
 

@@ -6,7 +6,7 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists
+from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
@@ -124,16 +124,19 @@ def _payload(r: tuple) -> dict[str, Any]:
     if len(r) > 6:
         payload["stato"] = r[6]
         payload["materia"] = r[7]
+    if len(r) > 8:
+        payload["vigenza_fonte"] = r[8]
     return payload
 
 
-def _select_sk_sql(use_metrics: bool) -> str:
+def _select_sk_sql(use_metrics: bool, has_fonte: bool = True) -> str:
     metrics_join = "LEFT JOIN metrics m ON m.id = k.id" if use_metrics else ""
+    fonte_col = ", n.vigenza_fonte" if has_fonte else ""
     return f"""
     SELECT k.id, k.tipo, k.title,
            CAST(n.data AS VARCHAR) AS data,
            k.anno, k.source,
-           n.stato, n.materia
+           n.stato, n.materia{fonte_col}
     FROM search_keys k
     {metrics_join}
     LEFT JOIN nodes n ON n.id = k.id
@@ -183,7 +186,7 @@ def _run_sk(
     # (which starts with AND) would bind only to the last OR clause due to
     # SQL precedence, leaking rows that ignore the filters.
     sql = (
-        _select_sk_sql(use_metrics)
+        _select_sk_sql(use_metrics, _has_col(con, "nodes", "vigenza_fonte"))
         + f" WHERE ({where}){extra_where} ORDER BY {sql_order} LIMIT {limit}"
     )
     try:
@@ -239,6 +242,7 @@ def _impl_search(
     materia: str = "",
     min_score: int = 0,
     collezione: str = "",
+    vigenza_fonte: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
@@ -318,6 +322,18 @@ def _impl_search(
     if collezione:
         extra_where += " AND LOWER(COALESCE(n.collezione, '')) = ?"
         extra_params.append(collezione.strip().lower())
+    if vigenza_fonte:
+        if not _has_col(con, "nodes", "vigenza_fonte"):
+            return [
+                {
+                    "error": (
+                        "vigenza_fonte non presente nel mart (mart legacy): "
+                        "esegui `make run` per rigenerare i mart."
+                    )
+                }
+            ]
+        extra_where += " AND LOWER(COALESCE(n.vigenza_fonte, '')) = ?"
+        extra_params.append(vigenza_fonte.strip().lower())
 
     # glossario Lab: NNN/YYYY o NNNN/YYYY → search numero prioritario
     if kind == "phrase":
