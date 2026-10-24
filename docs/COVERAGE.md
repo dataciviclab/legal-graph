@@ -32,13 +32,14 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 
 | Colonna | Significato |
 |---|---|
-| `stato` | `vigente` \| `abrogato` \| `decaduto` — **marker tombstone VIGENZA**, non vigenza live di tutto il corpus |
+| `stato` | `vigente` \| `abrogato` \| `decaduto` — tombstone IC su snapshot VIGENZA **+ override AKN** `repeal`/`substitution` (IC #74). Non vigenza live di tutto il corpus |
+| `vigenza_fonte` | Origine di `stato` (IC #74): `vigenza_snapshot` \| `akn` \| `regex` \| `unknown`. `unknown` = snapshot ORIGINALE senza segnale → **`stato` non verificato** |
 | `materia` | 25 categorie tematiche (fisco, ambientale, lavoro…) |
 | `qualita_score` | 0–100 (IC: penalizza duplicati/orfani/stato non vigente) |
 | `sunsetting_score` | 0–100 (IC PR #54: propensione a decadere) |
 | `eiv` | Entrata in vigore effettiva da AKN (`akn_act_meta`) — 48% nodi normativa, **per natura**: copertura 100% ≤1944 e ≥2011, ~0% sul 1946-2010 (Normattiva non espone authorialNote EIV in quella finestra — verificato 2026-10-08, non è extraction miss). Spesso ≠ `data` (emanazione) |
 
-**Limiti**: atti solo ORIGINALE restano `vigente` per costruzione; hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: filtro `legal_search(..., stato='vigente')`.
+**Limiti**: gli atti solo ORIGINALE senza segnale restano `vigente` per costruzione → `vigenza_fonte='unknown'` (≈8.955 nodi normativa). Il segnale regex `abrogato_da` è a bassa precisione (abrogazioni article-level) e non è usato per `stato` (`vigenza_fonte='regex'` = solo candidato). Hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: `legal_search(..., stato='vigente', vigenza_fonte='vigenza_snapshot')` per i vigenti **verificati**; `stato='vigente'` da solo include gli `unknown` — trattare come "non risulta abrogato nel corpus", non come certezza.
 
 ## Ponti open-politica
 

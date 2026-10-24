@@ -6,7 +6,7 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists
+from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists
 from legal_graph.mcp.textfold import _fold
 
 _NODE_VIEWS = ("overview", "chain", "jurisprudence", "parliament")
@@ -34,12 +34,17 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
         "length_chars, length_words, celex, collezione, source_filename, "
         "stato, materia, qualita_score, sunsetting_score"
     )
-    # eiv: colonna nuova (akn_act_meta 2026-10) — assente sui mart legacy
-    has_eiv = con.execute(
-        "SELECT COUNT(*) FROM (DESCRIBE nodes) WHERE column_name = 'eiv'"
-    ).fetchone()[0] > 0
-    if has_eiv:
-        cols += ", eiv"
+    # vigenza_fonte (IC #74) ed eiv (akn_act_meta 2026-10): colonne nuove,
+    # assenti sui mart legacy → placeholder NULL per mantenere le posizioni
+    # fisse attese da _node_payload.
+    cols += (
+        ", vigenza_fonte"
+        if _has_col(con, "nodes", "vigenza_fonte")
+        else ", NULL::VARCHAR AS vigenza_fonte"
+    )
+    cols += (
+        ", eiv" if _has_col(con, "nodes", "eiv") else ", NULL::VARCHAR AS eiv"
+    )
     exact = con.execute(
         f"""
         SELECT {cols}
@@ -107,9 +112,12 @@ def _node_payload(row: tuple) -> dict[str, Any]:
         payload["materia"] = row[12]
         payload["qualita_score"] = row[13]
         payload["sunsetting_score"] = row[14]
-    # EIV AKN (opzionale — mart legacy senza colonna)
+    # vigenza_fonte: origine di stato (IC #74) — opzionale (mart legacy)
     if len(row) > 15:
-        payload["eiv"] = row[15]
+        payload["vigenza_fonte"] = row[15]
+    # EIV AKN (opzionale — mart legacy senza colonna)
+    if len(row) > 16:
+        payload["eiv"] = row[16]
     return payload
 
 

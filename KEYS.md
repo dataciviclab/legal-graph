@@ -155,5 +155,5 @@ Catena emend→atto: `emend.atto_num → DDL.id_ddl → DDL.urn_normattiva → n
 - [x] Commit/publish `atti_api.parquet` in italia-corpus — IC #70 merged (171 atti su main)
 - [x] Fase 0 gap: `modifica` da AKN insertion (+12.661 edge), deputati 2.693→11.277, `testo_atto` dangling 2.990→0
 - [ ] Fase 1 gap: voti individuali (Camera+Senato) + interventi Camera
-- [ ] Sync vigenza da API (IC #67)
+- [ ] Sync vigenza da API (IC #67) — parziale: dedup VIGENZA + override AKN (IC #74, LG #29); API act-level in spike IC #75
 - [ ] Article-level edges Corte

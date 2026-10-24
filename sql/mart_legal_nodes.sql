@@ -7,6 +7,8 @@
 -- Qualità IC (stato/materia/qualita_score/sunsetting_score): colonne
 -- in coda; NULL per sorgenti non-normativa.
 -- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
+-- vigenza_fonte (normativa clean, IC #74): origine di `stato`
+-- (vigenza_snapshot|akn|regex|unknown), in coda; NULL per non-normativa.
 
 WITH akn_meta AS (
     SELECT
@@ -55,7 +57,11 @@ stato_per_urn AS (
         FIRST(stato ORDER BY
             CASE WHEN filename LIKE '%\_VIGENZA\_%' THEN 0 ELSE 1 END,
             filename
-        ) AS stato_best
+        ) AS stato_best,
+        FIRST(vigenza_fonte ORDER BY
+            CASE WHEN filename LIKE '%\_VIGENZA\_%' THEN 0 ELSE 1 END,
+            filename
+        ) AS fonte_best
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
     GROUP BY urn
@@ -886,6 +892,8 @@ SELECT
     materia,
     qualita_score,
     sunsetting_score,
-    CAST(a.eiv AS VARCHAR) AS eiv
+    CAST(a.eiv AS VARCHAR) AS eiv,
+    sp.fonte_best AS vigenza_fonte
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn
+LEFT JOIN stato_per_urn sp ON n.id = sp.urn

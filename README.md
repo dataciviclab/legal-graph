@@ -48,7 +48,7 @@ legal_search("responsabilita amministrativa")
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | Trova atti (parole, tipo, anno, fonte, stato, materia, min_score, collezione) |
+| `legal_search` | Trova atti (parole, tipo, anno, fonte, stato, vigenza_fonte, materia, min_score, collezione) |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
 | `legal_text` | Testo integrale di un atto da URN |
 | `legal_query` | SQL (SELECT) su nodi e archi |
