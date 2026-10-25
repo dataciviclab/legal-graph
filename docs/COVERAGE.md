@@ -32,14 +32,14 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 
 | Colonna | Significato |
 |---|---|
-| `stato` | `vigente` \| `abrogato` \| `decaduto` — **status autorevole** Normattiva (`classeProvvedimento`, atto-level). `decaduto` = collezione "DL decaduti". Non derivato dal testo |
-| `vigenza_fonte` | Origine di `stato`: `normattiva` (status ufficiale IPZS, `classeProvvedimento`) \| `unknown` (non coperto, raro) |
+| `stato` | `vigente` \| `abrogato` \| `decaduto` — **status autorevole** Normattiva, atto-level: `abrogato` = classe 3 (lista ufficiale "Atti normativi abrogati") **o** nota whole-act `PROVVEDIMENTO ABROGATO`; `decaduto` = collezione "DL decaduti". Propagato a **tutte** le snapshot dell'atto |
+| `vigenza_fonte` | Origine di `stato`: `normattiva` (presente nella lista ufficiale abrogati, classe 3) \| `non_coperto` (assente dalla lista ma con nota whole-act) \| `esclusione` (assente → `vigente` per esclusione) |
 | `materia` | 25 categorie tematiche (fisco, ambientale, lavoro…) |
 | `qualita_score` | 0–100 (IC: penalizza duplicati/orfani/stato non vigente) |
 | `sunsetting_score` | 0–100 (IC PR #54: propensione a decadere) |
 | `eiv` | Entrata in vigore effettiva da AKN (`akn_act_meta`) — 48% nodi normativa, **per natura**: copertura 100% ≤1944 e ≥2011, ~0% sul 1946-2010 (Normattiva non espone authorialNote EIV in quella finestra — verificato 2026-10-08, non è extraction miss). Spesso ≠ `data` (emanazione) |
 
-**Limiti**: `stato` è lo status **formale** atto-level di Normattiva: non cattura abrogazioni implicite/parziali (article-level). Copertura `vigenza_fonte='normattiva'` ~99,98% dei nodi normativa; `unknown` raro. Hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: filtro `legal_search(..., stato='vigente')`.
+**Limiti**: `stato` è lo status **formale** atto-level di Normattiva (classe 3 ∪ nota whole-act): non cattura abrogazioni implicite/parziali (article-level). Sui nodi `normativa`: `esclusione` **~10.800** (~52%) · `normattiva` **~9.900** (~47%) · `non_coperto` **~35**. `esclusione` = `vigente` **per esclusione** (assente dalla lista ufficiale abrogati) → trattare come "non risulta abrogato", non come certezza. Hub ordinarie (190/2012, 241/1990…) fuori collection IC possono non comparire. MCP: filtro `legal_search(..., stato='vigente')`.
 
 ## Ponti open-politica
 

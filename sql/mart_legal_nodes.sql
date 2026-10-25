@@ -8,7 +8,7 @@
 -- in coda; NULL per sorgenti non-normativa.
 -- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
 -- vigenza_fonte (normativa clean, IC): origine di `stato`
--- (normattiva|unknown), in coda; NULL per non-normativa.
+-- (normattiva|non_coperto|esclusione), in coda; NULL per non-normativa.
 
 WITH akn_meta AS (
     SELECT

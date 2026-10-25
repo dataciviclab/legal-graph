@@ -255,10 +255,10 @@ def test_search_filter_stato_materia_combined(search_ready):
 
 def test_search_filter_vigenza_fonte(search_ready):
     """Filtro vigenza_fonte: solo la fonte richiesta."""
-    rows = m._impl_search("231", vigenza_fonte="normattiva", limit=5)
-    assert rows, "vigenza_fonte=normattiva vuoto"
+    rows = m._impl_search("231", vigenza_fonte="esclusione", limit=5)
+    assert rows, "vigenza_fonte=esclusione vuoto"
     for r in rows:
-        assert (r.get("vigenza_fonte") or "").lower() == "normattiva"
+        assert (r.get("vigenza_fonte") or "").lower() == "esclusione"
 
 
 def test_overview_espone_vigenza_fonte(search_ready):
