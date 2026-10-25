@@ -7,8 +7,9 @@
 -- Qualità IC (stato/materia/qualita_score/sunsetting_score): colonne
 -- in coda; NULL per sorgenti non-normativa.
 -- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
--- vigenza_fonte (normativa clean, IC #74): origine di `stato`
--- (vigenza_snapshot|akn|regex|unknown), in coda; NULL per non-normativa.
+-- vigenza_fonte (normativa clean, IC): origine di `stato`
+-- (normattiva|non_coperto|esclusione), in coda; `atti_api` per gli atti fuori
+-- collezione IC (fetch dettaglio-atto-urn); NULL per non-normativa.
 
 WITH akn_meta AS (
     SELECT
@@ -895,7 +896,12 @@ SELECT
     qualita_score,
     sunsetting_score,
     CAST(a.eiv AS VARCHAR) AS eiv,
-    sp.fonte_best AS vigenza_fonte
+    COALESCE(
+        sp.fonte_best,
+        -- atti fuori collezione IC (fetch dettaglio-atto-urn): non passano dal
+        -- clean → nessun `vigenza_fonte` upstream; valore dedicato.
+        CASE WHEN n.collezione = 'Normattiva API' THEN 'atti_api' END
+    ) AS vigenza_fonte
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn
 LEFT JOIN stato_per_urn sp ON n.id = sp.urn
