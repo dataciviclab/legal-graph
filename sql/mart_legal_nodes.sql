@@ -7,8 +7,8 @@
 -- Qualità IC (stato/materia/qualita_score/sunsetting_score): colonne
 -- in coda; NULL per sorgenti non-normativa.
 -- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
--- vigenza_fonte (normativa clean, IC #74): origine di `stato`
--- (vigenza_snapshot|akn|regex|unknown), in coda; NULL per non-normativa.
+-- vigenza_fonte (normativa clean, IC): origine di `stato`
+-- (normattiva|unknown), in coda; NULL per non-normativa.
 
 WITH akn_meta AS (
     SELECT
