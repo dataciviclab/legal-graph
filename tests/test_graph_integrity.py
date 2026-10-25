@@ -261,6 +261,19 @@ class TestCardinality:
               AND vigenza_fonte IS NOT NULL AND vigenza_fonte <> ''
         """).fetchone()[0]
         assert n_fonte > 10_000, f"Poiché nodi normativa con vigenza_fonte: {n_fonte}"
+        # Tutti i nodi normativa devono avere una fonte: gli atti fuori
+        # collezione IC (fetch dettaglio-atto-urn) → 'atti_api' (non NULL).
+        n_null = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'normativa'
+              AND (vigenza_fonte IS NULL OR vigenza_fonte = '')
+        """).fetchone()[0]
+        assert n_null == 0, f"Nodi normativa senza vigenza_fonte: {n_null}"
+        n_api = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'normativa' AND vigenza_fonte = 'atti_api'
+        """).fetchone()[0]
+        assert n_api > 0, "Attesi nodi atti_api con vigenza_fonte='atti_api'"
 
     def test_dedup_stato_conflitto_vigenza(self, con):
         """Regressione #67: URN con ORIGINALE=vigente e VIGENZA=abrogato
