@@ -41,6 +41,12 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 
 **Limiti**: `stato` è lo status **formale** atto-level di Normattiva (classe 3 ∪ nota whole-act): non cattura abrogazioni implicite/parziali (article-level). Sui nodi `normativa`: `esclusione` **~10.800** (~52%) · `normattiva` **~9.900** (~47%) · `non_coperto` **~35** · `atti_api` **~171**. `esclusione` = `vigente` **per esclusione** (assente dalla lista ufficiale abrogati) → trattare come "non risulta abrogato", non come certezza. Hub ordinarie (190/2012, 241/1990…) fuori collezione IC compaiono come nodi `atti_api` (`stato` dall'API `dettaglio-atto-urn`, non dal clean). MCP: filtro `legal_search(..., stato='vigente')`.
 
+## Riferimenti (`riferimento`) — limite di fonte
+
+Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: derivano dai `<ref>`/`<destination>` dell'AKN di **Normattiva**, convertiti in link markdown da italia-corpus (`akn_parser.resolve_ref`). La fonte ha cross-reference **ambigui sui titoli generici**: es. la frase-titolo *"Codice dei contratti pubblici"* è linkata al **163/2006** anche in una norma del **2026** che cita il **36/2023** → l'arco punta a un atto abrogato mentre il testo cita quello vigente (delle 48 citazioni del 163/2006 nel 2024-26, solo 2 hanno link coerente).
+
+Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica`, `attua_delega` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
+
 ## Ponti open-politica
 
 | Ponte | Nel grafo |
