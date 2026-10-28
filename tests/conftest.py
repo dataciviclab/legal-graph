@@ -49,15 +49,29 @@ def _materializza(con) -> None:
         path = resolver()
         if not source_exists(path) or not db._view_exists(con, nome):
             continue
+        # solo le VIEW vanno sostituite: se è già una tabella (bootstrap rotto,
+        # o materializzazione già avvenuta) lasciala stare, così l'errore lo
+        # segnala il test di contratto e non un DROP VIEW opaco qui dentro
+        tipo = con.execute(
+            "SELECT table_type FROM information_schema.tables WHERE table_name = ?",
+            [nome],
+        ).fetchone()
+        if tipo and tipo[0] != "VIEW":
+            continue
         con.execute(f"CREATE TEMP TABLE _m_{nome} AS SELECT * FROM read_parquet('{path}')")
         con.execute(f"DROP VIEW {nome}")
         con.execute(f"ALTER TABLE _m_{nome} RENAME TO {nome}")
 
 
+_GET_CON_ORIGINALE = None  # factory non materializzata, salvata dalla fixture autouse
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _mart_in_memoria():
     """Materializza i mart una volta per connessione creata."""
+    global _GET_CON_ORIGINALE
     originale = db._get_con
+    _GET_CON_ORIGINALE = originale
     fatti: set[int] = set()
 
     def wrapper():
@@ -86,6 +100,18 @@ def _mart_in_memoria():
             mod._get_con = fn
         mcp_server._reset_con = reset_originale
         db.reset_con()
+
+
+@pytest.fixture(scope="session")
+def get_con_originale(_mart_in_memoria):
+    """Factory di connessione NON materializzata: serve a verificare il
+    bootstrap (view sul parquet), che la materializzazione per velocità salta.
+
+    Dipende dalla fixture autouse perché è quella che la salva prima di
+    sostituire `_get_con` nei moduli.
+    """
+    assert _GET_CON_ORIGINALE is not None
+    return _GET_CON_ORIGINALE
 
 
 @pytest.fixture(scope="session")

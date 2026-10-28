@@ -340,3 +340,36 @@ def test_payload_node_campi(grafo):
         "vigenza_fonte",
     }
     assert attesi <= set(nodo), f"mancanti: {attesi - set(nodo)}"
+
+
+# --- I. Bootstrap della connessione (non coperto dalla materializzazione) -----
+
+
+def test_bootstrap_crea_view_sul_parquet(get_con_originale):
+    """`_get_con()` deve creare VIEW sui parquet, non tabelle.
+
+    Il conftest materializza i mart in tabelle temporanee per velocità: senza
+    questo test il percorso reale di bootstrap (`_ensure_view`/`resolve_*`)
+    resterebbe non esercitato dalla suite.
+    """
+    from legal_graph.mcp import db
+
+    db.reset_con()
+    try:
+        con = get_con_originale()
+        tipi = {
+            r[0]: r[1]
+            for r in con.execute(
+                "SELECT table_name, table_type FROM information_schema.tables"
+            ).fetchall()
+        }
+        assert tipi.get("nodes") == "VIEW", f"nodes è {tipi.get('nodes')!r}"
+        assert tipi.get("search_keys") == "VIEW", f"search_keys è {tipi.get('search_keys')!r}"
+        assert con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] > 10000
+        # `_refresh_views` su view già presenti non deve rompere nulla
+        db._refresh_views(con)
+        assert con.execute("SELECT COUNT(*) FROM search_keys").fetchone()[0] > 10000
+    finally:
+        # rimette la connessione materializzata per i test successivi
+        db.reset_con()
+        m._get_con()
