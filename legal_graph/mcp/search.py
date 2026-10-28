@@ -573,7 +573,9 @@ def _impl_search(
         else:
             # 1) AND; se vuoto → OR (niente over-filter su topic libero)
             and_where, and_params = _phrase_where(terms, "and")
-            test = _run_sk(
+            # Con un solo termine AND e OR coincidono: la sonda sarebbe la
+            # stessa query due volte (una scansione in più per ogni ricerca).
+            test = [{"id": "_"}] if len(terms) == 1 else _run_sk(
                 con, and_where, and_params, _base_order(), extra_where, extra_params, 3
             )
             test = [r for r in test if r.get("id")]
