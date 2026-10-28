@@ -659,7 +659,9 @@ nodes_atti_api AS (
             NULL::VARCHAR AS codice_redazionale,
             -- Vigenza reale dall'API (non tombstone detection)
             stato AS stato,
-            NULL::VARCHAR AS materia,
+            -- materia: stesso classificatore del corpus (italia-corpus
+            -- fetch_urn_acts); senza, questi atti sono invisibili ai filtri
+            NULLIF(materia, '') AS materia,
             NULL::INTEGER AS qualita_score,
             NULL::INTEGER AS sunsetting_score
         FROM read_parquet('{support.atti_api.path}')
