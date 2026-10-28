@@ -253,6 +253,35 @@ def test_search_filter_stato_materia_combined(search_ready):
         assert (r.get("materia") or "").lower() == "fisco"
 
 
+def test_search_filter_materia_su_query_testuale(search_ready):
+    """Query a testo libero + filtro: i parametri del boost non devono
+    finire nei confronti dei filtri (regressione: risultato vuoto)."""
+    rows = m._impl_search("elettroniche", materia="comunicazioni", limit=5)
+    assert rows, "query testuale + materia vuota"
+    for r in rows:
+        assert (r.get("materia") or "").lower() == "comunicazioni"
+    assert any("decreto.legislativo:2003-08-01;259" in r["id"] for r in rows)
+
+
+@pytest.mark.parametrize(
+    "query,filtro",
+    [
+        ("elettroniche", {"stato": "vigente"}),
+        ("rifiuti", {"materia": "ambientale"}),
+        ("pesca", {"materia": "agricoltura"}),
+        ("elettroniche", {"materia": "comunicazioni", "stato": "vigente"}),
+    ],
+)
+def test_search_query_testuale_con_filtro_non_vuota(search_ready, query, filtro):
+    """Ogni filtro combinato con una query testuale deve restituire righe
+    coerenti col filtro (il boost di ordinamento non li deve annullare)."""
+    rows = m._impl_search(query, limit=5, **filtro)
+    assert rows, f"{query!r} + {filtro} vuoto"
+    for r in rows:
+        for chiave, atteso in filtro.items():
+            assert (r.get(chiave) or "").lower() == atteso
+
+
 def test_search_filter_vigenza_fonte(search_ready):
     """Filtro vigenza_fonte: solo la fonte richiesta."""
     rows = m._impl_search("231", vigenza_fonte="esclusione", limit=5)

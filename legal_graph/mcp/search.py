@@ -1,6 +1,7 @@
 """Intent parsing e _impl_search su mart search_keys."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -17,6 +18,8 @@ from legal_graph.mcp.textfold import (
     _parse_ecli_or_sentenza,
     _stem_prefix,
 )
+
+logger = logging.getLogger(__name__)
 
 _MAX_ROWS = 100
 _TITLE_SEARCH = 280
@@ -166,7 +169,16 @@ def _run_sk(
     extra_where: str,
     extra_params: list[Any],
     limit: int,
+    order_params: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Esegue la query su search_keys.
+
+    `order_params` sono i segnaposto dell'ORDER BY (boost sul titolo): vanno
+    bindati **dopo** `extra_params`, perché nell'SQL l'ORDER BY segue i filtri.
+    Tenerli separati evita che i pattern del boost finiscano nei confronti dei
+    filtri (query testuale + filtro → sempre 0 righe, in silenzio).
+    """
+    order_params = list(order_params or [])
     use_metrics = _view_exists(con, "metrics")
     # se ORDER usa metrics ma la view manca, togli i riferimenti a m.
     sql_order = order
@@ -176,11 +188,14 @@ def _run_sk(
             "",
             sql_order,
         )
-        sql_order = re.sub(
+        sql_order, n_boost = re.subn(
             r"CASE WHEN LOWER\(k\.title_folded\) LIKE \? THEN -\d+ ELSE 0 END,\s*",
             "",
             sql_order,
         )
+        # i boost rimossi dall'ORDER BY non vanno più bindati
+        if n_boost:
+            order_params = order_params[n_boost:]
     # Wrap `where` in parens: several intent branches build it with top-level
     # OR (e.g. number → "a OR b OR c"). Without parens, appending extra_where
     # (which starts with AND) would bind only to the last OR clause due to
@@ -190,8 +205,18 @@ def _run_sk(
         + f" WHERE ({where}){extra_where} ORDER BY {sql_order} LIMIT {limit}"
     )
     try:
-        rows = con.execute(sql, [*params, *extra_params]).fetchall()
-    except duckdb.Error:
+        rows = con.execute(sql, [*params, *extra_params, *order_params]).fetchall()
+    except duckdb.Error as exc:
+        # Non inghiottire: un mismatch di binding (es. order_params dimenticati
+        # da un nuovo ramo) arriva qui come errore DuckDB, non come risultato
+        # vuoto legittimo. Senza log resterebbe invisibile.
+        logger.warning(
+            "search_keys: query fallita (%s) — where=%s | filtri=%s | n_order_params=%d",
+            exc,
+            where[:120],
+            extra_where.strip()[:120],
+            len(order_params),
+        )
         return []
     return [_payload(r) for r in rows]
 
@@ -389,6 +414,7 @@ def _impl_search(
 
     where = "1=1"
     params: list[Any] = []
+    order_params: list[Any] = []
     order = _base_order()
     fallthrough_phrase: list[str] | None = None
 
@@ -560,7 +586,9 @@ def _impl_search(
                         for _ in boost_terms
                     ]
                     order = ", ".join(boosts) + ", " + _base_order()
-                    params = [*params, *[f"%{t}%" for t in boost_terms]]
+                    # i segnaposto dell'ORDER BY vanno bindati dopo i filtri:
+                    # passali separati, non in `params` (che è il WHERE)
+                    order_params = [f"%{t}%" for t in boost_terms]
                 else:
                     order = _base_order()
             else:
@@ -580,7 +608,9 @@ def _impl_search(
                     )
 
     # esegui intent principale
-    out = _run_sk(con, where, params, order, extra_where, extra_params, limit)
+    out = _run_sk(
+        con, where, params, order, extra_where, extra_params, limit, order_params
+    )
 
     # fallback number → residual phrase
     if not out and fallthrough_phrase:
