@@ -7,7 +7,7 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists
+from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
@@ -257,6 +257,7 @@ def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
     return " AND ".join(clauses) if clauses else "1=1", params
 
 
+@locked
 def _impl_search(
     query: str,
     tipo: str = "",

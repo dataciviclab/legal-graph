@@ -6,7 +6,7 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists
+from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
 from legal_graph.mcp.textfold import _fold
 
 _NODE_VIEWS = ("overview", "chain", "jurisprudence", "parliament")
@@ -783,6 +783,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     }
 
 
+@locked
 def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str, Any]:
     con = _get_con()
     view = (view or "overview").strip().lower()
