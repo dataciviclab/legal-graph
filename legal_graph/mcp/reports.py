@@ -8,13 +8,15 @@ import duckdb
 
 from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
-from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists
+from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists, db_lock, locked
 
 _MAX_ROWS = 100
 
 def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
-    _refresh_views(_get_con())
-    node = resolve_text_node(node_id)
+    # solo le letture sul grafo stanno sotto lock: il fetch del testo è di rete
+    with db_lock():
+        _refresh_views(_get_con())
+        node = resolve_text_node(node_id)
     if not node:
         return {"error": f"Nodo non trovato: {node_id}"}
 
@@ -50,7 +52,8 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
             if "error" not in ic:
                 return {**base, **ic}
         if source != "normativa":
-            texts_ok = _view_exists(_get_con(), "texts")
+            with db_lock():
+                texts_ok = _view_exists(_get_con(), "texts")
             return {
                 **base,
                 "error": (
@@ -70,7 +73,8 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
             )
             if "error" not in result:
                 return {**base, **result}
-        texts_ok = _view_exists(_get_con(), "texts")
+        with db_lock():
+            texts_ok = _view_exists(_get_con(), "texts")
         return {
             **base,
             "error": (
@@ -90,6 +94,7 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
 
 
 
+@locked
 def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     con = _get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
@@ -193,6 +198,7 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
 
 
 
+@locked
 def _impl_insights(report: str = "summary") -> dict[str, Any]:
     con = _get_con()
     if not _view_exists(con, "metrics"):

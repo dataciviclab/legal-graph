@@ -1,6 +1,10 @@
 """Connessione DuckDB cachata e VIEW sui mart compose."""
 from __future__ import annotations
 
+import functools
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -43,6 +47,37 @@ def _has_col(con: duckdb.DuckDBPyConnection, view: str, col: str) -> bool:
     except duckdb.Error:
         return False
     return any(r[0] == col for r in rows)
+
+
+# DuckDB non è thread-safe su una connessione condivisa: il server MCP serve le
+# richieste in concorrenza e due `execute()` interlacciati fanno leggere a una
+# chiamata il cursore dell'altra → risultati vuoti spuri, senza errore (misurato:
+# 2 su 6 chiamate identiche in parallelo, 0 su 6 sequenziali). Il lock serializza
+# l'accesso; è un RLock perché le funzioni decorate possono richiamarsi.
+_DB_LOCK = threading.RLock()
+
+
+@contextmanager
+def db_lock() -> Iterator[None]:
+    """Tiene il lock della connessione DuckDB condivisa."""
+    with _DB_LOCK:
+        yield
+
+
+def locked(fn):
+    """Decorator: esegue `fn` sotto il lock della connessione condivisa.
+
+    Da usare sulle entry point MCP che leggono il grafo (`_impl_query`,
+    `_impl_search`, `_impl_node`, `_impl_insights`). Non sulle funzioni che
+    fanno I/O di rete: il lock non deve coprire le chiamate HTTP.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _DB_LOCK:
+            return fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
