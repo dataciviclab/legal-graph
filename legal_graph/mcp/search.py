@@ -1,6 +1,7 @@
 """Intent parsing e _impl_search su mart search_keys."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -17,6 +18,8 @@ from legal_graph.mcp.textfold import (
     _parse_ecli_or_sentenza,
     _stem_prefix,
 )
+
+logger = logging.getLogger(__name__)
 
 _MAX_ROWS = 100
 _TITLE_SEARCH = 280
@@ -203,7 +206,17 @@ def _run_sk(
     )
     try:
         rows = con.execute(sql, [*params, *extra_params, *order_params]).fetchall()
-    except duckdb.Error:
+    except duckdb.Error as exc:
+        # Non inghiottire: un mismatch di binding (es. order_params dimenticati
+        # da un nuovo ramo) arriva qui come errore DuckDB, non come risultato
+        # vuoto legittimo. Senza log resterebbe invisibile.
+        logger.warning(
+            "search_keys: query fallita (%s) — where=%s | filtri=%s | n_order_params=%d",
+            exc,
+            where[:120],
+            extra_where.strip()[:120],
+            len(order_params),
+        )
         return []
     return [_payload(r) for r in rows]
 
