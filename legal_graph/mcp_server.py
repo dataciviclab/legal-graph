@@ -151,7 +151,7 @@ def legal_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     description=(
         "Report di sistema sul grafo. report: summary | critical | obsolete | complex | dormant. "
         "obsolete = candidati per età/anagrafica storica, NON lista abrogazioni formali. "
-        "Richiede: python scripts/graph_intelligence.py"
+        "Richiede: mart_legal_node_metrics (make run)."
     ),
     structured_output=True,
 )

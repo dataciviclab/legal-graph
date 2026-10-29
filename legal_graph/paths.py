@@ -5,8 +5,8 @@ Priorità sorgente mart (tabelle leggere del compose):
 2. compose toolkit locale: out/data/mart/legal_graph/<year>/
 3. GCS pubblico: via lab_connectors.gcs.paths (path contract Lab)
 
-texts / massime / temporal: **solo locale** (non nel primo publish GCS).
-Legacy data/*.parquet: fallback temporaneo per nodes/edges se assente tutto.
+texts / massime: **solo locale** (non nel primo publish GCS).
+Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from lab_connectors.gcs.paths import https_url
 PathLike = Path | str
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = REPO_ROOT / "data"
 YEAR = "2026"
 
 DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
@@ -34,11 +33,6 @@ GCS_MART_TABLES = frozenset(
         "mart_legal_emend_leg",
     }
 )
-
-LEGACY_NODES = DATA_DIR / "legal_nodes.parquet"
-LEGACY_EDGES = DATA_DIR / "legal_edges.parquet"
-LEGACY_TEMPORAL = DATA_DIR / "legal_edges_temporal.parquet"
-LEGACY_METRICS = DATA_DIR / "graph_metrics.parquet"
 
 
 def mart_dir() -> Path:
@@ -86,28 +80,22 @@ def source_exists(source: PathLike | None) -> bool:
     return Path(source).exists()
 
 
-# ── API legacy (compat test / MCP) ─────────────────────────────────
+# ── Resolver mart (compat test / MCP) ──────────────────────────────
 
 
 def resolve_nodes_file() -> PathLike | None:
-    src = resolve("mart_legal_nodes")
-    if src is not None:
-        return src
-    return LEGACY_NODES if LEGACY_NODES.exists() else None
+    """Parquet dei nodi: solo mart compose (locale o GCS)."""
+    return resolve("mart_legal_nodes")
 
 
 def resolve_edges_file() -> PathLike | None:
-    src = resolve("mart_legal_edges")
-    if src is not None:
-        return src
-    return LEGACY_EDGES if LEGACY_EDGES.exists() else None
+    """Parquet degli archi: solo mart compose (locale o GCS)."""
+    return resolve("mart_legal_edges")
 
 
 def resolve_metrics_file() -> PathLike | None:
-    src = resolve("mart_legal_node_metrics")
-    if src is not None:
-        return src
-    return LEGACY_METRICS if LEGACY_METRICS.exists() else None
+    """Parquet delle metriche: solo mart compose (locale o GCS)."""
+    return resolve("mart_legal_node_metrics")
 
 
 def resolve_search_keys_file() -> PathLike | None:
@@ -129,7 +117,3 @@ def resolve_texts_file() -> PathLike | None:
 
 def resolve_massime_file() -> PathLike | None:
     return resolve("mart_legal_massime", allow_gcs=False)
-
-
-def resolve_temporal_file() -> PathLike | None:
-    return LEGACY_TEMPORAL if LEGACY_TEMPORAL.exists() else None

@@ -44,9 +44,6 @@ jobs:
       - name: Build compose (tutti i mart locali)
         run: make run
 
-      - name: Intelligence (metriche se mancanti)
-        run: make intelligence
-
       - name: Verify tests su mart costruiti
         run: make test
 

@@ -2,7 +2,7 @@
 --
 -- Legge le tabelle DuckDB create prima nel run MART
 -- (mart_legal_nodes, mart_legal_edges) — ordine in dataset.yml obbligatorio.
--- Stesso output storico di scripts/graph_intelligence.py (backward-compat MCP).
+-- Stesse colonne del vecchio graph_metrics.parquet (script rimosso).
 
 WITH incoming AS (
     SELECT

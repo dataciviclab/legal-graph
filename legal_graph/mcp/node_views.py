@@ -423,13 +423,6 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             )
             queue_b.append((source, d + 1))
 
-    temporal = []
-    if _view_exists(con, "temporal"):
-        temporal = con.execute(
-            "SELECT relation, evidence FROM temporal WHERE source_id = ? LIMIT 5",
-            [actual_id],
-        ).fetchall()
-
     top_riferimenti_in: list[dict[str, Any]] = []
     top_riferimenti_out: list[dict[str, Any]] = []
     if not backward:
@@ -470,7 +463,6 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         "top_riferimenti_out": top_riferimenti_out,
         "top_riferimenti_in": top_riferimenti_in,
         "attua_delega_hint": _attua_delega_hint(con, node_row),
-        "temporal": [{"relation": t[0], "evidence": t[1]} for t in temporal],
         "note": (
             "chain_* = relazioni legislative tipizzate + modifiche AKN "
             "(abroga, sostituisce, split, join, renumbering). "

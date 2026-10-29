@@ -24,7 +24,6 @@ from legal_graph.paths import (
     resolve_node_rel_file,
     resolve_nodes_file,
     resolve_search_keys_file,
-    resolve_temporal_file,
     resolve_texts_file,
     source_exists,
 )
@@ -38,7 +37,6 @@ MART = {
     "emend_leg": resolve_emend_leg_file,
     "texts": resolve_texts_file,
     "massime": resolve_massime_file,
-    "temporal": resolve_temporal_file,
 }
 
 

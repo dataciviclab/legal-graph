@@ -12,15 +12,7 @@ check:
 
 .PHONY: lint
 lint:
-	$(PYTHON) -m ruff check legal_graph tests scripts
-
-.PHONY: intelligence
-intelligence:
-	@if [ -f out/data/mart/legal_graph/$(YEAR)/mart_legal_node_metrics.parquet ]; then \
-		echo "metrics gia' nel mart compose (make run)"; \
-	else \
-		$(PYTHON) scripts/graph_intelligence.py; \
-	fi
+	$(PYTHON) -m ruff check legal_graph tests
 
 .PHONY: clean
 clean:
