@@ -15,7 +15,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
 | Pubblico | GCS `dataciviclab-mart/legal-graph/` (6 tabelle grafo) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
-| CLI | `scripts/` — intelligence fallback, eu/temporal |
+| CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
 
 ## Mart (ordine compose)
@@ -40,9 +40,8 @@ Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del r
 
 ```bash
 make run              # compose da rete → 8 mart
-make test             # integrità + golden (68)
+make test             # integrità + golden + E2E di contratto
 make lint
-make intelligence     # fallback solo se metrics mancanti dal mart
 ```
 
 Le fonti si leggono **HTTPS dirette** — nessun clone locale.

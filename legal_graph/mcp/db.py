@@ -17,7 +17,6 @@ from legal_graph.paths import (
     resolve_node_rel_file,
     resolve_nodes_file,
     resolve_search_keys_file,
-    resolve_temporal_file,
     resolve_texts_file,
     source_exists,
 )
@@ -87,7 +86,6 @@ def _get_con() -> duckdb.DuckDBPyConnection:
         return _cached_con
     nodes_file = resolve_nodes_file()
     edges_file = resolve_edges_file()
-    temporal_file = resolve_temporal_file()
     metrics_file = resolve_metrics_file()
     search_keys_file = resolve_search_keys_file()
     node_rel_file = resolve_node_rel_file()
@@ -104,10 +102,6 @@ def _get_con() -> duckdb.DuckDBPyConnection:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if source_exists(temporal_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW temporal AS SELECT * FROM read_parquet('{temporal_file}')"
-        )
     if source_exists(metrics_file):
         con.execute(
             f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
@@ -162,5 +156,4 @@ def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     _ensure_view(con, "emend_leg", resolve_emend_leg_file())
     _ensure_view(con, "texts", resolve_texts_file())
     _ensure_view(con, "massime", resolve_massime_file())
-    _ensure_view(con, "temporal", resolve_temporal_file())
 

@@ -16,7 +16,6 @@ from legal_graph.paths import (
     resolve_edges_file,
     resolve_metrics_file,
     resolve_nodes_file,
-    resolve_temporal_file,
     source_exists,
 )
 
@@ -27,14 +26,11 @@ def con():
     c = duckdb.connect(":memory:")
     nodes_file = resolve_nodes_file()
     edges_file = resolve_edges_file()
-    temporal_file = resolve_temporal_file()
     metrics_file = resolve_metrics_file()
     if source_exists(nodes_file):
         c.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     if source_exists(edges_file):
         c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if source_exists(temporal_file):
-        c.execute(f"CREATE TABLE temporal AS SELECT * FROM read_parquet('{temporal_file}')")
     if source_exists(metrics_file):
         c.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{metrics_file}')")
     yield c
@@ -146,44 +142,14 @@ class TestEdges:
 
 # ── Temporal edge integrity ─────────────────────────────────────
 
-class TestTemporalEdges:
-    """Archi temporali: opzionali (non nel compose mart-only)."""
-
-    def test_temporal_exists(self, con):
-        if not _has_table(con, "temporal"):
-            pytest.skip("temporal non presente (compose senza step temporale)")
-        count = con.execute("SELECT COUNT(*) FROM temporal").fetchone()[0]
-        assert count > 50_000, f"Expected >50K temporal edges, got {count}"
-
-    def test_temporal_relation_types(self, con):
-        if not _has_table(con, "temporal"):
-            pytest.skip("temporal non presente")
-        types = con.execute("""
-            SELECT DISTINCT relation FROM temporal ORDER BY relation
-        """).fetchall()
-        type_names = [r[0] for r in types]
-        assert "modifica" in type_names, "Missing 'modifica' relation"
-        assert "entra_in_vigore" in type_names, "Missing 'entra_in_vigore' relation"
-
-    def test_temporal_no_self_modifica(self, con):
-        """A modifica edge should not be a self-loop (A modifies A)."""
-        if not _has_table(con, "temporal"):
-            pytest.skip("temporal non presente")
-        self_loops = con.execute("""
-            SELECT COUNT(*) FROM temporal
-            WHERE relation = 'modifica' AND source_id = target_id
-        """).fetchone()[0]
-        assert self_loops == 0, f"{self_loops} self-loop modifica edges"
-
-
 # ── Metrics integrity ───────────────────────────────────────────
 
 class TestMetrics:
-    """Metriche intelligence: opzionali (richiedono make intelligence)."""
+    """Metriche dal compose (mart_legal_node_metrics, richiede make run)."""
 
     def test_metrics_exist(self, con):
         if not _has_table(con, "metrics"):
-            pytest.skip("metrics non presenti (esegui make intelligence)")
+            pytest.skip("metrics non presenti (esegui make run)")
         count = con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
         assert count > 400_000, f"Expected >400K metric rows, got {count}"
 
@@ -229,12 +195,6 @@ class TestCardinality:
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
         # include relatore + firmatari + votazioni + iter cost
         assert 1_000_000 <= count <= 1_450_000, f"Edge count {count} outside expected range"
-
-    def test_temporal_count_range(self, con):
-        if not _has_table(con, "temporal"):
-            pytest.skip("temporal non presente")
-        count = con.execute("SELECT COUNT(*) FROM temporal").fetchone()[0]
-        assert 50_000 <= count <= 80_000, f"Temporal count {count} outside expected range"
 
     def test_normativa_nodes_range(self, con):
         count = con.execute("""
@@ -348,14 +308,6 @@ class TestCardinality:
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'itercost:%'
         """).fetchone()[0]
         assert n_iter > 2_000, f"Nodi itercost bassi: {n_iter}"
-
-    def test_modifica_edges_range(self, con):
-        if not _has_table(con, "temporal"):
-            pytest.skip("temporal non presente")
-        count = con.execute("""
-            SELECT COUNT(*) FROM temporal WHERE relation = 'modifica'
-        """).fetchone()[0]
-        assert 30_000 <= count <= 60_000, f"Modifica edges {count} outside expected range"
 
 
 class TestTemporalSanity:

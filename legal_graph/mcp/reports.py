@@ -170,7 +170,7 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
         return [{"error": err, "hint": hint} if hint else {"error": err}]
     if not rows and first == "SELECT":
         tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
-        hint = "Verifica WHERE/relation; tabelle: nodes, edges[, temporal]."
+        hint = "Verifica WHERE/relation; tabelle: nodes, edges."
         if "GROUP BY" in sql_clean.upper() and "edges" in sql_clean and "edges" not in tables:
             hint = "View 'edges' assente — riconnetti o make run."
         if "GROUP BY" in sql_clean.upper() and "edges" in tables:
@@ -204,8 +204,8 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
     if not _view_exists(con, "metrics"):
         return {
             "error": (
-                "Metriche non presenti nel mart. Esegui `make run` "
-                "(mart_legal_node_metrics) oppure scripts/graph_intelligence.py."
+                "Metriche non presenti nel mart: esegui `make run` "
+                "(mart_legal_node_metrics)."
             ),
             "hint": "Senza metrics, usa legal_query su edges per impatto grezzo.",
         }
