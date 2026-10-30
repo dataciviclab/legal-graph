@@ -73,11 +73,13 @@ support:
     layer: clean
     years: [2026]
 
-  # -- gu-monitor (parquet committato, no registry) ----------------
+  # -- gu-monitor (clean su GCS, via registry) -----------------------
   - name: gu_acts
     type: external
     repo: gu-monitor
-    path: data/gu_acts.parquet
+    slug: gu_atti
+    layer: clean
+    years: [2026]
 
   # -- costituzione-italiana (GCS clean) ----------------------------
   - name: articoli_costituzione

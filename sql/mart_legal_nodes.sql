@@ -813,12 +813,18 @@ nodes_dl AS (
 
 all_nodes AS (
     SELECT * FROM normativa
+    -- atti_api prima di gu: stesso URN può arrivare da entrambi (atto fuori
+    -- collezione IC); vince la riga del corpus, che porta stato e materia.
+    UNION ALL
+    SELECT * FROM nodes_atti_api WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_articoli WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_revisioni WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
-    SELECT * FROM nodes_gu WHERE id NOT IN (SELECT id FROM normativa)
+    SELECT * FROM nodes_gu
+    WHERE id NOT IN (SELECT id FROM normativa)
+      AND id NOT IN (SELECT id FROM nodes_atti_api)
     UNION ALL
     SELECT * FROM nodes_senato WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
@@ -847,8 +853,6 @@ all_nodes AS (
     SELECT * FROM nodes_giudici WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_norme WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
-    SELECT * FROM nodes_atti_api WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_promovimento WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
