@@ -50,19 +50,28 @@ nodes_normativa AS (
 
 -- vigenza_fonte dell'espressione corrente, per URN.
 --
--- Il vecchio workaround `stato_per_urn` ricostruiva `stato` e `vigenza_fonte`
--- preferendo lo snapshot VIGENZA (uno snapshot ORIGINALE non porta tombstone
--- e si sarebbe marcato "vigente": issue #67). Quella scelta ora è a monte, in
--- italia-corpus: `is_current` seleziona già la VIGENZA più recente, quindi il
--- nodo prende `stato` dalla riga corrente (vedi `normativa`) e qui serve solo
--- agganciare `vigenza_fonte`, che `all_nodes` non porta.
+-- Il vecchio workaround `stato_per_urn` (FIRST + CASE su '_VIGENZA_') nasceva
+-- dal presupposto che `stato` si leggesse dal testo: uno snapshot ORIGINALE non
+-- porta tombstone e si sarebbe marcato "vigente" (issue #67).
+--
+-- Oggi non è più così: `stato` arriva da `status.parquet` via `integra_vigenza`,
+-- è **atto-level** (join su codice_redazionale + data GU) e viene scritto
+-- **identico su tutte le espressioni**. Per questo `stato`/`vigenza_fonte` non
+-- possono cambiare qualunque riga si scelga: **il delta 0 è strutturale, non
+-- fortuito**. `is_current` seleziona l'espressione corrente; qui si aggancia
+-- solo `vigenza_fonte` (che `all_nodes` non porta).
+--
+-- `GROUP BY urn`: robustezza se un URN avesse due righe `is_current` (bug di
+-- dati): la LEFT JOIN non deve duplicare il nodo (il test lo intercetta, ma
+-- meglio non dipenderne).
 normativa_fonte AS (
     SELECT
         urn,
-        NULLIF(vigenza_fonte, '') AS vigenza_fonte
+        MAX(NULLIF(vigenza_fonte, '')) AS vigenza_fonte
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
       AND is_current
+    GROUP BY urn
 ),
 normativa AS (
     SELECT
