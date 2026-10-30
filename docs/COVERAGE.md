@@ -48,6 +48,8 @@ Limiti dichiarati:
 - **Autoanelli rimossi** (916 `riferimento`, 97 `abroga`): un atto non è in
   relazione con sé stesso. Prima il self-loop del D.Lgs 58/1998 (weight 436)
   era l'edge più pesante del grafo e entrava in `impact_score`.
+  **Effetto**: `referenced_by`/`impact_score` cambiano per i **916 atti** che
+  avevano l'autoanello; i numeri pubblicati prima del 2026-10-30 li includono.
 
 ## Composizione nodi (~525k)
 

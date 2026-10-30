@@ -124,3 +124,26 @@ class TestFunnel:
         }
         extra = rels - {"riferimento", "abroga", "diventa_legge"}
         assert not extra, f"relazioni con denominatore non dichiarato: {extra}"
+
+    @pytest.mark.parametrize(
+        "relation,baseline",
+        [("riferimento", 200_080), ("abroga", 8_374), ("diventa_legge", 7_478)],
+    )
+    def test_upstream_numerators_stable(self, con, relation, baseline):
+        """Drift delle righe upstream: banda ±20% sui numeratori dichiarati.
+
+        Il funnel replica tre filtri del compose (`r.risolto`, guardia
+        temporale, join DDL/leggi). Se il compose cambia un filtro e il funnel
+        no, `upstream_rows` resta fermo mentre `edges` si muove: il rapporto
+        scivola senza che nessun test su `edges` lo veda. Una banda (non il
+        valore esatto) intercetta il drift strutturale senza fallire a ogni
+        aggiornamento legittimo della fonte.
+        """
+        valore = con.execute(
+            "SELECT upstream_rows FROM coverage WHERE relation = ?", [relation]
+        ).fetchone()[0]
+        basso, alto = baseline * 0.8, baseline * 1.2
+        assert basso <= valore <= alto, (
+            f"{relation}: upstream_rows {valore} fuori banda [{basso:.0f}, {alto:.0f}] "
+            f"(baseline {baseline}) — il filtro del funnel è cambiato nel compose?"
+        )
