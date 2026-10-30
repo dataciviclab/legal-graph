@@ -834,4 +834,9 @@ FROM (
     UNION ALL
     SELECT * FROM edges_itercost_rev
 )
+-- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
+-- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
+-- tra atti. Senza questo filtro l'edge più pesante del grafo è un self-loop
+-- (D.Lgs 58/1998 → sé stesso, weight 436) e le metriche di impatto lo contano.
+WHERE source_id <> target_id
 GROUP BY source_id, relation, target_id

@@ -17,6 +17,7 @@ import pytest
 
 from legal_graph.mcp import db, node_views, reports, search
 from legal_graph.paths import (
+    resolve_coverage_file,
     resolve_edges_file,
     resolve_emend_leg_file,
     resolve_massime_file,
@@ -31,6 +32,7 @@ from legal_graph.paths import (
 MART = {
     "nodes": resolve_nodes_file,
     "edges": resolve_edges_file,
+    "coverage": resolve_coverage_file,
     "metrics": resolve_metrics_file,
     "search_keys": resolve_search_keys_file,
     "node_rel": resolve_node_rel_file,

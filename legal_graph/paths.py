@@ -27,6 +27,7 @@ GCS_MART_TABLES = frozenset(
     {
         "mart_legal_nodes",
         "mart_legal_edges",
+        "mart_legal_coverage",
         "mart_legal_node_metrics",
         "mart_legal_search_keys",
         "mart_legal_node_rel",
@@ -96,6 +97,11 @@ def resolve_edges_file() -> PathLike | None:
 def resolve_metrics_file() -> PathLike | None:
     """Parquet delle metriche: solo mart compose (locale o GCS)."""
     return resolve("mart_legal_node_metrics")
+
+
+def resolve_coverage_file() -> PathLike | None:
+    """Bilancio di copertura delle relazioni (mart compose, locale o GCS)."""
+    return resolve("mart_legal_coverage")
 
 
 def resolve_search_keys_file() -> PathLike | None:

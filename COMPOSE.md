@@ -11,9 +11,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 |---|---|
 | Config | `dataset.yml` (ordine tabelle obbligatorio) |
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
-| SQL derivate | metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
+| SQL derivate | coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/` (6 tabelle grafo) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` (7 tabelle grafo: 6 grafo + coverage) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
@@ -26,20 +26,27 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
-3 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
-4 mart_legal_search_keys    ← FROM mart_legal_nodes
-5 mart_legal_node_rel       ← FROM mart_legal_edges
-6 mart_legal_emend_leg      ← FROM mart_legal_edges
-7 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
-8 mart_legal_massime         ← massime (testo troncato 600)
+3 mart_legal_coverage       ← FROM mart_legal_edges + support: righe upstream
+                              → coppie distinte → edge (funnel per relazione)
+4 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
+5 mart_legal_search_keys    ← FROM mart_legal_nodes
+6 mart_legal_node_rel       ← FROM mart_legal_edges
+7 mart_legal_emend_leg      ← FROM mart_legal_edges
+8 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
+9 mart_legal_massime         ← massime (testo troncato 600)
 ```
 
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.
 
+`mart_legal_coverage` è il bilancio del compose: per ogni relazione dichiara
+quante righe upstream entrano, quante diventano coppie distinte, quanti edge
+arrivano nel mart. Gli `edges` sono letti da `mart_legal_edges` (non
+ricalcolati), quindi il bilancio non può divergere dal grafo pubblicato.
+
 ## Come si usa
 
 ```bash
-make run              # compose da rete → 8 mart
+make run              # compose da rete → 9 mart
 make test             # integrità + golden + E2E di contratto
 make lint
 ```
@@ -73,7 +80,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 8 tabelle (nodes, edges, metrics, search_keys, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 9 tabelle (nodes, edges, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline commit mart |

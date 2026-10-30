@@ -1,8 +1,8 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**525.140 nodi, 1.157.079 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**525.252 nodi, 1.156.098 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
-> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API, **+35.911 archi `riferimento` dagli AKN (102.499 totali, +54%)**.
+> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API, **+35.911 archi `riferimento` dagli AKN (101.583 totali)**, −1.013 autoanelli, nuovo mart **`coverage`** (bilancio righe upstream → edge, per relazione).
 
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
@@ -17,9 +17,9 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | ~512.000 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | ~1.100.000 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
-| **Mart** | nodes · edges · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
+| **Nodi** | 525.252 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | 1.156.098 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
+| **Mart** | nodes · edges · **coverage** · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |
 
@@ -58,8 +58,8 @@ legal_search("responsabilita amministrativa")
 
 ```bash
 make run          # compose: mart da rete → out/data/mart/ (gitignored)
-make download-gcs # senza build: scarica le 6 tabelle grafo da GCS
-make test         # integrità + golden search (69 test)
+make download-gcs # senza build: scarica le 7 tabelle grafo da GCS
+make test         # integrità + golden search + bilancio copertura
 make lint
 ```
 
@@ -69,7 +69,7 @@ Output locale: `out/data/mart/legal_graph/2026/` (**non committato**).
 
 | Tabella | GCS |
 |---|---|
-| `nodes` · `edges` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` |
+| `nodes` · `edges` · `coverage` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` |
 | `texts` · `massime` | locale / MCP-only (primo rilascio) |
 
 MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
@@ -77,12 +77,14 @@ MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTT
 | Tabella | Ruolo |
 |---|---|
 | `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо |
+| `mart_legal_coverage` | bilancio righe upstream → coppie → edge, per relazione |
 | `mart_legal_node_metrics` | intelligence (referenced_by, impact, età) |
 | `mart_legal_search_keys` | ranking search (id_num, title_folded) |
 | `mart_legal_node_rel` | pre-aggregato relazioni per view MCP |
 | `mart_legal_emend_leg` | emendamenti per DDL/legislatura |
 
-Ordine obbligato nel compose: nodes → edges → derivate (stessa sessione DuckDB).  
+Ordine obbligato nel compose: nodes → edges → coverage → derivate (stessa sessione DuckDB).
+`coverage` legge `mart_legal_edges`, quindi non può divergere dal grafo pubblicato.  
 I mart **non** sono più committati in git: CI → GCS + registry. Le fonti upstream si leggono da rete.
 
 MCP senza search mart → errore con hint `make run` o `make download-gcs`.

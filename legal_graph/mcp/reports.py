@@ -97,6 +97,9 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
 @locked
 def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     con = _get_con()
+    # Un rebuild parziale (`make run`) può aver aggiunto tabelle dopo l'avvio
+    # del server: la connessione è cachata, quindi la view va riconnessa qui.
+    _refresh_views(con)
     limit = min(max(limit, 1), _MAX_ROWS)
     sql_clean = (sql or "").strip()
     first = sql_clean.upper().split(None, 1)[0] if sql_clean else ""

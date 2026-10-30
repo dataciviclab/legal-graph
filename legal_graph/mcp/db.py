@@ -10,6 +10,7 @@ from pathlib import Path
 import duckdb
 
 from legal_graph.paths import (
+    resolve_coverage_file,
     resolve_edges_file,
     resolve_emend_leg_file,
     resolve_massime_file,
@@ -102,6 +103,12 @@ def _get_con() -> duckdb.DuckDBPyConnection:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
+    # bilancio di copertura: interrogabile via legal_query (SELECT * FROM coverage)
+    coverage_file = resolve_coverage_file()
+    if source_exists(coverage_file):
+        con.execute(
+            f"CREATE OR REPLACE VIEW coverage AS SELECT * FROM read_parquet('{coverage_file}')"
+        )
     if source_exists(metrics_file):
         con.execute(
             f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
@@ -150,6 +157,7 @@ def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     """Riconnette le view mart dopo un rebuild parziale."""
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())
+    _ensure_view(con, "coverage", resolve_coverage_file())
     _ensure_view(con, "metrics", resolve_metrics_file())
     _ensure_view(con, "search_keys", resolve_search_keys_file())
     _ensure_view(con, "node_rel", resolve_node_rel_file())

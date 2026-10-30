@@ -1,6 +1,10 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-08 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
+Data: 2026-10-08 · aggiornata 2026-10-30 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
+
+> 2026-10-30 — il bilancio del compose è ora un mart (`mart_legal_coverage`), non
+> una tabella scritta a mano in questo documento. Numeri sotto aggiornati a
+> 525.252 nodi / 1.156.098 archi, 25 relazioni.
 
 ## Cosa è (in sintesi)
 
@@ -12,7 +16,42 @@ Data: 2026-10-08 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiv
 
 Non è un’enciclopedia del diritto italiano né un database giurisprudenza ordinaria.
 
-## Composizione nodi (~508k)
+## Bilancio di copertura del compose (2026-10-30)
+
+Il compose scarta le righe che non riesce a collegare. Prima questo era
+invisibile: il test di integrità vedeva **0 dangling**, perché gli edge non
+risolti non vengono proprio emessi. Ora il funnel è un mart:
+
+```sql
+SELECT relation, upstream_rows, natural_pairs, edges, edge_pct, note
+FROM read_parquet('out/data/mart/legal_graph/2026/mart_legal_coverage.parquet')
+WHERE upstream IS NOT NULL;
+```
+
+| Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
+|---|---:|---:|---:|---:|---|
+| `riferimento` | 200.080 | 126.593 | 101.583 | 80,2% | snapshot dello stesso atto (righe→coppie), mappatura URN, guardia temporale |
+| `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
+| `abroga` | 8.374 | 8.374 | 3.633 | 43,4% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
+
+Le altre 22 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
+elenca con `upstream` NULL invece di inventare un denominatore.
+
+Limiti dichiarati:
+
+- **`edge_pct` misura il compose, non la fonte.** I riferimenti che
+  italia-corpus non risolve non arrivano nemmeno in `riferimenti`: quel buco
+  sta a monte (IC #86, copertura citazioni AKN ~39%).
+- **`abroga` resta un buco di fonte**: 7.668 nodi `stato=abrogato` su 8.051 non
+  hanno un arco in ingresso. `akn_n_repeal_events` è 0 su tutti gli atti IC:
+  il lifecycle AKN non viene estratto, quindi non c'è nulla da comporre.
+- **Autoanelli rimossi** (916 `riferimento`, 97 `abroga`): un atto non è in
+  relazione con sé stesso. Prima il self-loop del D.Lgs 58/1998 (weight 436)
+  era l'edge più pesante del grafo e entrava in `impact_score`.
+  **Effetto**: `referenced_by`/`impact_score` cambiano per i **916 atti** che
+  avevano l'autoanello; i numeri pubblicati prima del 2026-10-30 li includono.
+
+## Composizione nodi (~525k)
 
 | Blocco | Quota | Stato |
 |---|---:|---|
