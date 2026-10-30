@@ -2,8 +2,9 @@
 --
 -- Una riga per nodo (id unico). Colonne allineate allo storico
 -- data/legal_nodes.parquet per non rompere MCP/dashboard.
--- Dedup: ROW_NUMBER per sorgente + esclusione id gia' presenti in
--- normativa (backbone).
+-- Dedup: `is_current` per normativa (identità dell'atto in italia-corpus:
+-- una sola espressione per URN) + ROW_NUMBER per le altre sorgenti +
+-- esclusione id gia' presenti in normativa (backbone).
 -- Qualità IC (stato/materia/qualita_score/sunsetting_score): colonne
 -- in coda; NULL per sorgenti non-normativa.
 -- EIV (akn_act_meta): entrata in vigore effettiva AKN, colonna in coda.
@@ -39,44 +40,45 @@ nodes_normativa AS (
         NULLIF(stato, '') AS stato,
         NULLIF(materia, '') AS materia,
         qualita_score,
-        sunsetting_score,
-        ROW_NUMBER() OVER (PARTITION BY urn ORDER BY filename) AS _rn
+        sunsetting_score
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
+      -- una sola espressione corrente per URN (italia-corpus #88): è già la
+      -- VIGENZA più recente quando esiste, altrimenti l'ORIGINALE
+      AND is_current
 ),
 
--- stato per URN: uno snapshot ORIGINALE non porta mai tombstone (testo
--- originale, non consolidato) e finisce per marcarsi "vigente" anche se
--- l'atto è abrogato. Lo snapshot VIGENZA è il testo consolidato e la sua
--- `stato` è quella affidabile. Preferiamo quindi la riga VIGENZA (a parità,
--- filename) mantenendo gli altri metadati dalla riga dedotta da
--- nodes_normativa. Issue #67 (D.Lgs 50/2016).
--- Le URN con più snapshot VIGENZA hanno stato concorde (verificato).
--- Nota: `LIKE '%\_VIGENZA\_%'` NON matcha in DuckDB (backslash non è escape
--- di default per LIKE) → usare contains() per la sottostringa esatta.
-stato_per_urn AS (
+-- vigenza_fonte dell'espressione corrente, per URN.
+--
+-- Il vecchio workaround `stato_per_urn` (FIRST + CASE su '_VIGENZA_') nasceva
+-- dal presupposto che `stato` si leggesse dal testo: uno snapshot ORIGINALE non
+-- porta tombstone e si sarebbe marcato "vigente" (issue #67).
+--
+-- Oggi non è più così: `stato` arriva da `status.parquet` via `integra_vigenza`,
+-- è **atto-level** (join su codice_redazionale + data GU) e viene scritto
+-- **identico su tutte le espressioni**. Per questo `stato`/`vigenza_fonte` non
+-- possono cambiare qualunque riga si scelga: **il delta 0 è strutturale, non
+-- fortuito**. `is_current` seleziona l'espressione corrente; qui si aggancia
+-- solo `vigenza_fonte` (che `all_nodes` non porta).
+--
+-- `GROUP BY urn`: robustezza se un URN avesse due righe `is_current` (bug di
+-- dati): la LEFT JOIN non deve duplicare il nodo (il test lo intercetta, ma
+-- meglio non dipenderne).
+normativa_fonte AS (
     SELECT
         urn,
-        FIRST(stato ORDER BY
-            CASE WHEN contains(filename, '_VIGENZA_') THEN 0 ELSE 1 END,
-            filename
-        ) AS stato_best,
-        FIRST(vigenza_fonte ORDER BY
-            CASE WHEN contains(filename, '_VIGENZA_') THEN 0 ELSE 1 END,
-            filename
-        ) AS fonte_best
+        MAX(NULLIF(vigenza_fonte, '')) AS vigenza_fonte
     FROM read_parquet('{support.normativa.path}')
     WHERE NULLIF(urn, '') IS NOT NULL
+      AND is_current
     GROUP BY urn
 ),
 normativa AS (
     SELECT
         n.id, n.tipo, n.data, n.numero, n.title, n.collezione, n.source_filename,
         n.source, n.anno, n.length_chars, n.length_words, n.celex, n.codice_redazionale,
-        s.stato_best AS stato, n.materia, n.qualita_score, n.sunsetting_score
+        n.stato, n.materia, n.qualita_score, n.sunsetting_score
     FROM nodes_normativa n
-    LEFT JOIN stato_per_urn s ON n.id = s.urn
-    WHERE n._rn = 1
 ),
 
 nodes_articoli AS (
@@ -899,11 +901,11 @@ SELECT
     sunsetting_score,
     CAST(a.eiv AS VARCHAR) AS eiv,
     COALESCE(
-        sp.fonte_best,
+        nf.vigenza_fonte,
         -- atti fuori collezione IC (fetch dettaglio-atto-urn): non passano dal
         -- clean → nessun `vigenza_fonte` upstream; valore dedicato.
         CASE WHEN n.collezione = 'Normattiva API' THEN 'atti_api' END
     ) AS vigenza_fonte
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn
-LEFT JOIN stato_per_urn sp ON n.id = sp.urn
+LEFT JOIN normativa_fonte nf ON n.id = nf.urn
