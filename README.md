@@ -1,8 +1,8 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**512.000 nodi, 1.100.000 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**525.140 nodi, 1.157.079 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
-> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API.
+> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API, **+35.911 archi `riferimento` dagli AKN (102.499 totali, +54%)**.
 
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
