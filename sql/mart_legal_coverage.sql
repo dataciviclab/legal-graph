@@ -1,0 +1,114 @@
+-- mart_legal_coverage.sql — bilancio di copertura del grafo
+--
+-- Domanda a cui risponde: quante righe upstream entrano in una relazione,
+-- quante diventano coppie distinte, quante arrivano nel mart come edge.
+--
+-- `edge_pct` = edge / coppie distinte (non / righe): le righe upstream
+-- contengono gli snapshot della stessa norma, quindi confrontarle con gli
+-- edge misura i duplicati, non la copertura. Il denominatore giusto per
+-- "quanto entra nel grafo" è la coppia distinta.
+--
+-- Perché esiste: il compose filtra le righe che non riesce a collegare
+-- (es. `WHERE r.risolto` in mart_legal_edges.sql) e i test vedono un grafo
+-- con 0 dangling. Il "buco" non è un errore: è un numero che prima non
+-- esisteva. Qui quel numero è esplicito e verificabile.
+--
+-- Regola: `edges` NON viene ricalcolato — si legge da mart_legal_edges
+-- (stessa sessione DuckDB, ordine obbligatorio in dataset.yml). Così il
+-- bilancio non può divergere dal grafo pubblicato: se una relazione perde
+-- edge, la perdita si vede qui.
+--
+-- Le espressioni di filtro delle righe upstream replicano volutamente quelle
+-- di sql/mart_legal_edges.sql (blocchi edges_riferimenti, edges_abro +
+-- edges_akn_abroga, edges_senato + edges_camera_leggi). Se cambi il filtro
+-- là, aggiorna anche qui: il resto del funnel è una misura, non una logica.
+--
+-- Le relazioni senza funnel dichiarato sono 1:1 (una riga upstream → un
+-- edge): per loro upstream_rows e natural_pairs restano NULL invece di
+-- inventare un denominatore.
+
+WITH rif AS (
+    SELECT
+        count(*) AS upstream_rows,
+        count(DISTINCT (regexp_extract(fonte_filename, '/([^/]+)$', 1), bersaglio_filename))
+            AS natural_pairs
+    FROM read_parquet('{support.riferimenti.path}')
+    WHERE risolto
+      AND NULLIF(regexp_extract(fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
+),
+
+abro_raw AS (
+    SELECT
+        count(*) AS upstream_rows,
+        count(DISTINCT (abrogating_file, abrogated_year, abrogated_number)) AS natural_pairs
+    FROM read_parquet('{support.abrogations_raw.path}')
+),
+
+abro_akn AS (
+    SELECT
+        count(*) AS upstream_rows,
+        count(DISTINCT (fonte_urn, target_urn)) AS natural_pairs
+    FROM read_parquet('{support.akn_relations.path}')
+    WHERE rel_type = 'repeal'
+),
+
+ddl_legge AS (
+    -- Una legge può comparire sia come DDL Senato sia come legge Camera:
+    -- upstream_rows conta le righe, natural_pairs gli URN distinti.
+    SELECT
+        count(*) AS upstream_rows,
+        count(DISTINCT urn) AS natural_pairs
+    FROM (
+        SELECT urn_normattiva AS urn
+        FROM read_parquet({support.senato_ddl.outputs}, union_by_name = true)
+        WHERE NULLIF(urn_normattiva, '') IS NOT NULL
+        UNION ALL
+        SELECT urn_normattiva AS urn
+        FROM read_parquet({support.camera_leggi.outputs}, union_by_name = true)
+        WHERE NULLIF(urn_normattiva, '') IS NOT NULL
+    )
+),
+
+funnel AS (
+    SELECT * FROM (VALUES
+        (
+            'riferimento',
+            'italia-corpus.riferimenti',
+            (SELECT upstream_rows FROM rif),
+            (SELECT natural_pairs FROM rif),
+            'Copertura del compose, non della fonte: i riferimenti che italia-corpus non risolve non arrivano nemmeno qui (IC #86). Coppie naturali su filename, prima della mappatura a URN e della guardia temporale.'
+        ),
+        (
+            'abroga',
+            'italia-corpus.abrogations_raw + akn_relations(repeal)',
+            (SELECT upstream_rows FROM abro_raw) + (SELECT upstream_rows FROM abro_akn),
+            (SELECT natural_pairs FROM abro_raw) + (SELECT natural_pairs FROM abro_akn),
+            'Target per anno+numero (regex) e per URN (AKN): si perde dove l''atto abrogante/abrogato non è nel corpus o il contesto è ambiguo. Nessun evento AKN estratto (akn_n_repeal_events = 0 upstream).'
+        ),
+        (
+            'diventa_legge',
+            'open-politica.senato_ddl + camera_leggi',
+            (SELECT upstream_rows FROM ddl_legge),
+            (SELECT natural_pairs FROM ddl_legge),
+            'Solo DDL/leggi con urn_normattiva: il resto non è collegabile perché l''atto non è nel corpus normativa.'
+        )
+    ) AS t(relation, upstream, upstream_rows, natural_pairs, note)
+),
+
+all_edges AS (
+    SELECT relation, count(*) AS edges
+    FROM mart_legal_edges
+    GROUP BY relation
+)
+
+SELECT
+    COALESCE(e.relation, f.relation) AS relation,
+    f.upstream,
+    f.upstream_rows,
+    f.natural_pairs,
+    COALESCE(e.edges, 0) AS edges,
+    ROUND(100.0 * COALESCE(e.edges, 0) / NULLIF(f.natural_pairs, 0), 1) AS edge_pct,
+    COALESCE(f.note, '1:1: una riga upstream produce un edge') AS note
+FROM all_edges e
+FULL OUTER JOIN funnel f ON f.relation = e.relation
+ORDER BY edges DESC, relation

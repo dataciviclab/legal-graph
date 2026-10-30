@@ -1,0 +1,126 @@
+"""Legal Graph — bilancio di copertura (mart_legal_coverage).
+
+Il compose scarta le righe che non riesce a collegare: senza questo mart il
+grafo sembra completo (0 dangling) mentre una parte delle citazioni upstream
+non entra. Questi test proteggono il contratto della tabella e il fatto che
+non diverga dal grafo pubblicato.
+
+Usage:
+  pytest tests/ -q
+"""
+
+from __future__ import annotations
+
+import duckdb
+import pytest
+
+from legal_graph.paths import (
+    resolve_coverage_file,
+    resolve_edges_file,
+    source_exists,
+)
+
+
+@pytest.fixture(scope="module")
+def con():
+    """DuckDB con coverage + edges materializzati (skip se mart assente)."""
+    coverage = resolve_coverage_file()
+    edges = resolve_edges_file()
+    if not source_exists(coverage) or not source_exists(edges):
+        pytest.skip("mart coverage/edges non presenti (esegui make run)")
+    c = duckdb.connect(":memory:")
+    c.execute(f"CREATE TABLE coverage AS SELECT * FROM read_parquet('{coverage}')")
+    c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges}')")
+    yield c
+    c.close()
+
+
+class TestCoverageContract:
+    def test_columns(self, con):
+        cols = {r[0] for r in con.execute("DESCRIBE coverage").fetchall()}
+        assert {
+            "relation",
+            "upstream",
+            "upstream_rows",
+            "natural_pairs",
+            "edges",
+            "edge_pct",
+            "note",
+        } <= cols
+
+    def test_one_row_per_relation(self, con):
+        dups = con.execute("""
+            SELECT relation, COUNT(*) FROM coverage GROUP BY 1 HAVING COUNT(*) > 1
+        """).fetchall()
+        assert not dups, f"relation duplicate in coverage: {dups}"
+
+    def test_no_relation_missing(self, con):
+        """Ogni relazione del grafo deve comparire nel bilancio."""
+        missing = con.execute("""
+            SELECT DISTINCT e.relation
+            FROM edges e
+            LEFT JOIN coverage c ON c.relation = e.relation
+            WHERE c.relation IS NULL
+        """).fetchall()
+        assert not missing, f"relazioni senza bilancio: {[m[0] for m in missing]}"
+
+    def test_edges_match_graph(self, con):
+        """Il bilancio non può divergere dal mart: edges = COUNT(*) per relazione."""
+        diff = con.execute("""
+            SELECT c.relation, c.edges, e.n
+            FROM coverage c
+            JOIN (SELECT relation, COUNT(*) AS n FROM edges GROUP BY 1) e
+              ON e.relation = c.relation
+            WHERE c.edges <> e.n
+        """).fetchall()
+        assert not diff, f"coverage divergente da edges: {diff[:5]}"
+
+    def test_edge_pct_range(self, con):
+        bad = con.execute("""
+            SELECT relation, edge_pct FROM coverage
+            WHERE edge_pct IS NOT NULL AND (edge_pct < 0 OR edge_pct > 100)
+        """).fetchall()
+        assert not bad, f"edge_pct fuori range: {bad}"
+
+
+class TestFunnel:
+    """Le tre relazioni con un funnel reale devono avere numeri propri."""
+
+    @pytest.mark.parametrize("relation", ["riferimento", "abroga", "diventa_legge"])
+    def test_funnel_declared(self, con, relation):
+        row = con.execute(
+            """SELECT upstream, upstream_rows, natural_pairs, edge_pct
+               FROM coverage WHERE relation = ?""",
+            [relation],
+        ).fetchone()
+        assert row is not None, f"{relation} assente dal bilancio"
+        upstream, upstream_rows, natural_pairs, edge_pct = row
+        assert upstream, f"{relation}: upstream non dichiarato"
+        assert upstream_rows and upstream_rows > 0, f"{relation}: upstream_rows vuoto"
+        assert natural_pairs and natural_pairs > 0, f"{relation}: natural_pairs vuoto"
+        assert natural_pairs <= upstream_rows, (
+            f"{relation}: coppie distinte ({natural_pairs}) > righe ({upstream_rows})"
+        )
+        assert edge_pct is not None, f"{relation}: edge_pct assente"
+
+    def test_citation_funnel_not_collapsing(self, con):
+        """Guardrail: le citazioni non devono perdere più della metà delle coppie.
+
+        Se il mapping URN o la guardia temporale peggiorano, questo test lo
+        segnala prima che il calo arrivi a un'analisi pubblica.
+        """
+        pct = con.execute(
+            "SELECT edge_pct FROM coverage WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        assert pct >= 50, f"copertura citazioni al {pct}% (atteso >=50%)"
+
+    def test_only_declared_funnels_have_denominator(self, con):
+        """Nessun denominatore inventato sulle relazioni 1:1."""
+        rels = {
+            r[0]
+            for r in con.execute(
+                "SELECT relation FROM coverage WHERE upstream_rows IS NOT NULL"
+            ).fetchall()
+        }
+        extra = rels - {"riferimento", "abroga", "diventa_legge"}
+        assert not extra, f"relazioni con denominatore non dichiarato: {extra}"

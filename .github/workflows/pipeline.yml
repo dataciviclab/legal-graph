@@ -1,6 +1,6 @@
 # Pipeline — legal-graph
 #
-# Compose mart-only: build da rete → test → sync GCS (6 tabelle grafo) → registry.
+# Compose mart-only: build da rete → test → sync GCS (7 tabelle grafo) → registry.
 # I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
 # texts/massime restano locali/MCP-only nel primo rilascio (no GCS).
 #
@@ -67,7 +67,7 @@ jobs:
         run: |
           SRC="out/data/mart/legal_graph/2026"
           DEST="gs://dataciviclab-mart/legal-graph/legal_graph/2026"
-          TABLES="mart_legal_nodes mart_legal_edges mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg"
+          TABLES="mart_legal_nodes mart_legal_edges mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg"
           for t in $TABLES; do
             f="$SRC/${t}.parquet"
             if [ ! -f "$f" ]; then

@@ -117,6 +117,7 @@ def test_chain_colonne_obbligatorie_normativa(grafo, colonna):
         "SELECT stato, COUNT(*) AS n FROM nodes GROUP BY stato",
         "SELECT id FROM nodes ORDER BY id LIMIT 3",
         "SELECT COUNT(*) AS n FROM edges",
+        "SELECT relation, edges FROM coverage ORDER BY edges DESC LIMIT 3",
         "SELECT COUNT(*) AS n FROM nodes n JOIN metrics m ON m.id = n.id",
         "SELECT COUNT(*) AS n FROM nodes WHERE id IN ('urn:nir:stato:legge:1978-05-22;194')",
         "DESCRIBE nodes",

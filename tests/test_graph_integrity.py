@@ -139,6 +139,21 @@ class TestEdges:
         """).fetchone()[0]
         assert bad == 0, f"{bad} edges have weight <= 0"
 
+    def test_no_self_loops(self, con):
+        """Un atto non è in relazione con sé stesso.
+
+        I rinvii interni tra articoli collassano sul nodo-atto: senza filtro
+        l'edge più pesante del grafo è un self-loop (D.Lgs 58/1998, weight 436)
+        e `impact_score`/`referenced_by` lo contano come citazione esterna.
+        """
+        loops = con.execute("""
+            SELECT relation, COUNT(*) AS n
+            FROM edges
+            WHERE source_id = target_id
+            GROUP BY relation
+        """).fetchall()
+        assert not loops, f"self-loop nel grafo: {loops}"
+
 
 # ── Temporal edge integrity ─────────────────────────────────────
 

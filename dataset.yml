@@ -246,6 +246,8 @@ mart:
       sql: "sql/mart_legal_nodes.sql"
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+    - name: "mart_legal_coverage"
+      sql: "sql/mart_legal_coverage.sql"
     - name: "mart_legal_node_metrics"
       sql: "sql/mart_legal_node_metrics.sql"
     - name: "mart_legal_search_keys"
@@ -273,6 +275,10 @@ mart:
       mart_legal_edges:
         required_columns: [source_id, relation, target_id, weight]
         min_rows: 10000
+      mart_legal_coverage:
+        required_columns: [relation, upstream_rows, natural_pairs, edges, edge_pct]
+        primary_key: [relation]
+        min_rows: 10
       mart_legal_node_metrics:
         required_columns: [id, referenced_by, impact_score]
         primary_key: [id]
