@@ -67,7 +67,7 @@ edges_riferimenti AS (
           r.fonte_anno IS NULL
           OR r.bersaglio_anno IS NULL
           OR r.fonte_anno >= r.bersaglio_anno - 1
-          OR r.peso < 5
+          OR (r.origine = 'regex' AND r.peso < 5)
       )
 ),
 
@@ -769,7 +769,9 @@ SELECT
     source_id,
     relation,
     target_id,
-    SUM(weight) AS weight,
+    -- MAX, non SUM: una coppia presente sia come regex sia come AKN non deve
+    -- sommare i pesi (double-count). Il peso regex è già per coppia.
+    MAX(weight) AS weight,
     MIN(source_year) AS source_year,
     MAX(target_year) AS target_year,
     -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
