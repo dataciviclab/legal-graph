@@ -34,6 +34,7 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 | Quali atti citano un articolo della Costituzione? | SQL su `cita_costituzione` |
 | Quali norme sono più critiche o obsolette? | `legal_insights` |
 | Testo integrale di un atto | `legal_text(URN)` |
+| Un articolo specifico (anche dentro un codice lungo) | `legal_text(URN, articolo=45)` |
 
 ## Come accedere
 
@@ -50,7 +51,7 @@ legal_search("responsabilita amministrativa")
 |---|---|
 | `legal_search` | Trova atti (parole, tipo, anno, fonte, stato, vigenza_fonte, materia, min_score, collezione) |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
-| `legal_text` | Testo integrale di un atto da URN |
+| `legal_text` | Testo di un atto da URN; `articolo=N` estrae il singolo articolo dagli heading AKN |
 | `legal_query` | SQL (SELECT) su nodi e archi |
 | `legal_insights` | Report: atti critici, obsoleti, complessi |
 
@@ -130,7 +131,8 @@ normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 
 - Coperto bene: catene legislative, `attua_delega`, modifiche AKN (`abroga`/`sostituisce`), Corte Cost. (+ relatore), firmatari Camera/Senato, D.Lgs "di sistema"
 - Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
-- `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts)
+- `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts); senza `articolo` restituisce la testa del documento (max 50k caratteri), non l'atto intero
+- id parziali: `legal_node`/`legal_text` risolvono un id parziale **solo se unico**, altrimenti rispondono `id ambiguo` con i candidati (mai un atto scelto a caso)
 - Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
 - `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata, vedi [COVERAGE.md](docs/COVERAGE.md)
 - Sempre: *dal mart legal-graph, non da Normattiva live*

@@ -12,13 +12,25 @@ from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists, db_lock, 
 
 _MAX_ROWS = 100
 
-def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
+def _impl_legal_text(
+    node_id: str, max_chars: int = 8000, articolo: int | str | None = None
+) -> dict[str, Any]:
     # solo le letture sul grafo stanno sotto lock: il fetch del testo è di rete
     with db_lock():
         _refresh_views(_get_con())
-        node = resolve_text_node(node_id)
-    if not node:
+        found = resolve_text_node(node_id)
+    if found.node is None:
+        if found.candidates:
+            return {
+                "error": (
+                    f"id ambiguo: {node_id!r} corrisponde a più nodi. "
+                    "Passa l'id completo."
+                ),
+                "ambiguous": True,
+                "candidates": found.candidates,
+            }
         return {"error": f"Nodo non trovato: {node_id}"}
+    node = found.node
 
     base = {
         "id": node["id"],
@@ -30,6 +42,9 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
         "collezione": node.get("collezione"),
         "source_filename": node.get("source_filename"),
     }
+    if found.match != "exact":
+        # id parziale/alias: dichiara che l'id risolto è un'inferenza
+        base["matched_by"] = found.match
 
     source = node.get("source") or ""
     nid = node.get("id") or node_id
@@ -43,12 +58,19 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
     ):
         result = fetch_mart_text(nid, max_chars=max_chars)
         if "error" not in result:
+            if articolo:
+                result["note"] = (
+                    "articolo non applicabile: nodo già a livello di articolo "
+                    "(Costituzione) o pronuncia."
+                )
             return {**base, **result}
         # nodi norma:* con filename IC → prova fetch normativa
         fn = node.get("source_filename") or ""
         coll = node.get("collezione") or ""
         if source != "normativa" and fn.endswith(".md") and coll:
-            ic = fetch_normativa_text(collezione=coll, filename=fn, max_chars=max_chars)
+            ic = fetch_normativa_text(
+                collezione=coll, filename=fn, max_chars=max_chars, articolo=articolo
+            )
             if "error" not in ic:
                 return {**base, **ic}
         if source != "normativa":
@@ -69,7 +91,10 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
         coll = node.get("collezione") or ""
         if fn.endswith(".md") and coll:
             result = fetch_normativa_text(
-                collezione=coll, filename=fn, max_chars=max_chars
+                collezione=coll,
+                filename=fn,
+                max_chars=max_chars,
+                articolo=articolo,
             )
             if "error" not in result:
                 return {**base, **result}
@@ -89,6 +114,7 @@ def _impl_legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
         collezione=node.get("collezione") or "",
         filename=node.get("source_filename") or "",
         max_chars=max_chars,
+        articolo=articolo,
     )
     return {**base, **result}
 

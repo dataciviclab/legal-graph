@@ -8,13 +8,17 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import duckdb
 from lab_connectors.http import HttpClient
 
 from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exists
+from legal_graph.resolve import resolve_row, sql_quote
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
 # Override opzionale: repo IC clonato in locale (sviluppo/offline)
@@ -61,45 +65,85 @@ def _write_cache(url: str, text: str) -> None:
     _cache_path(url).write_text(text, encoding="utf-8")
 
 
-def _pad_sentenza(node_id: str) -> str:
-    """sentenza:2009-151 → sentenza:2009-0151."""
-    import re as _re
-    m = _re.fullmatch(
-        r"sentenza:(\d{4})-(\d{1,4})", (node_id or "").strip(), _re.IGNORECASE
-    )
-    if m:
-        return f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
-    return (node_id or "").strip()
+@dataclass
+class NodeResolution:
+    """Esito di un lookup per id: nodo risolto oppure candidati se ambiguo."""
+
+    node: dict[str, Any] | None = None
+    candidates: list[str] = field(default_factory=list)
+    match: str = "none"
 
 
-def resolve_node(node_id: str) -> dict | None:
-    """Lookup nodo nei mart compose (o legacy). Accetta alias sentenza senza zero-pad."""
+_NODE_COLS = (
+    "id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source, "
+    "collezione, source_filename, length_chars"
+)
+_NODE_KEYS = (
+    "id", "tipo", "title", "data", "anno", "source",
+    "collezione", "source_filename", "length_chars",
+)
+
+# Front-matter YAML in testa ai markdown di italia-corpus: è metadata, non testo
+# della norma. Prima finiva nella risposta di legal_text.
+_FRONT_MATTER = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
+# Heading di articolo prodotto dall'AKN: "### Articolo 45. — Titolo".
+# `45-bis` non deve matchare 45.
+_ARTICLE_HEADING = re.compile(
+    r"^(#{2,6})[ \t]*(?:Articolo|Art\.)[ \t]+(\d+(?:-[a-z]+)?)\b[^\n]*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def resolve_node(node_id: str) -> NodeResolution:
+    """Lookup nodo nei mart compose. Parziale solo se unico; alias sentenza/ECLI."""
     nodes_file = resolve_nodes_file()
     if not source_exists(nodes_file):
-        return None
-    nid = _pad_sentenza(node_id)
+        return NodeResolution()
     con = duckdb.connect(":memory:")
     try:
-        row = con.execute(
-            """
-            SELECT id, tipo, title, CAST(data AS VARCHAR) AS data, anno,
-                   source, collezione, source_filename, length_chars
-            FROM read_parquet(?)
-            WHERE id = ? OR id LIKE ?
-            ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, length(id)
-            LIMIT 1
-            """,
-            [str(nodes_file), nid, f"%{nid}%", nid],
-        ).fetchone()
+        res = resolve_row(
+            con,
+            source=f"read_parquet('{sql_quote(str(nodes_file))}')",
+            cols=_NODE_COLS,
+            node_id=node_id,
+            ecli_alias=True,
+        )
     finally:
         con.close()
-    if not row:
-        return None
-    keys = (
-        "id", "tipo", "title", "data", "anno",
-        "source", "collezione", "source_filename", "length_chars",
-    )
-    return dict(zip(keys, row))
+    node = dict(zip(_NODE_KEYS, res.row)) if res.row is not None else None
+    return NodeResolution(node=node, candidates=res.candidates, match=res.match)
+
+
+def strip_front_matter(text: str) -> str:
+    """Toglie il blocco YAML in testa (metadata IC, non testo della norma)."""
+    return _FRONT_MATTER.sub("", text, count=1)
+
+
+def articles_overview(text: str) -> dict[str, Any]:
+    """Numeri di articolo disponibili: serve a dire *cosa* esiste, non solo 404."""
+    nums = [m.group(2) for m in _ARTICLE_HEADING.finditer(text)]
+    return {
+        "articles": len(nums),
+        "first_article": nums[0] if nums else None,
+        "last_article": nums[-1] if nums else None,
+    }
+
+
+def extract_article(text: str, articolo: int | str) -> dict[str, Any] | None:
+    """Estrae un articolo dal markdown AKN (heading → heading di pari livello)."""
+    want = str(articolo).strip().lower()
+    matches = list(_ARTICLE_HEADING.finditer(text))
+    for i, m in enumerate(matches):
+        if m.group(2).lower() != want:
+            continue
+        level = len(m.group(1))
+        end = len(text)
+        for nxt in matches[i + 1:]:
+            if len(nxt.group(1)) <= level:
+                end = nxt.start()
+                break
+        return {"heading": m.group(0).strip(), "text": text[m.start():end].strip()}
+    return None
 
 
 def _candidate_paths(collezione: str, filename: str) -> list[str]:
@@ -140,8 +184,15 @@ def fetch_normativa_text(
     collezione: str,
     filename: str,
     max_chars: int = _DEFAULT_MAX_CHARS,
+    articolo: int | str | None = None,
 ) -> dict:
-    """Scarica il markdown di un atto normativa (remote → cache → locale)."""
+    """Scarica il markdown di un atto normativa (remote → cache → locale).
+
+    Con `articolo`, estrae il singolo articolo dagli heading AKN
+    (`### Articolo N.`): senza, `max_chars` taglia i codici prima della
+    maggior parte degli articoli (l'art. 45 del D.Lgs 36/2023 parte a 160k
+    caratteri, il cap è 50k).
+    """
     if not filename:
         return {"error": "source_filename mancante sul nodo normativa"}
 
@@ -178,6 +229,19 @@ def fetch_normativa_text(
             "errors": errors[:5],
         }
 
+    text = strip_front_matter(text)
+    total_chars = len(text)
+    article_meta: dict = {}
+    if articolo:
+        found = extract_article(text, articolo)
+        if found is None:
+            return {
+                "error": f"Articolo {articolo} non trovato in {filename}",
+                **articles_overview(text),
+            }
+        text = found["text"]
+        article_meta = {"articolo": str(articolo), "heading": found["heading"]}
+
     truncated = len(text) > max_chars
     if truncated:
         text = text[:max_chars] + "\n\n… [troncato]"
@@ -187,8 +251,10 @@ def fetch_normativa_text(
         "url": url,
         "candidates": candidates,
         "chars": len(text),
+        "total_chars": total_chars,
         "truncated": truncated,
         "max_chars": max_chars,
+        **article_meta,
         "text": text,
     }
 
@@ -208,38 +274,40 @@ def fetch_mart_text(
             )
         }
     max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
-    # normalizza sentenza senza zero-pad
-    nid = node_id.strip()
-    m = __import__("re").fullmatch(r"sentenza:(\d{4})-(\d{1,4})", nid, __import__("re").IGNORECASE)
-    if m:
-        nid = f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
     con = duckdb.connect(":memory:")
     try:
-        row = con.execute(
-            """
-            SELECT id, kind, title, testo, dispositivo, ecli
-            FROM read_parquet(?)
-            WHERE id = ? OR id LIKE ?
-            ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, length(id)
-            LIMIT 1
-            """,
-            [str(texts_file), nid, f"%{nid}%", nid],
-        ).fetchone()
+        res = resolve_row(
+            con,
+            source=f"read_parquet('{sql_quote(str(texts_file))}')",
+            cols="id, kind, title, testo, dispositivo, ecli",
+            node_id=node_id,
+        )
     finally:
         con.close()
-    if not row:
+    if res.row is None:
+        if res.candidates:
+            return {
+                "error": (
+                    f"id ambiguo: {node_id!r} corrisponde a più testi. "
+                    "Passa l'id completo."
+                ),
+                "ambiguous": True,
+                "candidates": res.candidates,
+            }
         return {
             "error": (
                 f"Testo non in mart_legal_texts per {node_id!r}. "
                 "Coperto: articoli Cost. e pronunce Corte Cost."
             )
         }
+    row = res.row
     parts: list[str] = []
     if row[3]:
         parts.append(str(row[3]))
     if row[4]:
         parts.append("\n\n--- DISPOSITIVO ---\n" + str(row[4]))
     text = "\n".join(parts) or ""
+    total_chars = len(text)
     truncated = len(text) > max_chars
     if truncated:
         text = text[:max_chars] + "\n\n… [troncato]"
@@ -248,6 +316,7 @@ def fetch_mart_text(
         "url": str(texts_file),
         "kind": row[1],
         "chars": len(text),
+        "total_chars": total_chars,
         "truncated": truncated,
         "max_chars": max_chars,
         "ecli": row[5],

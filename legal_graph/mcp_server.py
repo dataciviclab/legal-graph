@@ -109,7 +109,9 @@ def legal_search(
         "(abroga, sostituisce, split, join, renumbering)\n"
         "  jurisprudence — impugnazioni, parametri, citazioni, relatore sentenza\n"
         "  parliament — emendamenti, interventi, firmatari, diventa_legge\n"
-        "Input: URN completo o id parziale (es. 'decreto.legislativo:2017-07-03;117')."
+        "Input: URN completo o id parziale. Un parziale si risolve solo se "
+        "indica un unico nodo; altrimenti la risposta è 'id ambiguo' con i "
+        "candidati (non viene scelto un atto a caso)."
     ),
     structured_output=True,
 )
@@ -124,13 +126,24 @@ def legal_node(
 @mcp.tool(
     name="legal_text",
     description=(
-        "Testo integrale di un atto normativa da nodo/URN (italia-corpus, GitHub raw). "
-        "Copre solo source=normativa. Altre source: errore strutturato."
+        "Testo di un atto normativa da nodo/URN (italia-corpus, GitHub raw). "
+        "Copre normativa + articoli Cost. + pronunce Corte. "
+        "`articolo=N` estrae il singolo articolo dagli heading AKN (per i codici "
+        "il troncamento a max_chars non arriva agli articoli alti). "
+        "Restituisce anche total_chars."
     ),
     structured_output=True,
 )
-def legal_text(node_id: str, max_chars: int = 8000) -> dict[str, Any]:
-    return guard_timed(_impl_legal_text, "legal_text", node_id, max_chars=max_chars)
+def legal_text(
+    node_id: str, max_chars: int = 8000, articolo: int = 0
+) -> dict[str, Any]:
+    return guard_timed(
+        _impl_legal_text,
+        "legal_text",
+        node_id,
+        max_chars=max_chars,
+        articolo=articolo or None,
+    )
 
 
 @mcp.tool(
