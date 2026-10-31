@@ -816,21 +816,22 @@ edges_itercost_rev AS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'revisione:' || i.rev_urn
       )
-)
+),
 
-SELECT
-    source_id,
-    relation,
-    target_id,
-    -- MAX, non SUM: una coppia presente sia come regex sia come AKN non deve
-    -- sommare i pesi (double-count). Il peso regex è già per coppia.
-    MAX(weight) AS weight,
-    MIN(source_year) AS source_year,
-    MAX(target_year) AS target_year,
-    -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
-    -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
-    MIN(evidence) AS evidence
-FROM (
+grouped AS (
+    SELECT
+        source_id,
+        relation,
+        target_id,
+        -- MAX, non SUM: una coppia presente sia come regex sia come AKN non deve
+        -- sommare i pesi (double-count). Il peso regex è già per coppia.
+        MAX(weight) AS weight,
+        MIN(source_year) AS source_year,
+        MAX(target_year) AS target_year,
+        -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
+        -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
+        MIN(evidence) AS evidence
+    FROM (
     SELECT * FROM edges_riferimenti
     UNION ALL
     SELECT * FROM edges_citazioni
@@ -884,12 +885,89 @@ FROM (
     SELECT * FROM edges_votazione
     UNION ALL
     SELECT * FROM edges_itercost_atto
-    UNION ALL
-    SELECT * FROM edges_itercost_rev
+        UNION ALL
+        SELECT * FROM edges_itercost_rev
+    )
+    -- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
+    -- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
+    -- tra atti. Senza questo filtro l'edge più pesante del grafo è un self-loop
+    -- (D.Lgs 58/1998 → sé stesso, weight 436) e le metriche di impatto lo contano.
+    WHERE source_id <> target_id
+    GROUP BY source_id, relation, target_id
+),
+
+-- Evidenza formulaica o non informativa: lo **stesso** snippet usato da più di
+-- 50 atti distinti per citare lo stesso target. Caso tipico: la clausola di
+-- pubblicazione in ogni preambolo ("…pubblicazioni ufficiali… D.P.R.
+-- 1092/1985"). Misurato 2026-11: 7 gruppi, 3.140 edge, un solo target.
+--
+-- Il match è **esatto**: normalizzare (lower, primi N char) porta a 14.178
+-- edge su 1.790 target e cattura citazioni AKN legittime di conversione.
+-- Il flag si calcola DOPO il GROUP BY, sulle righe pubblicate: chi legge il
+-- mart può ricontarlo e ottenere lo stesso numero.
+-- Clausola di lettura: la fonte (`riferimenti.clausola_lettura`) marca le
+-- citazioni del tipo "…si legge…" (es. art. 10 del T.U. sulla pubblicazione).
+-- È un segnale semantico della fonte, complementare alla frequenza dello
+-- snippet: 5.973 righe upstream, tutte verso il D.P.R. 1092/1985.
+--
+-- Stessa risoluzione filename→URN di `edges_riferimenti`; i due punti devono
+-- restare allineati, il test `test_reading_clause_solo_riferimento` lo verifica.
+reading_clause_edges AS (
+    SELECT DISTINCT
+        COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
+        COALESCE(lu2.urn, 'file:' || r.bersaglio_filename) AS target_id
+    FROM read_parquet('{support.riferimenti.path}') r
+    LEFT JOIN urn_lookup lu
+      ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
+    LEFT JOIN urn_lookup lu2
+      ON r.bersaglio_filename = lu2.filename
+    WHERE r.clausola_lettura
+      AND r.risolto
+      AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
+),
+
+formulaic_evidence AS (
+    SELECT evidence
+    FROM grouped
+    WHERE relation = 'riferimento'
+      AND evidence IS NOT NULL
+      AND evidence <> 'akn:ref'
+    GROUP BY 1
+    HAVING COUNT(DISTINCT source_id) > 50
 )
--- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
--- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
--- tra atti. Senza questo filtro l'edge più pesante del grafo è un self-loop
--- (D.Lgs 58/1998 → sé stesso, weight 436) e le metriche di impatto lo contano.
-WHERE source_id <> target_id
-GROUP BY source_id, relation, target_id
+
+SELECT
+    g.source_id,
+    g.relation,
+    g.target_id,
+    g.weight,
+    g.source_year,
+    g.target_year,
+    g.evidence,
+    (
+        g.relation = 'riferimento'
+        AND g.evidence IN (SELECT evidence FROM formulaic_evidence)
+    ) AS is_formulaic,
+    (
+        g.relation = 'riferimento'
+        AND EXISTS (
+            SELECT 1 FROM reading_clause_edges rc
+            WHERE rc.source_id = g.source_id AND rc.target_id = g.target_id
+        )
+    ) AS is_reading_clause,
+    -- Tipo di evidenza (solo per `riferimento`; NULL altrove):
+    --   missing → segnaposto `akn:ref`: sappiamo che A cita B, non dove
+    --             (italia-corpus#109 deve far sparire questo stato)
+    --   locator → frammento di URL/URN, nessun testo
+    --   quote   → testo attorno alla citazione
+    CASE
+        WHEN g.relation <> 'riferimento' THEN NULL
+        WHEN g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref'
+            THEN 'missing'
+        WHEN g.evidence LIKE '%urn:nir:%'
+          OR g.evidence LIKE '%i-res/N2Ls%'
+          OR g.evidence LIKE '%:costituzione:%'
+            THEN 'locator'
+        ELSE 'quote'
+    END AS evidence_kind
+FROM grouped g

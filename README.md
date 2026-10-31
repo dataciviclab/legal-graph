@@ -134,7 +134,9 @@ normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 - `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts); senza `articolo` restituisce la testa del documento (max 50k caratteri), non l'atto intero
 - id parziali: `legal_node`/`legal_text` risolvono un id parziale **solo se unico**, altrimenti rispondono `id ambiguo` con i candidati (mai un atto scelto a caso)
 - Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
-- `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata, vedi [COVERAGE.md](docs/COVERAGE.md)
+- `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata
+- citazioni formulaiche o non informative (`is_formulaic` 3.140 + `is_reading_clause` 4.221): escluse da `impact_score` (lordi in `formulaic_by`/`formulaic_out`), vedi [COVERAGE.md](docs/COVERAGE.md)
+- `evidence_kind` sui `riferimento`: `missing` 56,1% (segnaposto `akn:ref`), `locator` 5,1%, `quote` 38,8% — vedi italia-corpus#109
 - Sempre: *dal mart legal-graph, non da Normattiva live*
 
 ## Partecipa

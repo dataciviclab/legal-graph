@@ -217,6 +217,111 @@ class TestIdentitaSenato:
         assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
 
 
+class TestEvidenzaFormulaica:
+    """`is_formulaic`: stesso snippet usato da >50 atti distinti.
+
+    Caso reale: la clausola di pubblicazione che ogni preambolo dedica al
+    D.P.R. 1092/1985 (2.727 edge). Il flag è calcolato sulle righe pubblicate,
+    quindi ricalcolabile dal mart: compose e consumatori non possono divergere.
+    """
+
+    def test_flag_riproducibile(self, con):
+        mismatch = con.execute("""
+            WITH bp AS (
+                SELECT evidence FROM edges
+                WHERE relation = 'riferimento'
+                  AND evidence IS NOT NULL AND evidence <> 'akn:ref'
+                GROUP BY 1 HAVING COUNT(DISTINCT source_id) > 50
+            )
+            SELECT COUNT(*) FROM edges e
+            WHERE e.is_formulaic IS DISTINCT FROM (
+                e.relation = 'riferimento' AND e.evidence IN (SELECT evidence FROM bp)
+            )
+        """).fetchone()[0]
+        assert mismatch == 0, f"{mismatch} edge con flag non ricalcolabile dal mart"
+
+    def test_solo_riferimento(self, con):
+        altre = con.execute("""
+            SELECT DISTINCT relation FROM edges
+            WHERE is_formulaic AND relation <> 'riferimento'
+        """).fetchall()
+        assert not altre, f"flag su relazioni non previste: {altre}"
+
+    def test_reading_clause_solo_riferimento(self, con):
+        """`clausola_lettura` è un segnale della fonte sulle citazioni: vale solo
+        per `riferimento`. Senza il guard sulla relazione, un `abroga` tra la
+        stessa coppia veniva marcato (2 casi nel primo build)."""
+        altre = con.execute("""
+            SELECT DISTINCT relation FROM edges
+            WHERE is_reading_clause AND relation <> 'riferimento'
+        """).fetchall()
+        assert not altre, f"is_reading_clause su relazioni non previste: {altre}"
+
+    def test_reading_clause_dal_upstream(self, con):
+        """Le clausole di lettura vengono dal flag `clausola_lettura` della fonte."""
+        n = con.execute("SELECT COUNT(*) FROM edges WHERE is_reading_clause").fetchone()[0]
+        assert n > 3_000, f"solo {n} edge con clausola di lettura"
+
+    def test_evidence_kind_partizione(self, con):
+        """`evidence_kind` partiziona i `riferimento`; NULL sulle altre relazioni."""
+        non_rif = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation <> 'riferimento' AND evidence_kind IS NOT NULL
+        """).fetchone()[0]
+        assert non_rif == 0, f"{non_rif} edge non-riferimento con evidence_kind"
+
+        kinds = dict(con.execute("""
+            SELECT evidence_kind, COUNT(*) FROM edges
+            WHERE relation = 'riferimento' GROUP BY 1
+        """).fetchall())
+        totale = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        assert sum(kinds.values()) == totale, (kinds, totale)
+        assert set(kinds) == {"missing", "locator", "quote"}, kinds
+
+        mismatch = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE COALESCE(evidence_kind = 'missing', FALSE)
+              IS DISTINCT FROM (relation = 'riferimento' AND evidence = 'akn:ref')
+        """).fetchone()[0]
+        assert mismatch == 0, f"{mismatch} edge con evidence_kind 'missing' incoerente"
+
+    def test_metrics_lordo_uscente(self, con):
+        """Il filtro vale anche in uscita, ma il lordo (`references + formulaic_out`) resta."""
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
+        row = con.execute("""
+            SELECT id, "references", formulaic_out FROM metrics
+            WHERE formulaic_out > 0 ORDER BY formulaic_out DESC LIMIT 1
+        """).fetchone()
+        assert row, "nessun nodo con uscenti formulaici"
+        nid, refs, fout = row
+        lordo = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE source_id = ? AND relation IN (
+                'riferimento', 'cita_costituzione', 'impugna', 'invoca_parametro',
+                'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
+                'evoca_parametro', 'abroga', 'attua_delega'
+            )
+        """, [nid]).fetchone()[0]
+        assert refs + fout == lordo, (refs, fout, lordo)
+
+    def test_metrics_esclude_e_dichiara(self, con):
+        """`referenced_by` è al netto; `formulaic_by` rende il lordo ispezionabile."""
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
+        ref, formulaic, level = con.execute("""
+            SELECT referenced_by, formulaic_by, impact_level
+            FROM metrics
+            WHERE id = 'urn:nir:stato:decreto.del.presidente.della.repubblica:1985-12-28;1092'
+        """).fetchone()
+        assert formulaic > 2_000, f"formulaic_by={formulaic}"
+        assert ref + formulaic > 4_000, "il lordo deve restare visibile"
+        assert ref < formulaic, "il D.P.R. 1092 vive di citazioni formulaiche"
+        assert level == "critical", "resta critical, ma con un conteggio onesto"
+
+
 class TestIdentitaNorme:
     """Fallback `norma:*` e duplicati `dl:` vs URN.
 

@@ -3,6 +3,13 @@
 -- Legge le tabelle DuckDB create prima nel run MART
 -- (mart_legal_nodes, mart_legal_edges) — ordine in dataset.yml obbligatorio.
 -- Stesse colonne del vecchio graph_metrics.parquet (script rimosso).
+--
+-- Evidenza non informativa: `is_formulaic` (snippet ripetuto su >50 atti) e
+-- `is_reading_clause` (clausola "si legge" marcata dalla fonte). Gli edge
+-- flaggati **non** contano in `referenced_by`, `impact_score`, `references`,
+-- `complexity_score`, `distinct_targets`; i lordi sono `formulaic_by` (in) e
+-- `formulaic_out` (out), quindi il declassamento resta ispezionabile su
+-- entrambi i lati (`referenced_by + formulaic_by` = citazioni in ingresso).
 
 WITH incoming AS (
     SELECT
@@ -19,7 +26,28 @@ WITH incoming AS (
         'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
         'evoca_parametro', 'abroga', 'attua_delega'
     )
+      AND NOT is_formulaic
+      AND NOT is_reading_clause
     GROUP BY target_id
+),
+
+formulaic AS (
+    -- evidenza esclusa dall'impatto in ingresso: snippet ripetuto (>50 atti)
+    -- **o** clausola di lettura marcata dalla fonte
+    SELECT target_id, COUNT(*) AS formulaic_by
+    FROM mart_legal_edges
+    WHERE is_formulaic OR is_reading_clause
+    GROUP BY target_id
+),
+
+formulaic_out AS (
+    -- stesso filtro applicato al lato uscente: un atto non è più "complesso"
+    -- perché ripete la clausola di pubblicazione nel preambolo. Il lordo resta
+    -- ispezionabile (`references + formulaic_out`).
+    SELECT source_id, COUNT(*) AS formulaic_out
+    FROM mart_legal_edges
+    WHERE is_formulaic OR is_reading_clause
+    GROUP BY source_id
 ),
 
 outgoing AS (
@@ -36,6 +64,8 @@ outgoing AS (
         'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
         'evoca_parametro', 'abroga', 'attua_delega'
     )
+      AND NOT is_formulaic
+      AND NOT is_reading_clause
     GROUP BY source_id
 )
 
@@ -79,7 +109,11 @@ SELECT
         WHEN i.last_referenced_year IS NOT NULL AND i.last_referenced_year < 2010 THEN 'dormant'
         WHEN i.last_referenced_year IS NOT NULL AND i.last_referenced_year < 2015 THEN 'declining'
         ELSE NULL
-    END AS activity_level
+    END AS activity_level,
+    COALESCE(f.formulaic_by, 0) AS formulaic_by,
+    COALESCE(fo.formulaic_out, 0) AS formulaic_out
 FROM mart_legal_nodes n
 LEFT JOIN incoming i ON n.id = i.target_id
 LEFT JOIN outgoing o ON n.id = o.source_id
+LEFT JOIN formulaic f ON n.id = f.target_id
+LEFT JOIN formulaic_out fo ON n.id = fo.source_id
