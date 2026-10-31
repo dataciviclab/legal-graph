@@ -8,6 +8,7 @@ import duckdb
 
 from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
 from legal_graph.mcp.textfold import _fold
+from legal_graph.resolve import Resolved, resolve_row
 
 _NODE_VIEWS = ("overview", "chain", "jurisprudence", "parliament")
 _CHAIN_RELS = (
@@ -27,8 +28,12 @@ _CHAIN_RELS = (
 )
 _TITLE_NODE = 500
 
-def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
-    """Preferisci match esatto; LIKE solo se l'id esatto non esiste."""
+def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> Resolved:
+    """Risolvi l'id su `nodes`: exact → alias → parziale solo se unico.
+
+    Il match parziale ambiguo non sceglie: restituisce i candidati, così
+    `legal_node` risponde "id ambiguo" invece di consegnare un altro atto.
+    """
     cols = (
         "id, tipo, title, CAST(data AS VARCHAR) AS data, anno, source, "
         "length_chars, length_words, celex, collezione, source_filename, "
@@ -45,51 +50,9 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> tuple | None:
     cols += (
         ", eiv" if _has_col(con, "nodes", "eiv") else ", NULL::VARCHAR AS eiv"
     )
-    exact = con.execute(
-        f"""
-        SELECT {cols}
-        FROM nodes WHERE id = ? LIMIT 1
-        """,
-        [node_id],
-    ).fetchone()
-    if exact:
-        return exact
-    # varianti sentenza: YYYY-NNN senza zero-pad
-    m = re.fullmatch(r"sentenza:(\d{4})-(\d{1,4})", node_id.strip(), re.IGNORECASE)
-    if m:
-        padded = f"sentenza:{m.group(1)}-{int(m.group(2)):04d}"
-        hit = con.execute(
-            f"""
-            SELECT {cols}
-            FROM nodes WHERE id = ? LIMIT 1
-            """,
-            [padded],
-        ).fetchone()
-        if hit:
-            return hit
-    # ECLI parziale nel titolo
-    if re.search(r"ecli|:\d{4}:\d+", node_id, re.IGNORECASE):
-        hit = con.execute(
-            f"""
-            SELECT {cols}
-            FROM nodes
-            WHERE source='costituzione' AND LOWER(title) LIKE ?
-            ORDER BY id LIMIT 1
-            """,
-            [f"%{_fold(node_id)}%"],
-        ).fetchone()
-        if hit:
-            return hit
-    return con.execute(
-        f"""
-        SELECT {cols}
-        FROM nodes
-        WHERE id LIKE ?
-        ORDER BY length(id)
-        LIMIT 1
-        """,
-        [f"%{node_id}%"],
-    ).fetchone()
+    return resolve_row(
+        con, source="nodes", cols=cols, node_id=node_id, ecli_alias=True
+    )
 
 
 def _node_payload(row: tuple) -> dict[str, Any]:
@@ -277,16 +240,17 @@ def _attua_delega_hint(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[
         "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 1",
         [hint["legge_id"]],
     ).fetchone()
-    # fallback LIKE per URN non normalizzate
+    # fallback LIKE per URN non normalizzate: solo se il match è unico
     if legge is None:
-        legge = con.execute(
+        rows = con.execute(
             """
             SELECT tipo, title, anno FROM nodes
             WHERE source='normativa' AND id LIKE ?
-            ORDER BY length(id) LIMIT 1
+            ORDER BY length(id), id LIMIT 2
             """,
             [f"%legge:{hint['legge_anno']}%;{hint['legge_n']}"],
-        ).fetchone()
+        ).fetchall()
+        legge = rows[0] if len(rows) == 1 else None
     if legge is None:
         return {
             "heuristic": True,
@@ -783,21 +747,39 @@ def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str
         return {
             "error": f"view non valida: {view!r}. Ammesse: {', '.join(_NODE_VIEWS)}"
         }
-    node_row = _find_node(con, node_id)
-    if node_row is None:
+    found = _find_node(con, node_id)
+    if found.row is None:
+        if found.candidates:
+            return {
+                "error": (
+                    f"id ambiguo: {node_id!r} corrisponde a più nodi. "
+                    "Passa l'id completo."
+                ),
+                "ambiguous": True,
+                "matched_by": "ambiguous",
+                "node_id": node_id,
+                "candidates": found.candidates,
+            }
         return {"error": f"Nodo non trovato: {node_id!r}"}
+    node_row = found.row
     actual_id = node_row[0]
     try:
         if view == "overview":
-            return _view_overview(con, node_row)
-        if view == "chain":
-            return _view_chain(con, node_row, depth)
-        if view == "jurisprudence":
-            return _view_jurisprudence(con, node_row)
-        return _view_parliament(con, node_row)
+            out = _view_overview(con, node_row)
+        elif view == "chain":
+            out = _view_chain(con, node_row, depth)
+        elif view == "jurisprudence":
+            out = _view_jurisprudence(con, node_row)
+        else:
+            out = _view_parliament(con, node_row)
     except Exception as e:  # noqa: BLE001 — non far crashare l'MCP su nodi pesanti
         return {
             "error": f"view={view} fallita per {actual_id!r}: {type(e).__name__}: {e}",
             "node_id": actual_id,
         }
+    # Un id parziale è un'inferenza: dichiarala, così chi legge sa che non è
+    # stato passato l'id esatto.
+    if found.match != "exact":
+        out["matched_by"] = found.match
+    return out
 
