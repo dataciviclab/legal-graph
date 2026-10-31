@@ -197,6 +197,24 @@ class TestParametriCostituzionali:
         assert n == 0, f"{n} edge invoca_parametro senza evidence"
 
 
+class TestIdentitaSenato:
+    """Documento AKN e atto canonico non devono duplicare lo stesso oggetto."""
+
+    def test_no_stub_corpus_duplicato(self, con):
+        """Un nodo `senato:X` da corpus non convive con il suo `senato:atto:X`."""
+        n = con.execute("""
+            SELECT COUNT(*) FROM nodes a
+            WHERE a.id LIKE 'senato:%'
+              AND a.id NOT LIKE 'senato:%:%'
+              AND a.source = 'senato_corpus'
+              AND EXISTS (
+                  SELECT 1 FROM nodes b
+                  WHERE b.id = 'senato:atto:' || substr(a.id, 8)
+              )
+        """).fetchone()[0]
+        assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
+
+
 # ── Metrics integrity ───────────────────────────────────────────
 
 class TestMetrics:
