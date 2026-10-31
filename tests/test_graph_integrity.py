@@ -217,6 +217,41 @@ class TestIdentitaSenato:
         assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
 
 
+class TestEmendamenti:
+    """Emendamenti → atto: il target è il nodo del grafo, non solo `senato_ddl`.
+
+    Leg 19: 486 atti negli emendamenti, 15 in `senato_ddl` (l'export
+    open-politica si ferma a id 55687), 486 nel corpus AKN. Il join stretto
+    lasciava 103.829 emendamenti su 248.127 senza arco (42%).
+    """
+
+    def test_nodi_senza_archi(self, con):
+        """Nodi emendamento isolati: solo un segnale, non la quota di copertura.
+
+        La copertura vera è in `coverage.edge_pct` (denominatore = emendamenti
+        distinti): `senato:emend:{leg}:{emend_id}` aggrega più atti, quindi
+        contare i nodi sottostima gli emendamenti orfani di ~5×.
+        """
+        tot, orfani = con.execute("""
+            SELECT COUNT(*) AS tot,
+                   SUM(CASE WHEN NOT EXISTS (
+                       SELECT 1 FROM edges e WHERE e.source_id = n.id
+                   ) THEN 1 ELSE 0 END) AS orfani
+            FROM nodes n WHERE n.source = 'senato_emend'
+        """).fetchone()
+        assert tot > 200_000, f"attesi >200k nodi emendamento, trovati {tot}"
+        assert orfani / tot < 0.15, f"{orfani}/{tot} nodi emendamento isolati"
+
+    def test_collegati_ad_atti_del_corpus(self, con):
+        """Atti presenti solo nel corpus AKN (fuori export open-politica)."""
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            JOIN nodes n ON n.id = e.target_id
+            WHERE e.relation = 'emendamento' AND n.source = 'senato_corpus'
+        """).fetchone()[0]
+        assert n > 100_000, f"solo {n} emendamenti collegati a nodi del corpus"
+
+
 # ── Metrics integrity ───────────────────────────────────────────
 
 class TestMetrics:

@@ -69,6 +69,23 @@ ddl_legge AS (
     )
 ),
 
+-- Emendamenti: il denominatore sono gli emendamenti distinti
+-- (legislatura, atto, emend_id) — NON i nodi `senato:emend:{leg}:{emend_id}`.
+-- `emend_id` è il numero dentro l'atto ("1.1" esiste in centinaia di atti),
+-- quindi il nodo aggrega più emendamenti: contare i nodi sottostima gli orfani
+-- di ~5× (22.377 nodi vs 124.083 emendamenti).
+emend AS (
+    SELECT
+        count(*) AS upstream_rows,
+        count(DISTINCT (
+            CAST(regexp_extract(legislatura, '(\d+)', 1) AS INTEGER),
+            atto_num,
+            emend_id
+        )) AS natural_pairs
+    FROM read_parquet('{support.senato_emendamenti.path}')
+    WHERE emend_id IS NOT NULL AND atto_num IS NOT NULL
+),
+
 -- Parametri delle massime: `parametro_codice` dice di quale atto è l'articolo
 -- (25 = Costituzione). Il grafo tiene solo i parametri costituzionali: gli
 -- altri non hanno un nodo articolo nel corpus. `upstream_rows` conta tutte le
@@ -112,6 +129,13 @@ funnel AS (
             (SELECT upstream_rows FROM ddl_legge),
             (SELECT natural_pairs FROM ddl_legge),
             'Solo DDL/leggi con urn_normattiva: il resto non è collegabile perché l''atto non è nel corpus normativa.'
+        ),
+        (
+            'emendamento',
+            'senato-akn.senato_emendamenti',
+            (SELECT upstream_rows FROM emend),
+            (SELECT natural_pairs FROM emend),
+            'Target = nodo atto `senato:<atto_num>`: si perde dove l''atto non è nel grafo (leg 14/15/16, corpus AKN assente). Il denominatore sono gli emendamenti distinti, non i nodi: `emend_id` è il numero dentro l''atto.'
         ),
         (
             'invoca_parametro',
