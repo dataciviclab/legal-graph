@@ -79,12 +79,20 @@ Il match è **esatto**: normalizzare lo snippet (lower, primi N caratteri)
 porterebbe a 14.178 edge su 1.790 target e catturerebbe citazioni AKN legittime
 di conversione.
 
-`mart_legal_node_metrics` esclude i flaggati da `referenced_by`/`impact_score`
-ed espone `formulaic_by`: il lordo è `referenced_by + formulaic_by`. Effetto: il
-D.P.R. 1092 passa da 4.831 a **2.104** riferimenti e la classifica "critical"
-torna dominata dalla Costituzione (art. 3, 24, 117, 76, 97).
+Secondo segnale, **semantico e della fonte**: `edges.is_reading_clause` viene da
+`riferimenti.clausola_lettura` (le citazioni del tipo "…si legge…"). Sono **4.221
+edge**, quasi tutti verso il D.P.R. 1092; 2.710 hanno anche `is_formulaic`, 1.511
+solo la clausola. La soglia su stringhe non li avrebbe visti, perché il testo
+varia ("art. 10, comma 2", "comma 3", …).
 
-`mart_legal_coverage` dichiara `formulaic_edges`/`formulaic_pct` per relazione:
+`mart_legal_node_metrics` esclude da `referenced_by`/`impact_score` sia i
+formulaici sia le clausole di lettura, ed espone `formulaic_by` (la somma dei
+due segnali): il lordo è `referenced_by + formulaic_by`. Effetto: il D.P.R.
+1092 passa da 4.831 a **597** riferimenti e la classifica "critical" torna
+dominata dalla Costituzione (art. 3, 24, 117, 76, 97).
+
+`mart_legal_coverage` dichiara `formulaic_edges`/`formulaic_pct` e
+`reading_clause_edges` per relazione:
 il funnel conta il **lordo**, così non sembra migliorato solo perché etichettato.
 
 **Limite noto**: 57.002 dei 101.583 edge `riferimento` (**56%**) hanno

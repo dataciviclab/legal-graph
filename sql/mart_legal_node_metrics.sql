@@ -4,8 +4,8 @@
 -- (mart_legal_nodes, mart_legal_edges) — ordine in dataset.yml obbligatorio.
 -- Stesse colonne del vecchio graph_metrics.parquet (script rimosso).
 --
--- `is_formulaic` (evidenza ripetuta su >50 atti, es. clausola di pubblicazione
--- al D.P.R. 1092/1985): gli edge flaggati **non** contano in `referenced_by`
+-- Evidenza non informativa: `is_formulaic` (snippet ripetuto su >50 atti) e
+-- `is_reading_clause` (clausola "si legge" marcata dalla fonte; gli edge flaggati **non** contano in `referenced_by`
 -- né in `impact_score`, ma sono esposti in `formulaic_by`. Il lordo è
 -- `referenced_by + formulaic_by`, quindi il declassamento è ispezionabile.
 
@@ -25,13 +25,16 @@ WITH incoming AS (
         'evoca_parametro', 'abroga', 'attua_delega'
     )
       AND NOT is_formulaic
+      AND NOT is_reading_clause
     GROUP BY target_id
 ),
 
 formulaic AS (
+    -- evidenza esclusa dall'impatto: snippet ripetuto (>50 atti) **o**
+    -- clausola di lettura marcata dalla fonte
     SELECT target_id, COUNT(*) AS formulaic_by
     FROM mart_legal_edges
-    WHERE is_formulaic
+    WHERE is_formulaic OR is_reading_clause
     GROUP BY target_id
 ),
 
@@ -50,6 +53,7 @@ outgoing AS (
         'evoca_parametro', 'abroga', 'attua_delega'
     )
       AND NOT is_formulaic
+      AND NOT is_reading_clause
     GROUP BY source_id
 )
 

@@ -905,6 +905,27 @@ grouped AS (
 -- edge su 1.790 target e cattura citazioni AKN legittime di conversione.
 -- Il flag si calcola DOPO il GROUP BY, sulle righe pubblicate: chi legge il
 -- mart può ricontarlo e ottenere lo stesso numero.
+-- Clausola di lettura: la fonte (`riferimenti.clausola_lettura`) marca le
+-- citazioni del tipo "…si legge…" (es. art. 10 del T.U. sulla pubblicazione).
+-- È un segnale semantico della fonte, complementare alla frequenza dello
+-- snippet: 5.973 righe upstream, tutte verso il D.P.R. 1092/1985.
+--
+-- Stessa risoluzione filename→URN di `edges_riferimenti`; i due punti devono
+-- restare allineati, il test `test_reading_clause_solo_riferimento` lo verifica.
+reading_clause_edges AS (
+    SELECT DISTINCT
+        COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
+        COALESCE(lu2.urn, 'file:' || r.bersaglio_filename) AS target_id
+    FROM read_parquet('{support.riferimenti.path}') r
+    LEFT JOIN urn_lookup lu
+      ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
+    LEFT JOIN urn_lookup lu2
+      ON r.bersaglio_filename = lu2.filename
+    WHERE r.clausola_lettura
+      AND r.risolto
+      AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
+),
+
 formulaic_evidence AS (
     SELECT evidence
     FROM grouped
@@ -926,5 +947,12 @@ SELECT
     (
         g.relation = 'riferimento'
         AND g.evidence IN (SELECT evidence FROM formulaic_evidence)
-    ) AS is_formulaic
+    ) AS is_formulaic,
+    (
+        g.relation = 'riferimento'
+        AND EXISTS (
+            SELECT 1 FROM reading_clause_edges rc
+            WHERE rc.source_id = g.source_id AND rc.target_id = g.target_id
+        )
+    ) AS is_reading_clause
 FROM grouped g

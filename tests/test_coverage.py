@@ -48,6 +48,7 @@ class TestCoverageContract:
             "note",
             "formulaic_edges",
             "formulaic_pct",
+            "reading_clause_edges",
         } <= cols
 
     def test_one_row_per_relation(self, con):
@@ -137,6 +138,14 @@ class TestFunnel:
         ).fetchone()[0]
         assert formulaic == ricalcolati, (formulaic, ricalcolati)
         assert 0 < formulaic < edges, (formulaic, edges)
+
+        reading = con.execute(
+            "SELECT reading_clause_edges FROM coverage WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        ricalcolate = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE is_reading_clause"
+        ).fetchone()[0]
+        assert reading == ricalcolate, (reading, ricalcolate)
 
     def test_citation_funnel_not_collapsing(self, con):
         """Guardrail: le citazioni non devono perdere più della metà delle coppie.

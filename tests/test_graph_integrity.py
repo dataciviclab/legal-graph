@@ -247,6 +247,21 @@ class TestEvidenzaFormulaica:
         """).fetchall()
         assert not altre, f"flag su relazioni non previste: {altre}"
 
+    def test_reading_clause_solo_riferimento(self, con):
+        """`clausola_lettura` è un segnale della fonte sulle citazioni: vale solo
+        per `riferimento`. Senza il guard sulla relazione, un `abroga` tra la
+        stessa coppia veniva marcato (2 casi nel primo build)."""
+        altre = con.execute("""
+            SELECT DISTINCT relation FROM edges
+            WHERE is_reading_clause AND relation <> 'riferimento'
+        """).fetchall()
+        assert not altre, f"is_reading_clause su relazioni non previste: {altre}"
+
+    def test_reading_clause_dal_upstream(self, con):
+        """Le clausole di lettura vengono dal flag `clausola_lettura` della fonte."""
+        n = con.execute("SELECT COUNT(*) FROM edges WHERE is_reading_clause").fetchone()[0]
+        assert n > 3_000, f"solo {n} edge con clausola di lettura"
+
     def test_metrics_esclude_e_dichiara(self, con):
         """`referenced_by` è al netto; `formulaic_by` rende il lordo ispezionabile."""
         if not _has_table(con, "metrics"):

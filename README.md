@@ -135,7 +135,7 @@ normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 - id parziali: `legal_node`/`legal_text` risolvono un id parziale **solo se unico**, altrimenti rispondono `id ambiguo` con i candidati (mai un atto scelto a caso)
 - Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
 - `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata
-- citazioni formulaiche (`is_formulaic`, 3.140 edge): escluse da `impact_score` e dichiarate in `formulaic_by`, vedi [COVERAGE.md](docs/COVERAGE.md)
+- citazioni formulaiche o non informative (`is_formulaic` 3.140 + `is_reading_clause` 4.221): escluse da `impact_score`, dichiarate in `formulaic_by`, vedi [COVERAGE.md](docs/COVERAGE.md)
 - Sempre: *dal mart legal-graph, non da Normattiva live*
 
 ## Partecipa
