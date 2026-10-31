@@ -1,7 +1,9 @@
 -- mart_legal_search_keys.sql — chiavi di ranking per MCP legal_search
 --
 -- Dipende da mart_legal_nodes (stessa sessione MART, ordine in dataset.yml).
--- Colonne pensate per 1 query di scoring: id_num/id_year/title_folded/is_major.
+-- Colonne pensate per 1 query di scoring: id_num/id_year/title_folded.
+-- (`is_major` è stata rimossa 2026-11: il ranking vive in `_base_order`,
+--  nessun consumer leggeva la colonna.)
 --
 -- Ottimizzazione 2026-10: rimossa search_text (title+numero+tipo+collezione+
 -- filename). Era ridondante con title_folded + colonne separate. −25 MB.
@@ -39,11 +41,5 @@ SELECT
         regexp_extract(id, ':(\d{4})-', 1),
         regexp_extract(id, ':(\d{4})$', 1)
     ) AS id_year,
-    CASE
-        WHEN tipo IN ('DECRETO LEGISLATIVO', 'LEGGE', 'DECRETO-LEGGE', 'DECRETO')
-            THEN 1
-        WHEN source = 'costituzione' THEN 0
-        ELSE 2
-    END AS is_major,
     title_folded
 FROM folded
