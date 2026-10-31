@@ -217,6 +217,41 @@ class TestIdentitaSenato:
         assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
 
 
+class TestTassonomia:
+    """`tipo` canonico: pochi valori, nessun dato grezzo.
+
+    Prima del 2026-11: 457 valori distinti, incluse date (`1996-06-06`) prese
+    dal campo `natura` di open-politica, ~30 varianti di leggi regionali,
+    `LEGGE` vs `Legge ordinaria`, `DDL` spacciati per `Legge ordinaria`.
+    """
+
+    def test_pochi_valori(self, con):
+        n = con.execute("SELECT COUNT(DISTINCT tipo) FROM nodes").fetchone()[0]
+        # 30 oggi; la soglia lascia spazio a 1-2 aggiunte legittime senza
+        # riaprire la porta alla frammentazione (era 457).
+        assert n <= 32, f"{n} tipi distinti (atteso <=32)"
+
+    def test_nessun_tipo_data(self, con):
+        bad = con.execute("""
+            SELECT DISTINCT tipo FROM nodes
+            WHERE regexp_matches(tipo, '^\\d{4}-\\d{2}-\\d{2}$')
+        """).fetchall()
+        assert not bad, f"tipi che sono date: {[b[0] for b in bad]}"
+
+    def test_tipi_attesi_presenti(self, con):
+        tipi = {r[0] for r in con.execute("SELECT DISTINCT tipo FROM nodes").fetchall()}
+        for atteso in ("LEGGE", "DDL", "EMENDAMENTO", "SENTENZA", "COSTITUZIONE", "VOTAZIONE"):
+            assert atteso in tipi, f"manca il tipo canonico {atteso}"
+
+    def test_altro_residuale(self, con):
+        altro, tot = con.execute("""
+            SELECT SUM(CASE WHEN tipo = 'ALTRO' THEN 1 ELSE 0 END), COUNT(*)
+            FROM nodes
+        """).fetchone()
+        # 0,09% oggi: con l'1% il residuo poteva decuplicare restando verde.
+        assert (altro or 0) / tot < 0.005, f"ALTRO {altro}/{tot}"
+
+
 class TestEmendamenti:
     """Emendamenti → atto: il target è il nodo del grafo, non solo `senato_ddl`.
 
