@@ -645,20 +645,42 @@ edges_relatore_camera AS (
 -- DL conversione (open-politica decreti_legge #63): nodo dl:* → DDL di
 -- conversione Senato. ddl_id representative (ramo S, data recente) —
 -- non univoco se più iter; esito + giorni in evidence.
+-- La fonte identifica il DL con anno+numero; il nodo canonico è l'URN del
+-- corpus quando esiste (in quel caso `nodes_dl` non crea più `dl:*`).
+decreti_legge_urn AS (
+    SELECT
+        d.*,
+        COALESCE(
+            (
+                -- numero/anno dall'id URN, non dalle colonne: i nodi `gu`
+                -- hanno `numero` NULL ma l'id è un URN completo.
+                SELECT MIN(n.id) FROM mart_legal_nodes n
+                WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'
+                  AND TRY_CAST(regexp_extract(
+                          n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
+                      ) AS INTEGER) = d.dl_anno
+                  AND TRY_CAST(regexp_extract(
+                          n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
+                      ) AS BIGINT) = d.dl_numero
+            ),
+            'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+        ) AS source_id
+    FROM read_parquet('{support.decreti_legge.path}') d
+    WHERE d.ddl_id IS NOT NULL
+),
+
 edges_converte_dl AS (
     SELECT
-        'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR) AS source_id,
+        d.source_id,
         'converte_decreto_legge' AS relation,
         'senato:' || CAST(d.ddl_id AS VARCHAR) AS target_id,
         1 AS weight,
         d.dl_anno AS source_year,
         YEAR(d.data_conversione) AS target_year,
         d.esito || ' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)' AS evidence
-    FROM read_parquet('{support.decreti_legge.path}') d
-    WHERE d.ddl_id IS NOT NULL
-      AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+    FROM decreti_legge_urn d
+    WHERE EXISTS (
+          SELECT 1 FROM mart_legal_nodes n WHERE n.id = d.source_id
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n

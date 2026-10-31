@@ -217,6 +217,40 @@ class TestIdentitaSenato:
         assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
 
 
+class TestIdentitaNorme:
+    """Fallback `norma:*` e duplicati `dl:` vs URN.
+
+    `norma:*` erano creati per *ogni* norma citata da una massima: 5.000 su
+    8.439 non erano target di nessun edge. `dl:*` duplicava 213 DL già
+    presenti come URN nel corpus.
+    """
+
+    def test_norme_senza_archi(self, con):
+        n = con.execute("""
+            SELECT COUNT(*) FROM nodes n
+            WHERE n.id LIKE 'norma:%'
+              AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.target_id = n.id)
+        """).fetchone()[0]
+        assert n == 0, f"{n} nodi norma:* senza edge in ingresso"
+
+    def test_norme_totali_plausibili(self, con):
+        n = con.execute("SELECT COUNT(*) FROM nodes WHERE id LIKE 'norma:%'").fetchone()[0]
+        assert 0 < n < 6_000, f"{n} nodi norma:* (attesi <6k: solo i target di impugna)"
+
+    def test_dl_non_duplicati(self, con):
+        n = con.execute("""
+            SELECT COUNT(*) FROM nodes d
+            WHERE d.id LIKE 'dl:%'
+              AND EXISTS (
+                  SELECT 1 FROM nodes u
+                  WHERE u.id LIKE 'urn:nir:stato:decreto.legge:%'
+                    AND u.anno = TRY_CAST(split_part(substr(d.id, 4), '-', 1) AS INT)
+                    AND u.numero = TRY_CAST(split_part(substr(d.id, 4), '-', 2) AS BIGINT)
+              )
+        """).fetchone()[0]
+        assert n == 0, f"{n} DL presenti sia come dl:* sia come URN"
+
+
 class TestTassonomia:
     """`tipo` canonico: pochi valori, nessun dato grezzo.
 
@@ -447,7 +481,8 @@ class TestCardinality:
         n_dl = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'dl:%'
         """).fetchone()[0]
-        assert 800 <= n_dl <= 1_100, f"Nodi dl: fuori range: {n_dl}"
+        # 670 attesi: i 213 DL già presenti come URN non creano più il nodo
+        assert 550 <= n_dl <= 900, f"Nodi dl: fuori range: {n_dl}"
         n_cam_atti = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'camera:atto:%'
         """).fetchone()[0]
