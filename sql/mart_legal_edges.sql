@@ -84,6 +84,10 @@ edges_citazioni AS (
     LEFT JOIN urn_lookup lu
       ON regexp_extract(c.fonte_filename, '/([^/]+)$', 1) = lu.filename
     WHERE c.articolo IS NOT NULL
+      -- Guardrail: la Costituzione ha 139 articoli. Oggi la fonte è pulita
+      -- (max 139, 0 righe fuori range), il filtro evita che un drift upstream
+      -- crei target inesistenti in silenzio.
+      AND TRY_CAST(c.articolo AS INTEGER) BETWEEN 1 AND 139
 ),
 
 -- Lookup: mappa (norma_codice, numero, anno) dalle massime Corte → URN ID.
@@ -171,30 +175,44 @@ edges_massime AS (
       AND TRY_CAST(m.norma_data AS DATE) IS NOT NULL
 ),
 
+-- Parametro costituzionale: la massima distingue l'atto del parametro con
+-- `parametro_codice` (25 = Costituzione). Senza il filtro ogni parametro
+-- diventava un articolo della Costituzione: statuti regionali (91/89/88/93/80),
+-- leggi (41), decreti legislativi (32), CEDU (18/23), TFUE (153)… Nel mart
+-- 2026-10 erano 13.649 edge su 66.368 (20,6%): es. l'art. 145 del codice
+-- civile finiva su `costituzione:art:145` (inesistente: la Costituzione ha
+-- 139 articoli).
+-- `BETWEEN 1 AND 139` è anche il guardrail sui target: nessun edge verso un
+-- articolo che non esiste. Le 10 righe con codice 25 e articolo >139 sono
+-- errori di fonte (max 1167): si perdono nel funnel di coverage.
 edges_parametri AS (
     SELECT
         'sentenza:' || CAST(anno_pronuncia AS VARCHAR) || '-' || LPAD(CAST(numero_pronuncia AS VARCHAR), 4, '0') AS source_id,
         'invoca_parametro' AS relation,
-        'costituzione:art:' || CAST(CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS target_id,
+        'costituzione:art:' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS target_id,
         1 AS weight,
         anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
-        NULL::VARCHAR AS evidence
+        'Costituzione art. ' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS evidence
     FROM read_parquet('{support.massime_corte_costituzionale.path}')
-    WHERE NULLIF(CAST(parametro_articolo AS VARCHAR), '') IS NOT NULL
-      AND CAST(parametro_articolo AS VARCHAR) != '0'
+    WHERE parametro_codice = '25'
+      AND TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
 ),
 
+-- Atti di promovimento: `parametro_articolo` è sempre un parametro
+-- costituzionale (la fonte non espone il codice dell'atto). Restano il
+-- guardrail 1..139 e l'evidence.
 edges_promovimento AS (
     SELECT
         'promovimento:' || CAST(anno AS VARCHAR) || '-' || LPAD(CAST(numero_atto AS VARCHAR), 4, '0') AS source_id,
         'evoca_parametro' AS relation,
-        'costituzione:art:' || CAST(parametro_articolo AS VARCHAR) AS target_id,
+        'costituzione:art:' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS target_id,
         1 AS weight,
         anno AS source_year,
         NULL::INTEGER AS target_year,
-        NULL::VARCHAR AS evidence
+        'Costituzione art. ' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS evidence
     FROM read_parquet('{support.atti_promovimento.path}')
+    WHERE TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
 ),
 
 edges_senato AS (
@@ -253,6 +271,10 @@ ddl_lookup AS (
 ),
 
 edges_corpus AS (
+    -- Documento AKN (senato:atto:X) → atto legislativo (senato:X).
+    -- Esiste solo dove l'atto ha un nodo proprio da open-politica: quando il
+    -- corpus è l'unica fonte, il documento diventa il nodo canonico
+    -- `senato:X` (nodes_corpus_ddl) e non serve un edge verso sé stesso.
     SELECT
         'senato:atto:' || CAST(c.atto_num AS VARCHAR) AS source_id,
         'testo_atto' AS relation,
@@ -264,6 +286,10 @@ edges_corpus AS (
     FROM read_parquet('{support.senato_corpus.path}') c
     LEFT JOIN ddl_lookup d ON c.atto_num = d.id_ddl
     WHERE c.atto_num IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:atto:' || CAST(c.atto_num AS VARCHAR)
+      )
 ),
 
 edges_emend AS (

@@ -132,6 +132,29 @@ def _payload(r: tuple) -> dict[str, Any]:
     return payload
 
 
+_DOC_SENATO = re.compile(r"^senato:atto:(\d+)$")
+
+
+def _dedup_documenti(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Un atto del Senato esce due volte: come documento AKN (`senato:atto:X`)
+    e come atto (`senato:X`). Quando c'è il nodo atto, scarta il documento:
+    sono lo stesso oggetto e due risultati identici in search sono rumore.
+    Il documento resta se è l'unico presente (atti senza nodo open-politica).
+    """
+    canonici = {
+        r["id"] for r in rows if re.fullmatch(r"senato:\d+", r.get("id") or "")
+    }
+    if not canonici:
+        return rows
+    out = []
+    for r in rows:
+        m = _DOC_SENATO.match(r.get("id") or "")
+        if m and f"senato:{m.group(1)}" in canonici:
+            continue
+        out.append(r)
+    return out
+
+
 def _select_sk_sql(use_metrics: bool, has_fonte: bool = True) -> str:
     metrics_join = "LEFT JOIN metrics m ON m.id = k.id" if use_metrics else ""
     fonte_col = ", n.vigenza_fonte" if has_fonte else ""
@@ -147,7 +170,15 @@ def _select_sk_sql(use_metrics: bool, has_fonte: bool = True) -> str:
 
 
 def _base_order(exact_id: str | None = None) -> str:
-    """Ranking: id esatto → tipi normativi → Cost. → resto → metrics."""
+    """Ranking: id esatto → tipi normativi → vigenza → impatto → anno → titolo.
+
+    La vigenza viene prima di `referenced_by`: l'impatto premia la notorietà
+    storica, quindi un codice abrogato batteva sempre quello vigente
+    ("codice dei contratti pubblici" → 163/2006 e 50/2016 prima del 36/2023).
+    `stato` è noto solo per `source='normativa'`: gli altri nodi (processo,
+    Costituzione, giurisprudenza) restano su un gradino neutro, quindi tra
+    loro il ranking non cambia.
+    """
     parts = []
     if exact_id:
         parts.append(f"CASE WHEN k.id = '{exact_id}' THEN 0 ELSE 1 END")
@@ -155,6 +186,11 @@ def _base_order(exact_id: str | None = None) -> str:
         "CASE WHEN k.tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') "
         "THEN 0 WHEN k.source = 'costituzione' AND k.tipo = 'COSTITUZIONE' THEN 1 "
         "WHEN k.source = 'costituzione' THEN 2 ELSE 3 END"
+    )
+    parts.append(
+        "CASE COALESCE(LOWER(n.stato), '') "
+        "WHEN 'vigente' THEN 0 WHEN '' THEN 1 WHEN 'decaduto' THEN 2 "
+        "WHEN 'abrogato' THEN 3 ELSE 1 END"
     )
     parts.append("COALESCE(m.referenced_by, 0) DESC")
     parts.extend(["k.anno DESC NULLS LAST", "k.title"])
@@ -404,7 +440,7 @@ def _impl_search(
                     return (exact, major, kind_pen, hid)
 
                 hits_sorted = sorted(hits, key=_rank)
-                return hits_sorted[:limit]
+                return _dedup_documenti(hits_sorted)[:limit]
 
     # "sentenze"/"pronunce" + filter source costituzione → intent sentenza
     if kind == "phrase" and source == "costituzione":
@@ -645,4 +681,4 @@ def _impl_search(
             ),
         }
 
-    return out
+    return _dedup_documenti(out)

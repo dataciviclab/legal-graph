@@ -4,7 +4,12 @@
 # I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
 # texts/massime restano locali/MCP-only nel primo rilascio (no GCS).
 #
-# Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**
+# Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**|
+# legal_graph/**|tests/**.
+#
+# Perché anche il codice: la CI su PR fa solo preflight+lint, i test sul mart
+# girano qui. Senza `legal_graph/**` un fix di search/views arriverebbe su main
+# senza test e senza ripubblicare i mart (l'MCP legge GCS).
 
 name: Pipeline
 
@@ -16,6 +21,9 @@ on:
     paths:
       - "dataset.yml"
       - "sql/**"
+      - "legal_graph/**"
+      - "tests/**"
+      - ".github/workflows/pipeline.yml"
   workflow_dispatch:
 
 concurrency:

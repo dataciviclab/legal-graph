@@ -13,6 +13,11 @@ SELECT
     esito,
     titolo,
     LEFT(COALESCE(testo, ''), 600) AS testo,
+    -- Attesto di appartenenza del parametro: 25 = Costituzione (codice Corte
+    -- Cost.). Serve a verificare il filtro di `invoca_parametro` in
+    -- mart_legal_edges.sql, che tiene solo i parametri costituzionali.
+    parametro_codice,
+    parametro_descrizione,
     parametro_articolo,
     parametro_comma,
     norma_descrizione,

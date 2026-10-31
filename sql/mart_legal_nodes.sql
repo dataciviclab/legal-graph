@@ -212,6 +212,11 @@ nodes_camera_ddl AS (
     ) WHERE _rn = 1
 ),
 
+-- Documento AKN del corpus Senato. Esiste come nodo separato (`senato:atto:X`)
+-- solo quando c'è un atto canonico `senato:X` da open-politica: il documento
+-- è il testo, l'atto è il DDL. Quando il corpus è l'unica fonte, il nodo
+-- canonico è `senato:X` (nodes_corpus_ddl) e creare anche `senato:atto:X`
+-- duplicava lo stesso atto in search (2.990 coppie nel mart 2026-10).
 nodes_corpus AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
@@ -239,11 +244,16 @@ nodes_corpus AS (
             ROW_NUMBER() OVER (PARTITION BY atto_num ORDER BY work_date) AS _rn
         FROM read_parquet('{support.senato_corpus.path}')
         WHERE atto_num IS NOT NULL
+          AND ('senato:' || CAST(atto_num AS VARCHAR)) IN (
+              SELECT id FROM nodes_senato
+          )
     ) WHERE _rn = 1
 ),
 
--- Nodi DDL minimi per atti del corpus Senato assenti da senato_ddl.
--- Evita i target dangling di testo_atto (Fase 0, 2026-10-17).
+-- Nodi DDL canonici per atti del corpus Senato assenti da open-politica.
+-- Portano gli attributi del corpus (testo, lunghezza) perché in questo caso
+-- il documento È l'atto: un solo nodo per lo stesso oggetto.
+-- Evita anche i target dangling di testo_atto (Fase 0, 2026-10-17).
 nodes_corpus_ddl AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,

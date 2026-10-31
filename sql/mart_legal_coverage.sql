@@ -69,6 +69,27 @@ ddl_legge AS (
     )
 ),
 
+-- Parametri delle massime: `parametro_codice` dice di quale atto è l'articolo
+-- (25 = Costituzione). Il grafo tiene solo i parametri costituzionali: gli
+-- altri non hanno un nodo articolo nel corpus. `upstream_rows` conta tutte le
+-- righe con un parametro (per vedere il funnel completo), `natural_pairs`
+-- solo le coppie costituzionali che possono diventare edge.
+parametri_cost AS (
+    SELECT
+        count(*) FILTER (
+            WHERE TRY_CAST(parametro_articolo AS INTEGER) <> 0
+        ) AS upstream_rows,
+        count(DISTINCT (
+            anno_pronuncia,
+            numero_pronuncia,
+            TRY_CAST(parametro_articolo AS INTEGER)
+        )) FILTER (
+            WHERE parametro_codice = '25'
+              AND TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
+        ) AS natural_pairs
+    FROM read_parquet('{support.massime_corte_costituzionale.path}')
+),
+
 funnel AS (
     SELECT * FROM (VALUES
         (
@@ -91,6 +112,13 @@ funnel AS (
             (SELECT upstream_rows FROM ddl_legge),
             (SELECT natural_pairs FROM ddl_legge),
             'Solo DDL/leggi con urn_normattiva: il resto non è collegabile perché l''atto non è nel corpus normativa.'
+        ),
+        (
+            'invoca_parametro',
+            'costituzione-italiana.massime (parametro_codice=25) + atti_promovimento',
+            (SELECT upstream_rows FROM parametri_cost),
+            (SELECT natural_pairs FROM parametri_cost),
+            'Solo parametri costituzionali (parametro_codice 25) e articoli 1..139: gli altri parametri della massima (statuti regionali, codici, CEDU/TFUE) non hanno un nodo articolo nel grafo. Prima del 2026-11 finivano tutti su costituzione:art:N (13.649 edge su 66.368).'
         )
     ) AS t(relation, upstream, upstream_rows, natural_pairs, note)
 ),

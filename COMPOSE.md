@@ -38,6 +38,13 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.
 
+L'ordine `nodes → edges` è un **contratto**, non una comodità: `mart_legal_edges`
+fa `EXISTS (... FROM mart_legal_nodes)` per emettere solo edge con endpoint
+esistenti (`testo_atto`, `diventa_legge`, `emendamento`, `relatore`, `vota`,
+`diventa_revisione`). Invertire le due tabelle in `dataset.yml` interrompe il
+build — rumorosamente, non in silenzio. Lo stesso vale per `coverage`, `metrics`
+e `node_rel`, che leggono gli edge già materializzati.
+
 `mart_legal_coverage` è il bilancio del compose: per ogni relazione dichiara
 quante righe upstream entrano, quante diventano coppie distinte, quanti edge
 arrivano nel mart. Gli `edges` sono letti da `mart_legal_edges` (non

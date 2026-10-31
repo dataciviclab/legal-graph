@@ -1,8 +1,8 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**525.252 nodi, 1.156.098 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**522.216 nodi, 1.139.412 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
-> Aggiornato 2026-10: +evidence verificabile su tutti gli edge `riferimento`, +3.666 edge `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +107 leggi ordinarie con vigenza da Normattiva API, **+35.911 archi `riferimento` dagli AKN (101.583 totali)**, −1.013 autoanelli, nuovo mart **`coverage`** (bilancio righe upstream → edge, per relazione).
+> Aggiornato 2026-11: **`legal_search` ordina per vigenza prima dell'impatto** (la norma in vigore batte l'abrogata più citata), **`invoca_parametro` solo su parametri costituzionali** (`parametro_codice=25`, −13.649 edge che mappavano statuti regionali/codici/CEDU sulla Costituzione), 0 target dangling, un solo nodo per atto Senato (i 2.990 documenti AKN senza omologo open-politica diventano il nodo canonico). Precedente 2026-10: evidence sugli edge `riferimento`, +3.666 `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +35.911 `riferimento` dagli AKN, −1.013 autoanelli, nuovo mart **`coverage`**.
 
 Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
 
@@ -17,8 +17,8 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | 525.252 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | 1.156.098 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
+| **Nodi** | 522.216 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | 1.139.412 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · **coverage** · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |
@@ -131,7 +131,8 @@ normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 - Coperto bene: catene legislative, `attua_delega`, modifiche AKN (`abroga`/`sostituisce`), Corte Cost. (+ relatore), firmatari Camera/Senato, D.Lgs "di sistema"
 - Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
 - `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts)
-- Ranking tema umano: in miglioramento; per atti precisi usare **numero/URN/direttiva**
+- Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
+- `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata, vedi [COVERAGE.md](docs/COVERAGE.md)
 - Sempre: *dal mart legal-graph, non da Normattiva live*
 
 ## Partecipa

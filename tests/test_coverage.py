@@ -84,9 +84,11 @@ class TestCoverageContract:
 
 
 class TestFunnel:
-    """Le tre relazioni con un funnel reale devono avere numeri propri."""
+    """Le relazioni con un funnel reale devono avere numeri propri."""
 
-    @pytest.mark.parametrize("relation", ["riferimento", "abroga", "diventa_legge"])
+    @pytest.mark.parametrize(
+        "relation", ["riferimento", "abroga", "diventa_legge", "invoca_parametro"]
+    )
     def test_funnel_declared(self, con, relation):
         row = con.execute(
             """SELECT upstream, upstream_rows, natural_pairs, edge_pct
@@ -122,7 +124,7 @@ class TestFunnel:
                 "SELECT relation FROM coverage WHERE upstream_rows IS NOT NULL"
             ).fetchall()
         }
-        extra = rels - {"riferimento", "abroga", "diventa_legge"}
+        extra = rels - {"riferimento", "abroga", "diventa_legge", "invoca_parametro"}
         assert not extra, f"relazioni con denominatore non dichiarato: {extra}"
 
     @pytest.mark.parametrize(
