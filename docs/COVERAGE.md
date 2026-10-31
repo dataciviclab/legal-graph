@@ -1,10 +1,12 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-08 · aggiornata 2026-10-30 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
+Data: 2026-10-08 · aggiornata 2026-11-01 · Fonte: mart `out/data/mart/legal_graph/2026/` (non Normattiva live)
 
-> 2026-10-30 — il bilancio del compose è ora un mart (`mart_legal_coverage`), non
-> una tabella scritta a mano in questo documento. Numeri sotto aggiornati a
-> 525.252 nodi / 1.156.098 archi, 25 relazioni.
+> 2026-11-01 — tre correzioni di semantica, tutte misurabili nel mart:
+> `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`)
+> e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica
+> diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
+> Numeri sotto: **522.216 nodi / 1.139.412 archi**, 25 relazioni.
 
 ## Cosa è (in sintesi)
 
@@ -16,7 +18,7 @@ Data: 2026-10-08 · aggiornata 2026-10-30 · Fonte: mart `out/data/mart/legal_gr
 
 Non è un’enciclopedia del diritto italiano né un database giurisprudenza ordinaria.
 
-## Bilancio di copertura del compose (2026-10-30)
+## Bilancio di copertura del compose (2026-11-01)
 
 Il compose scarta le righe che non riesce a collegare. Prima questo era
 invisibile: il test di integrità vedeva **0 dangling**, perché gli edge non
@@ -31,33 +33,61 @@ WHERE upstream IS NOT NULL;
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
 | `riferimento` | 200.080 | 126.593 | 101.583 | 80,2% | snapshot dello stesso atto (righe→coppie), mappatura URN, guardia temporale |
+| `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 8.374 | 8.374 | 3.633 | 43,4% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
 
-Le altre 22 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
+Le altre 21 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.
 
 Limiti dichiarati:
 
+- **`invoca_parametro` non è "la Corte cita la Costituzione e basta"**: la
+  massima ha un parametro per ogni atto richiamato (statuti regionali, codici,
+  CEDU, TFUE). Il grafo tiene solo `parametro_codice=25` (Costituzione): prima
+  del 2026-11 ogni parametro diventava `costituzione:art:N` (13.649 edge su
+  66.368, 20,6%). Esempio: l'art. 145 del codice civile (sent. 6/1971) finiva
+  su `costituzione:art:145`, che non esiste.
 - **`edge_pct` misura il compose, non la fonte.** I riferimenti che
   italia-corpus non risolve non arrivano nemmeno in `riferimenti`: quel buco
   sta a monte (IC #86, copertura citazioni AKN ~39%).
 - **`abroga` resta un buco di fonte**: 7.668 nodi `stato=abrogato` su 8.051 non
   hanno un arco in ingresso. `akn_n_repeal_events` è 0 su tutti gli atti IC:
   il lifecycle AKN non viene estratto, quindi non c'è nulla da comporre.
+- **Identità Senato**: un atto del corpus con nodo open-politica esiste come
+  documento (`senato:atto:X`) **e** come atto (`senato:X`), collegati da
+  `testo_atto`. Gli atti senza nodo open-politica (2.990) non creano più un
+  secondo nodo: il documento è l'atto. Effetto: −2.990 nodi, −2.990
+  `testo_atto`, e ~2.900 atti che risultano isolati perché l'unico arco che
+  avevano li collegava a sé stessi via un id duplicato.
 - **Autoanelli rimossi** (916 `riferimento`, 97 `abroga`): un atto non è in
   relazione con sé stesso. Prima il self-loop del D.Lgs 58/1998 (weight 436)
   era l'edge più pesante del grafo e entrava in `impact_score`.
   **Effetto**: `referenced_by`/`impact_score` cambiano per i **916 atti** che
   avevano l'autoanello; i numeri pubblicati prima del 2026-10-30 li includono.
 
-## Composizione nodi (~525k)
+## Perché `impact_score` è gonfiato dal boilerplate
+
+`referenced_by`/`impact_score` contano tutti gli edge `riferimento` in ingresso,
+e alcuni sono citazioni formulaiche. Caso misurato: **il D.P.R. 1092/1985**
+(testo unico sulla pubblicazione ufficiale) ha 4.830 riferimenti in ingresso,
+di cui **2.890 dalla stessa frase di preambolo** ("…sulle pubblicazioni
+ufficiali della Repubblica italiana, approvato con [D.P.R. 28 dicembre 1985,
+n. 1092]…") presente in quasi ogni atto. Il link è reale, la citazione è vuota
+di contenuto: per questo il D.P.R. 1092 è #2 nella classifica "critical" senza
+essere un hub normativo. Edge con snippet condiviso da >50 atti: **2.901**.
+
+Decisione aperta: declassare queste citazioni in `impact_score` (es. escludere
+gli snippet formulaici) o tenerle e dichiararle. Oggi sono dichiarate, non
+filtrate.
+
+## Composizione nodi (~522k)
 
 | Blocco | Quota | Stato |
 |---|---:|---|
-| Processo Senato (emend + dibattiti) | ~73% | Sovrabbondante per “legge su X”, ottimo per process mining |
-| Votazioni Senato | ~6% | Coperto per DDL in senato_ddl |
-| Attributi Senato (DDL/atti) | ~8% | Buono |
+| Processo Senato (emend + dibattiti) | ~71% | Sovrabbondante per “legge su X”, ottimo per process mining |
+| Votazioni Senato | ~5,6% | Coperto per DDL in senato_ddl |
+| Attributi Senato (DDL/atti) | ~6,6% | Buono |
 | Costituzione (art. + pronunce + correlati) | ~6% | Buono |
 | Normativa statale (`source=normativa`) | ~4% | Sottocoperta vs corpus pieno (~288k file IC) |
 | Camera DDL | ~1,5% | Sottocoperto vs Senato |
@@ -133,7 +163,7 @@ Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex ·
 1. **Valore**: “come nascono e si collegano le leggi” (catene, Cost., processo) — non “tutto il diritto”.
 2. **Se chiedi l’art. 2043 c.c. consolidato**: il grafo non basta — usa Normattiva/IC.
 3. **Diritto applicato (PA, enti, gare, giurisprudenza ord.)**: integrare dataset Lab, non solo grafo.
-4. **~73% è processo Senato** (emend+dibattiti): power/process mining sì; ricerca “umana” solo con search tema + hub.
+4. **~71% è processo Senato** (emend+dibattiti): power/process mining sì; ricerca “umana” solo con search tema + hub.
 
 ## Priorità di copertura
 
