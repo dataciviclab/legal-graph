@@ -87,7 +87,9 @@ class TestFunnel:
     """Le relazioni con un funnel reale devono avere numeri propri."""
 
     @pytest.mark.parametrize(
-        "relation", ["riferimento", "abroga", "diventa_legge", "invoca_parametro"]
+        "relation",
+        ["riferimento", "abroga", "diventa_legge", "invoca_parametro", "emendamento"],
+    
     )
     def test_funnel_declared(self, con, relation):
         row = con.execute(
@@ -104,6 +106,20 @@ class TestFunnel:
             f"{relation}: coppie distinte ({natural_pairs}) > righe ({upstream_rows})"
         )
         assert edge_pct is not None, f"{relation}: edge_pct assente"
+
+    def test_emendamenti_quota_collegati(self, con):
+        """Quota emendamenti collegati all'atto, sul denominatore giusto.
+
+        `emendamento` non è 1:1: gli emendamenti distinti sono
+        (legislatura, atto, emend_id) = 789.361, mentre i nodi sono 248.127
+        perché `emend_id` è il numero *dentro* l'atto ("1.1" esiste in
+        centinaia di atti). Contare i nodi dava 9% di orfani invece di 15,7%.
+        """
+        pct = con.execute(
+            "SELECT edge_pct FROM coverage WHERE relation = 'emendamento'"
+        ).fetchone()[0]
+        assert pct is not None, "emendamento senza funnel dichiarato"
+        assert pct >= 80, f"emendamenti collegati al {pct}% (atteso >=80%)"
 
     def test_citation_funnel_not_collapsing(self, con):
         """Guardrail: le citazioni non devono perdere più della metà delle coppie.
@@ -124,12 +140,23 @@ class TestFunnel:
                 "SELECT relation FROM coverage WHERE upstream_rows IS NOT NULL"
             ).fetchall()
         }
-        extra = rels - {"riferimento", "abroga", "diventa_legge", "invoca_parametro"}
+        extra = rels - {
+            "riferimento",
+            "abroga",
+            "diventa_legge",
+            "invoca_parametro",
+            "emendamento",
+        }
         assert not extra, f"relazioni con denominatore non dichiarato: {extra}"
 
     @pytest.mark.parametrize(
         "relation,baseline",
-        [("riferimento", 200_080), ("abroga", 8_374), ("diventa_legge", 7_478)],
+        [
+            ("riferimento", 200_080),
+            ("abroga", 8_374),
+            ("diventa_legge", 7_478),
+            ("emendamento", 1_005_356),
+        ],
     )
     def test_upstream_numerators_stable(self, con, relation, baseline):
         """Drift delle righe upstream: banda ±20% sui numeratori dichiarati.

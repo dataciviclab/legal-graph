@@ -293,27 +293,32 @@ edges_corpus AS (
 ),
 
 edges_emend AS (
-    -- Join via atto_num == id_ddl (bridge esatto, KEYS.md).
-    -- Prima: fase+legislatura (euristico, produce falsi positivi).
-    -- Ora: atto_num da senato_emendamenti → id_ddl da senato_ddl.
-    -- NOTA: fase NON è usata nel join — emend.fase è formato Senato (S.NNNN),
-    -- ddl.fase è formato Camera (C.NNNN). La PK di senato_ddl è (id_ddl, fase),
-    -- ma l'atto è identificato da id_ddl alone.
+    -- Target = nodo atto del grafo (`senato:X`), che esiste sia per i DDL di
+    -- open-politica sia per gli atti presenti solo nel corpus AKN (i nodi
+    -- `senato_corpus` creati da nodes_corpus_ddl).
+    --
+    -- Prima il join era solo su `senato_ddl.id_ddl`: leg 19 → 15 atti su 486
+    -- (l'export open-politica si ferma a id 55687, gli emendamenti arrivano a
+    -- 60421), 103.829 emendamenti senza arco su 248.127 (42%). Con l'EXISTS sul
+    -- mart i collegati passano a 225.750 (91%) e gli edge a 665.278.
+    --
+    -- NOTA: `fase` non entra nel join — emend.fase è formato Senato (S.NNNN),
+    -- ddl.fase è formato Camera (C.NNNN). L'atto è identificato da atto_num.
     SELECT
         'senato:emend:' || CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS BIGINT) || ':' || e.emend_id AS source_id,
         'emendamento' AS relation,
-        COALESCE(ddl.resolved_id, 'senato:' || CAST(d.id_ddl AS VARCHAR)) AS target_id,
+        'senato:' || CAST(e.atto_num AS VARCHAR) AS target_id,
         1 AS weight,
         YEAR(e.work_date) AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(e.text_integrale, 100) AS evidence
     FROM read_parquet('{support.senato_emendamenti.path}') e
-    JOIN read_parquet({support.senato_ddl.outputs}, union_by_name = true) d
-      ON e.atto_num = d.id_ddl
-    LEFT JOIN ddl_lookup ddl ON d.id_ddl = ddl.id_ddl
     WHERE e.emend_id IS NOT NULL AND e.atto_num IS NOT NULL
-    GROUP BY e.legislatura, e.emend_id, e.work_date, e.text_integrale,
-             d.id_ddl, ddl.resolved_id
+      AND EXISTS (
+          SELECT 1 FROM mart_legal_nodes n
+          WHERE n.id = 'senato:' || CAST(e.atto_num AS VARCHAR)
+      )
+    GROUP BY e.legislatura, e.emend_id, e.work_date, e.text_integrale, e.atto_num
 ),
 
 edges_dib AS (

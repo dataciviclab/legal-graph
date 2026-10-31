@@ -108,7 +108,11 @@ open-politica.urn_normattiva  ←→  italia-corpus.urn   [1:1, ~100% sui promul
 open-politica.ponte_persona   ←→  senatore:* ↔ deputato:*  [collega edge]
 ```
 
-Catena emend→atto: `emend.atto_num → DDL.id_ddl → DDL.urn_normattiva → normativa.urn`
+Catena emend→atto: `emend.atto_num → nodo senato:{atto_num} → (DDL.urn_normattiva) → normativa.urn`
+
+> Dal 2026-11 l'edge `emendamento` ha come target il **nodo** `senato:{atto_num}`
+> (`EXISTS` su mart_legal_nodes), non solo `id_ddl` di open-politica: copre anche
+> gli atti presenti solo nel corpus AKN (leg 19).
 
 ## I Marts del compose legal-graph (2026)
 

@@ -6,7 +6,7 @@ Data: 2026-10-08 · aggiornata 2026-11-01 · Fonte: mart `out/data/mart/legal_gr
 > `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`)
 > e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica
 > diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
-> Numeri sotto: **522.216 nodi / 1.139.412 archi**, 25 relazioni.
+> Numeri sotto: **522.216 nodi / 1.377.775 archi**, 25 relazioni.
 
 ## Cosa è (in sintesi)
 
@@ -33,11 +33,12 @@ WHERE upstream IS NOT NULL;
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
 | `riferimento` | 200.080 | 126.593 | 101.583 | 80,2% | snapshot dello stesso atto (righe→coppie), mappatura URN, guardia temporale |
+| `emendamento` | 1.005.356 | 789.361 | 665.278 | 84,3% | atti leg 14/15/16 non nel corpus AKN |
 | `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 8.374 | 8.374 | 3.633 | 43,4% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
 
-Le altre 21 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
+Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.
 
 Limiti dichiarati:
@@ -54,6 +55,8 @@ Limiti dichiarati:
 - **`abroga` resta un buco di fonte**: 7.668 nodi `stato=abrogato` su 8.051 non
   hanno un arco in ingresso. `akn_n_repeal_events` è 0 su tutti gli atti IC:
   il lifecycle AKN non viene estratto, quindi non c'è nulla da comporre.
+- **Emendamenti**: l'edge `emendamento` punta al nodo atto `senato:X`, che esiste sia per i DDL open-politica sia per gli atti presenti solo nel corpus AKN. Prima il join era solo su `senato_ddl`: leg 19 aveva 15 atti su 486 (l'export open-politica si ferma a id 55687, gli emendamenti arrivano a 60421). Ora i collegati sono **665.278 emendamenti distinti su 789.361 (84,3%)**; i **124.083 residui (15,7%)** sono atti leg 14/15/16 assenti anche dal corpus AKN (buco upstream `senato-akn`). Copertura per legislatura: 17/18/19 al 100%, 16 al 48,7%, 15 al 66,8%, 14 al 67,2%.
+  **Attenzione al denominatore**: i nodi `senato:emend:{leg}:{emend_id}` sono 248.127 perché `emend_id` è il numero *dentro* l'atto — lo stesso "1.1" esiste in centinaia di atti. Contare i nodi dà 22.377 orfani (9%), ma gli emendamenti orfani sono 124.083 (15,7%): la quota vera sta nel funnel `coverage`, non nel conteggio dei nodi. L'identità del nodo va corretta (`atto_num` nell'id): issue da aprire.
 - **Identità Senato**: un atto del corpus con nodo open-politica esiste come
   documento (`senato:atto:X`) **e** come atto (`senato:X`), collegati da
   `testo_atto`. Gli atti senza nodo open-politica (2.990) non creano più un
