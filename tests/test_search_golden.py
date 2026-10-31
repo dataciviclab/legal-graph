@@ -52,8 +52,9 @@ def test_search_data_field(search_ready):
 def test_ranking_premia_la_norma_vigente(search_ready):
     """La norma in vigore batte quelle abrogate con lo stesso tema.
 
-    Il ranking usa `referenced_by` prima della vigenza: i codici abrogati
-    (163/2006, 50/2016), citati per decenni, battevano il 36/2023 vigente.
+    Prima il ranking ordinava `referenced_by` prima della vigenza: i codici
+    abrogati (163/2006, 50/2016), citati per decenni, battevano il 36/2023
+    vigente. La regressione da proteggere è quella.
     """
     rows = m._impl_search("codice dei contratti pubblici", limit=6)
     ids = [r["id"] for r in rows]
