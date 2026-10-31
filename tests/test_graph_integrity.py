@@ -122,9 +122,9 @@ class TestEdges:
             WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = e.target_id)
         """).fetchone()[0]
         assert missing_src == 0, f"{missing_src} edges have source_id not in nodes"
-        # Known issue: corpus→DDL edges (senato:atto:X → senato:X) where DDL node
-        # doesn't exist in nodes. Pre-existing data quality issue.
-        assert missing_tgt <= 6000, f"{missing_tgt} dangling target edges (expected <=6000)"
+        # Zero, non "≤N": i target dangling erano un workaround (il compose
+        # scarta le righe non risolte, quindi un target mancante è un bug).
+        assert missing_tgt == 0, f"{missing_tgt} dangling target edges"
 
     def test_relation_type_coverage(self, con):
         """At least 12 distinct relation types should exist."""
@@ -156,6 +156,46 @@ class TestEdges:
 
 
 # ── Temporal edge integrity ─────────────────────────────────────
+
+class TestParametriCostituzionali:
+    """`invoca_parametro` = parametro costituzionale, non "un articolo qualsiasi".
+
+    Le massime hanno parametri di atti diversi (statuti regionali, codici,
+    CEDU, TFUE) e solo `parametro_codice = '25'` è la Costituzione. Prima del
+    2026-11 ogni parametro diventava `costituzione:art:N` (art. 145 cod. civ.
+    → art. 145 Cost., che non esiste).
+    """
+
+    def test_target_sono_articoli_esistenti(self, con):
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'invoca_parametro'
+              AND (
+                  target_id NOT LIKE 'costituzione:art:%'
+                  OR TRY_CAST(replace(target_id, 'costituzione:art:', '') AS INTEGER)
+                     NOT BETWEEN 1 AND 139
+              )
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} edge invoca_parametro fuori dagli articoli 1..139"
+
+    def test_parametro_di_altro_atto_escluso(self, con):
+        """Sent. 6/1971: parametro art. 145 del codice civile, non della Costituzione."""
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'invoca_parametro'
+              AND source_id = 'sentenza:1971-0006'
+              AND target_id = 'costituzione:art:145'
+        """).fetchone()[0]
+        assert n == 0, "parametro non costituzionale mappato sulla Costituzione"
+
+    def test_evidence_presente(self, con):
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'invoca_parametro'
+              AND (evidence IS NULL OR evidence = '')
+        """).fetchone()[0]
+        assert n == 0, f"{n} edge invoca_parametro senza evidence"
+
 
 # ── Metrics integrity ───────────────────────────────────────────
 
