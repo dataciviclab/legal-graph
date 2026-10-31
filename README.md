@@ -1,6 +1,6 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**522.216 nodi, 1.377.775 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**518.388 nodi, 1.380.907 relazioni tra leggi, decreti, DDL, sentenze e Costituzione. Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
 > Aggiornato 2026-11: **emendamenti collegati all'atto +54%** (il target è il nodo atto, non solo `senato_ddl`: 103.829 orfani → 22.377, +238.363 archi), **`legal_search` ordina per vigenza prima dell'impatto** (la norma in vigore batte l'abrogata più citata), **`invoca_parametro` solo su parametri costituzionali** (`parametro_codice=25`, −13.649 edge che mappavano statuti regionali/codici/CEDU sulla Costituzione), 0 target dangling, un solo nodo per atto Senato (i 2.990 documenti AKN senza omologo open-politica diventano il nodo canonico). Precedente 2026-10: evidence sugli edge `riferimento`, +3.666 `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +35.911 `riferimento` dagli AKN, −1.013 autoanelli, nuovo mart **`coverage`**.
 
@@ -17,8 +17,8 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | 522.216 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | 1.377.775 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
+| **Nodi** | 518.388 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | 1.380.907 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · **coverage** · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |

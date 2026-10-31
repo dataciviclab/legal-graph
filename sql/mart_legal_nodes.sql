@@ -644,6 +644,47 @@ nodes_norme AS (
         FROM read_parquet('{support.massime_corte_costituzionale.path}')
         WHERE NULLIF(norma_numero, '') IS NOT NULL
           AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+          -- Solo le norme che diventano target di un edge `impugna`
+          -- (esito illegittimo/misto, come in mart_legal_edges.sql): prima
+          -- ogni norma citata da una massima creava un nodo, e 5.000
+          -- restavano senza nessuna relazione.
+          AND esito IN ('illegittimo', 'misto')
+          -- Se l'atto ha già un nodo URN nel corpus, il fallback non serve:
+          -- l'edge punta all'URN. Replica il lookup di `norma_urn_lookup`
+          -- (edges): il test sugli orfani intercetta un eventuale drift.
+          AND NOT EXISTS (
+              -- normativa (collezioni IC) + atti_api (fuori collezione):
+              -- sono entrambe fonti di nodi URN, e `norma_urn_lookup` in
+              -- mart_legal_edges.sql cerca su mart_legal_nodes (entrambe).
+              -- tutte le fonti di nodi URN del grafo (normativa, atti_api, gu):
+              -- è lo stesso insieme su cui cerca `norma_urn_lookup` in
+              -- mart_legal_edges.sql, che parsa numero/anno dall'id URN.
+              SELECT 1 FROM (
+                  SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
+                  UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
+                  UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+              ) n
+              WHERE n.id LIKE 'urn:nir:stato:%'
+                AND TRY_CAST(regexp_extract(
+                        n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
+                    ) AS INTEGER) = YEAR(TRY_CAST(norma_data AS DATE))
+                AND TRY_CAST(regexp_extract(
+                        n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
+                    ) AS BIGINT) = TRY_CAST(norma_numero AS BIGINT)
+                -- stesso `urn_tipo` di `norma_urn_lookup` in mart_legal_edges.sql
+                AND regexp_extract(
+                        n.id,
+                        'urn:nir:stato:([^:]+):[0-9]{4}-[0-9]{2}-[0-9]{2};[0-9]+$',
+                        1
+                    ) = CASE norma_codice
+                        WHEN 'l' THEN 'legge'
+                        WHEN 'dl' THEN 'decreto.legge'
+                        WHEN 'dlgs' THEN 'decreto.legislativo'
+                        WHEN 'dpr' THEN 'decreto.del.presidente.della.repubblica'
+                        WHEN 'rd' THEN 'regio.decreto'
+                        WHEN 'rdl' THEN 'regio.decreto.legge'
+                    END
+          )
     ) WHERE _rn = 1
 ),
 
@@ -801,15 +842,15 @@ nodes_camera_atti AS (
 -- edge converte_decreto_legge (stato resta NULL: esito non è vigenza).
 nodes_dl AS (
     SELECT
-        'dl:' || CAST(dl_anno AS VARCHAR) || '-' || CAST(dl_numero AS VARCHAR) AS id,
+        'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR) AS id,
         'DECRETO-LEGGE' AS tipo,
-        CAST(data_presentazione AS VARCHAR) AS data,
-        CAST(dl_numero AS VARCHAR) AS numero,
-        titolo AS title,
+        CAST(d.data_presentazione AS VARCHAR) AS data,
+        CAST(d.dl_numero AS VARCHAR) AS numero,
+        d.titolo AS title,
         'DL conversione' AS collezione,
         NULL::VARCHAR AS source_filename,
         'decreti_legge' AS source,
-        dl_anno AS anno,
+        d.dl_anno AS anno,
         NULL::BIGINT AS length_chars,
         NULL::BIGINT AS length_words,
         NULL::VARCHAR AS celex,
@@ -818,8 +859,26 @@ nodes_dl AS (
         NULL::VARCHAR AS materia,
         NULL::INTEGER AS qualita_score,
         NULL::INTEGER AS sunsetting_score
-        FROM read_parquet('{support.decreti_legge.path}')
-    WHERE dl_numero IS NOT NULL AND dl_anno IS NOT NULL
+        FROM read_parquet('{support.decreti_legge.path}') d
+    WHERE d.dl_numero IS NOT NULL AND d.dl_anno IS NOT NULL
+      -- Se l'atto esiste già come URN nel corpus, il nodo canonico è quello:
+      -- `dl:*` sarebbe un duplicato (213 casi nel mart 2026-10).
+      AND NOT EXISTS (
+          -- stesso insieme e stesso parsing di `decreti_legge_urn`
+          -- (mart_legal_edges.sql): normativa + atti_api + gu.
+          SELECT 1 FROM (
+              SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
+              UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
+              UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+          ) n
+          WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'
+            AND TRY_CAST(regexp_extract(
+                    n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
+                ) AS INTEGER) = d.dl_anno
+            AND TRY_CAST(regexp_extract(
+                    n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
+                ) AS BIGINT) = d.dl_numero
+      )
 ),
 
 all_nodes AS (

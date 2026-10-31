@@ -164,7 +164,11 @@ def test_sentenza_alias_no_pad(search_ready):
 
 
 def test_legal_text_norma_hint(search_ready):
-    t = m._impl_legal_text("norma:legge:40:2004", max_chars=200)
+    # `norma:*` = atti citati dalla Corte assenti dal corpus (3.4k nodi).
+    # I nodi che hanno un URN non esistono più (fix 2026-11): prendine uno vivo.
+    rows = m.legal_query("SELECT id FROM nodes WHERE id LIKE 'norma:%' LIMIT 1", limit=1)
+    assert rows, "nessun nodo norma:* nel mart"
+    t = m._impl_legal_text(rows[0]["id"], max_chars=200)
     # errore onesto o testo se filename IC presente
     assert "error" in t or t.get("text")
     if "error" in t:
