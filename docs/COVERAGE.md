@@ -95,9 +95,12 @@ dominata dalla Costituzione (art. 3, 24, 117, 76, 97).
 `reading_clause_edges` per relazione:
 il funnel conta il **lordo**, così non sembra migliorato solo perché etichettato.
 
-**Limite noto**: 57.002 dei 101.583 edge `riferimento` (**56%**) hanno
-`evidence = 'akn:ref'`, senza testo: la regola >50 giudica solo i 44.577 con
-snippet. Il prossimo passo per l'impatto è l'evidenza AKN, non la soglia.
+**Limite noto, ora misurabile**: `edges.evidence_kind` classifica l'evidenza dei
+`riferimento` in tre stati — `missing` (segnaposto `akn:ref`), `locator`
+(frammento URL/URN) e `quote` (testo). Oggi `missing` è **57.002 edge (56,1%)**:
+la regola >50 giudica solo i 44.577 con testo. `coverage` espone
+`missing_evidence_edges`/`missing_evidence_pct`, così il target (0) è misurato:
+dipende da **italia-corpus#109**, non da una soglia.
 
 ## Composizione nodi (~522k)
 

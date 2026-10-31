@@ -954,5 +954,20 @@ SELECT
             SELECT 1 FROM reading_clause_edges rc
             WHERE rc.source_id = g.source_id AND rc.target_id = g.target_id
         )
-    ) AS is_reading_clause
+    ) AS is_reading_clause,
+    -- Tipo di evidenza (solo per `riferimento`; NULL altrove):
+    --   missing → segnaposto `akn:ref`: sappiamo che A cita B, non dove
+    --             (italia-corpus#109 deve far sparire questo stato)
+    --   locator → frammento di URL/URN, nessun testo
+    --   quote   → testo attorno alla citazione
+    CASE
+        WHEN g.relation <> 'riferimento' THEN NULL
+        WHEN g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref'
+            THEN 'missing'
+        WHEN g.evidence LIKE '%urn:nir:%'
+          OR g.evidence LIKE '%i-res/N2Ls%'
+          OR g.evidence LIKE '%:costituzione:%'
+            THEN 'locator'
+        ELSE 'quote'
+    END AS evidence_kind
 FROM grouped g

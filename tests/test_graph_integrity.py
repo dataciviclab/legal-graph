@@ -262,6 +262,51 @@ class TestEvidenzaFormulaica:
         n = con.execute("SELECT COUNT(*) FROM edges WHERE is_reading_clause").fetchone()[0]
         assert n > 3_000, f"solo {n} edge con clausola di lettura"
 
+    def test_evidence_kind_partizione(self, con):
+        """`evidence_kind` partiziona i `riferimento`; NULL sulle altre relazioni."""
+        non_rif = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation <> 'riferimento' AND evidence_kind IS NOT NULL
+        """).fetchone()[0]
+        assert non_rif == 0, f"{non_rif} edge non-riferimento con evidence_kind"
+
+        kinds = dict(con.execute("""
+            SELECT evidence_kind, COUNT(*) FROM edges
+            WHERE relation = 'riferimento' GROUP BY 1
+        """).fetchall())
+        totale = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        assert sum(kinds.values()) == totale, (kinds, totale)
+        assert set(kinds) == {"missing", "locator", "quote"}, kinds
+
+        mismatch = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE COALESCE(evidence_kind = 'missing', FALSE)
+              IS DISTINCT FROM (relation = 'riferimento' AND evidence = 'akn:ref')
+        """).fetchone()[0]
+        assert mismatch == 0, f"{mismatch} edge con evidence_kind 'missing' incoerente"
+
+    def test_metrics_lordo_uscente(self, con):
+        """Il filtro vale anche in uscita, ma il lordo (`references + formulaic_out`) resta."""
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
+        row = con.execute("""
+            SELECT id, "references", formulaic_out FROM metrics
+            WHERE formulaic_out > 0 ORDER BY formulaic_out DESC LIMIT 1
+        """).fetchone()
+        assert row, "nessun nodo con uscenti formulaici"
+        nid, refs, fout = row
+        lordo = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE source_id = ? AND relation IN (
+                'riferimento', 'cita_costituzione', 'impugna', 'invoca_parametro',
+                'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
+                'evoca_parametro', 'abroga', 'attua_delega'
+            )
+        """, [nid]).fetchone()[0]
+        assert refs + fout == lordo, (refs, fout, lordo)
+
     def test_metrics_esclude_e_dichiara(self, con):
         """`referenced_by` è al netto; `formulaic_by` rende il lordo ispezionabile."""
         if not _has_table(con, "metrics"):

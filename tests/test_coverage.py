@@ -49,6 +49,8 @@ class TestCoverageContract:
             "formulaic_edges",
             "formulaic_pct",
             "reading_clause_edges",
+            "missing_evidence_edges",
+            "missing_evidence_pct",
         } <= cols
 
     def test_one_row_per_relation(self, con):
@@ -138,6 +140,14 @@ class TestFunnel:
         ).fetchone()[0]
         assert formulaic == ricalcolati, (formulaic, ricalcolati)
         assert 0 < formulaic < edges, (formulaic, edges)
+
+        missing = con.execute(
+            "SELECT missing_evidence_edges FROM coverage WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        ricalcolati_missing = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE evidence_kind = 'missing'"
+        ).fetchone()[0]
+        assert missing == ricalcolati_missing, (missing, ricalcolati_missing)
 
         reading = con.execute(
             "SELECT reading_clause_edges FROM coverage WHERE relation = 'riferimento'"

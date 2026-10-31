@@ -5,9 +5,11 @@
 -- Stesse colonne del vecchio graph_metrics.parquet (script rimosso).
 --
 -- Evidenza non informativa: `is_formulaic` (snippet ripetuto su >50 atti) e
--- `is_reading_clause` (clausola "si legge" marcata dalla fonte; gli edge flaggati **non** contano in `referenced_by`
--- né in `impact_score`, ma sono esposti in `formulaic_by`. Il lordo è
--- `referenced_by + formulaic_by`, quindi il declassamento è ispezionabile.
+-- `is_reading_clause` (clausola "si legge" marcata dalla fonte). Gli edge
+-- flaggati **non** contano in `referenced_by`, `impact_score`, `references`,
+-- `complexity_score`, `distinct_targets`; i lordi sono `formulaic_by` (in) e
+-- `formulaic_out` (out), quindi il declassamento resta ispezionabile su
+-- entrambi i lati (`referenced_by + formulaic_by` = citazioni in ingresso).
 
 WITH incoming AS (
     SELECT
@@ -30,12 +32,22 @@ WITH incoming AS (
 ),
 
 formulaic AS (
-    -- evidenza esclusa dall'impatto: snippet ripetuto (>50 atti) **o**
-    -- clausola di lettura marcata dalla fonte
+    -- evidenza esclusa dall'impatto in ingresso: snippet ripetuto (>50 atti)
+    -- **o** clausola di lettura marcata dalla fonte
     SELECT target_id, COUNT(*) AS formulaic_by
     FROM mart_legal_edges
     WHERE is_formulaic OR is_reading_clause
     GROUP BY target_id
+),
+
+formulaic_out AS (
+    -- stesso filtro applicato al lato uscente: un atto non è più "complesso"
+    -- perché ripete la clausola di pubblicazione nel preambolo. Il lordo resta
+    -- ispezionabile (`references + formulaic_out`).
+    SELECT source_id, COUNT(*) AS formulaic_out
+    FROM mart_legal_edges
+    WHERE is_formulaic OR is_reading_clause
+    GROUP BY source_id
 ),
 
 outgoing AS (
@@ -98,8 +110,10 @@ SELECT
         WHEN i.last_referenced_year IS NOT NULL AND i.last_referenced_year < 2015 THEN 'declining'
         ELSE NULL
     END AS activity_level,
-    COALESCE(f.formulaic_by, 0) AS formulaic_by
+    COALESCE(f.formulaic_by, 0) AS formulaic_by,
+    COALESCE(fo.formulaic_out, 0) AS formulaic_out
 FROM mart_legal_nodes n
 LEFT JOIN incoming i ON n.id = i.target_id
 LEFT JOIN outgoing o ON n.id = o.source_id
 LEFT JOIN formulaic f ON n.id = f.target_id
+LEFT JOIN formulaic_out fo ON n.id = fo.source_id
