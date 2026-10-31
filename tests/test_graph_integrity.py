@@ -217,6 +217,51 @@ class TestIdentitaSenato:
         assert n == 0, f"{n} atti del corpus duplicati come documento + atto"
 
 
+class TestEvidenzaFormulaica:
+    """`is_formulaic`: stesso snippet usato da >50 atti distinti.
+
+    Caso reale: la clausola di pubblicazione che ogni preambolo dedica al
+    D.P.R. 1092/1985 (2.727 edge). Il flag è calcolato sulle righe pubblicate,
+    quindi ricalcolabile dal mart: compose e consumatori non possono divergere.
+    """
+
+    def test_flag_riproducibile(self, con):
+        mismatch = con.execute("""
+            WITH bp AS (
+                SELECT evidence FROM edges
+                WHERE relation = 'riferimento'
+                  AND evidence IS NOT NULL AND evidence <> 'akn:ref'
+                GROUP BY 1 HAVING COUNT(DISTINCT source_id) > 50
+            )
+            SELECT COUNT(*) FROM edges e
+            WHERE e.is_formulaic IS DISTINCT FROM (
+                e.relation = 'riferimento' AND e.evidence IN (SELECT evidence FROM bp)
+            )
+        """).fetchone()[0]
+        assert mismatch == 0, f"{mismatch} edge con flag non ricalcolabile dal mart"
+
+    def test_solo_riferimento(self, con):
+        altre = con.execute("""
+            SELECT DISTINCT relation FROM edges
+            WHERE is_formulaic AND relation <> 'riferimento'
+        """).fetchall()
+        assert not altre, f"flag su relazioni non previste: {altre}"
+
+    def test_metrics_esclude_e_dichiara(self, con):
+        """`referenced_by` è al netto; `formulaic_by` rende il lordo ispezionabile."""
+        if not _has_table(con, "metrics"):
+            pytest.skip("metrics non presenti")
+        ref, formulaic, level = con.execute("""
+            SELECT referenced_by, formulaic_by, impact_level
+            FROM metrics
+            WHERE id = 'urn:nir:stato:decreto.del.presidente.della.repubblica:1985-12-28;1092'
+        """).fetchone()
+        assert formulaic > 2_000, f"formulaic_by={formulaic}"
+        assert ref + formulaic > 4_000, "il lordo deve restare visibile"
+        assert ref < formulaic, "il D.P.R. 1092 vive di citazioni formulaiche"
+        assert level == "critical", "resta critical, ma con un conteggio onesto"
+
+
 class TestIdentitaNorme:
     """Fallback `norma:*` e duplicati `dl:` vs URN.
 

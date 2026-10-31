@@ -46,6 +46,8 @@ class TestCoverageContract:
             "edges",
             "edge_pct",
             "note",
+            "formulaic_edges",
+            "formulaic_pct",
         } <= cols
 
     def test_one_row_per_relation(self, con):
@@ -120,6 +122,21 @@ class TestFunnel:
         ).fetchone()[0]
         assert pct is not None, "emendamento senza funnel dichiarato"
         assert pct >= 80, f"emendamenti collegati al {pct}% (atteso >=80%)"
+
+    def test_formulaici_dichiarati(self, con):
+        """Gli edge formulaici restano nel conteggio, ma sono dichiarati.
+
+        Il funnel non deve sembrare migliore solo perché un edge è etichettato:
+        `edges` è il lordo, `formulaic_edges` dice quanti sono di preambolo.
+        """
+        edges, formulaic = con.execute(
+            "SELECT edges, formulaic_edges FROM coverage WHERE relation = 'riferimento'"
+        ).fetchone()
+        ricalcolati = con.execute(
+            "SELECT COUNT(*) FROM edges WHERE is_formulaic"
+        ).fetchone()[0]
+        assert formulaic == ricalcolati, (formulaic, ricalcolati)
+        assert 0 < formulaic < edges, (formulaic, edges)
 
     def test_citation_funnel_not_collapsing(self, con):
         """Guardrail: le citazioni non devono perdere più della metà delle coppie.

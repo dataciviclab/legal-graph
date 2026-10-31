@@ -70,20 +70,26 @@ Limiti dichiarati:
   **Effetto**: `referenced_by`/`impact_score` cambiano per i **916 atti** che
   avevano l'autoanello; i numeri pubblicati prima del 2026-10-30 li includono.
 
-## Perché `impact_score` è gonfiato dal boilerplate
+## Evidenza formulaica (`is_formulaic`)
 
-`referenced_by`/`impact_score` contano tutti gli edge `riferimento` in ingresso,
-e alcuni sono citazioni formulaiche. Caso misurato: **il D.P.R. 1092/1985**
-(testo unico sulla pubblicazione ufficiale) ha 4.830 riferimenti in ingresso,
-di cui **2.890 dalla stessa frase di preambolo** ("…sulle pubblicazioni
-ufficiali della Repubblica italiana, approvato con [D.P.R. 28 dicembre 1985,
-n. 1092]…") presente in quasi ogni atto. Il link è reale, la citazione è vuota
-di contenuto: per questo il D.P.R. 1092 è #2 nella classifica "critical" senza
-essere un hub normativo. Edge con snippet condiviso da >50 atti: **2.901**.
+`edges.is_formulaic` marca le citazioni in cui lo **stesso** snippet è usato da
+più di 50 atti distinti: **3.140 edge** (3,1% dei `riferimento`), di cui 2.727
+al D.P.R. 1092/1985 (la clausola di pubblicazione che ogni preambolo ripete).
+Il match è **esatto**: normalizzare lo snippet (lower, primi N caratteri)
+porterebbe a 14.178 edge su 1.790 target e catturerebbe citazioni AKN legittime
+di conversione.
 
-Decisione aperta: declassare queste citazioni in `impact_score` (es. escludere
-gli snippet formulaici) o tenerle e dichiararle. Oggi sono dichiarate, non
-filtrate.
+`mart_legal_node_metrics` esclude i flaggati da `referenced_by`/`impact_score`
+ed espone `formulaic_by`: il lordo è `referenced_by + formulaic_by`. Effetto: il
+D.P.R. 1092 passa da 4.831 a **2.104** riferimenti e la classifica "critical"
+torna dominata dalla Costituzione (art. 3, 24, 117, 76, 97).
+
+`mart_legal_coverage` dichiara `formulaic_edges`/`formulaic_pct` per relazione:
+il funnel conta il **lordo**, così non sembra migliorato solo perché etichettato.
+
+**Limite noto**: 57.002 dei 101.583 edge `riferimento` (**56%**) hanno
+`evidence = 'akn:ref'`, senza testo: la regola >50 giudica solo i 44.577 con
+snippet. Il prossimo passo per l'impatto è l'evidenza AKN, non la soglia.
 
 ## Composizione nodi (~522k)
 

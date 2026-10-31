@@ -148,7 +148,13 @@ funnel AS (
 ),
 
 all_edges AS (
-    SELECT relation, count(*) AS edges
+    SELECT
+        relation,
+        count(*) AS edges,
+        -- edge con evidenza formulaica (>50 atti con lo stesso snippet):
+        -- restano nel conteggio, il funnel non "migliora" solo perché
+        -- sono etichettati.
+        count(*) FILTER (WHERE is_formulaic) AS formulaic_edges
     FROM mart_legal_edges
     GROUP BY relation
 )
@@ -160,7 +166,11 @@ SELECT
     f.natural_pairs,
     COALESCE(e.edges, 0) AS edges,
     ROUND(100.0 * COALESCE(e.edges, 0) / NULLIF(f.natural_pairs, 0), 1) AS edge_pct,
-    COALESCE(f.note, '1:1: una riga upstream produce un edge') AS note
+    COALESCE(f.note, '1:1: una riga upstream produce un edge') AS note,
+    COALESCE(e.formulaic_edges, 0) AS formulaic_edges,
+    ROUND(
+        100.0 * COALESCE(e.formulaic_edges, 0) / NULLIF(e.edges, 0), 1
+    ) AS formulaic_pct
 FROM all_edges e
 FULL OUTER JOIN funnel f ON f.relation = e.relation
 ORDER BY edges DESC, relation

@@ -816,21 +816,22 @@ edges_itercost_rev AS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'revisione:' || i.rev_urn
       )
-)
+),
 
-SELECT
-    source_id,
-    relation,
-    target_id,
-    -- MAX, non SUM: una coppia presente sia come regex sia come AKN non deve
-    -- sommare i pesi (double-count). Il peso regex è già per coppia.
-    MAX(weight) AS weight,
-    MIN(source_year) AS source_year,
-    MAX(target_year) AS target_year,
-    -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
-    -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
-    MIN(evidence) AS evidence
-FROM (
+grouped AS (
+    SELECT
+        source_id,
+        relation,
+        target_id,
+        -- MAX, non SUM: una coppia presente sia come regex sia come AKN non deve
+        -- sommare i pesi (double-count). Il peso regex è già per coppia.
+        MAX(weight) AS weight,
+        MIN(source_year) AS source_year,
+        MAX(target_year) AS target_year,
+        -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
+        -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
+        MIN(evidence) AS evidence
+    FROM (
     SELECT * FROM edges_riferimenti
     UNION ALL
     SELECT * FROM edges_citazioni
@@ -884,12 +885,46 @@ FROM (
     SELECT * FROM edges_votazione
     UNION ALL
     SELECT * FROM edges_itercost_atto
-    UNION ALL
-    SELECT * FROM edges_itercost_rev
+        UNION ALL
+        SELECT * FROM edges_itercost_rev
+    )
+    -- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
+    -- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
+    -- tra atti. Senza questo filtro l'edge più pesante del grafo è un self-loop
+    -- (D.Lgs 58/1998 → sé stesso, weight 436) e le metriche di impatto lo contano.
+    WHERE source_id <> target_id
+    GROUP BY source_id, relation, target_id
+),
+
+-- Evidenza formulaica o non informativa: lo **stesso** snippet usato da più di
+-- 50 atti distinti per citare lo stesso target. Caso tipico: la clausola di
+-- pubblicazione in ogni preambolo ("…pubblicazioni ufficiali… D.P.R.
+-- 1092/1985"). Misurato 2026-11: 7 gruppi, 3.140 edge, un solo target.
+--
+-- Il match è **esatto**: normalizzare (lower, primi N char) porta a 14.178
+-- edge su 1.790 target e cattura citazioni AKN legittime di conversione.
+-- Il flag si calcola DOPO il GROUP BY, sulle righe pubblicate: chi legge il
+-- mart può ricontarlo e ottenere lo stesso numero.
+formulaic_evidence AS (
+    SELECT evidence
+    FROM grouped
+    WHERE relation = 'riferimento'
+      AND evidence IS NOT NULL
+      AND evidence <> 'akn:ref'
+    GROUP BY 1
+    HAVING COUNT(DISTINCT source_id) > 50
 )
--- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
--- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
--- tra atti. Senza questo filtro l'edge più pesante del grafo è un self-loop
--- (D.Lgs 58/1998 → sé stesso, weight 436) e le metriche di impatto lo contano.
-WHERE source_id <> target_id
-GROUP BY source_id, relation, target_id
+
+SELECT
+    g.source_id,
+    g.relation,
+    g.target_id,
+    g.weight,
+    g.source_year,
+    g.target_year,
+    g.evidence,
+    (
+        g.relation = 'riferimento'
+        AND g.evidence IN (SELECT evidence FROM formulaic_evidence)
+    ) AS is_formulaic
+FROM grouped g

@@ -3,6 +3,11 @@
 -- Legge le tabelle DuckDB create prima nel run MART
 -- (mart_legal_nodes, mart_legal_edges) — ordine in dataset.yml obbligatorio.
 -- Stesse colonne del vecchio graph_metrics.parquet (script rimosso).
+--
+-- `is_formulaic` (evidenza ripetuta su >50 atti, es. clausola di pubblicazione
+-- al D.P.R. 1092/1985): gli edge flaggati **non** contano in `referenced_by`
+-- né in `impact_score`, ma sono esposti in `formulaic_by`. Il lordo è
+-- `referenced_by + formulaic_by`, quindi il declassamento è ispezionabile.
 
 WITH incoming AS (
     SELECT
@@ -19,6 +24,14 @@ WITH incoming AS (
         'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
         'evoca_parametro', 'abroga', 'attua_delega'
     )
+      AND NOT is_formulaic
+    GROUP BY target_id
+),
+
+formulaic AS (
+    SELECT target_id, COUNT(*) AS formulaic_by
+    FROM mart_legal_edges
+    WHERE is_formulaic
     GROUP BY target_id
 ),
 
@@ -36,6 +49,7 @@ outgoing AS (
         'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
         'evoca_parametro', 'abroga', 'attua_delega'
     )
+      AND NOT is_formulaic
     GROUP BY source_id
 )
 
@@ -79,7 +93,9 @@ SELECT
         WHEN i.last_referenced_year IS NOT NULL AND i.last_referenced_year < 2010 THEN 'dormant'
         WHEN i.last_referenced_year IS NOT NULL AND i.last_referenced_year < 2015 THEN 'declining'
         ELSE NULL
-    END AS activity_level
+    END AS activity_level,
+    COALESCE(f.formulaic_by, 0) AS formulaic_by
 FROM mart_legal_nodes n
 LEFT JOIN incoming i ON n.id = i.target_id
 LEFT JOIN outgoing o ON n.id = o.source_id
+LEFT JOIN formulaic f ON n.id = f.target_id
