@@ -49,6 +49,33 @@ def test_search_data_field(search_ready):
     assert rows and rows[0].get("data"), "campo data assente nei risultati search"
 
 
+def test_ranking_premia_la_norma_vigente(search_ready):
+    """La norma in vigore batte quelle abrogate con lo stesso tema.
+
+    Il ranking usa `referenced_by` prima della vigenza: i codici abrogati
+    (163/2006, 50/2016), citati per decenni, battevano il 36/2023 vigente.
+    """
+    rows = m._impl_search("codice dei contratti pubblici", limit=6)
+    ids = [r["id"] for r in rows]
+    vigente = next((i for i, r in enumerate(ids) if "2023-03-31;36" in r), None)
+    assert vigente is not None, f"36/2023 assente dai risultati: {ids}"
+    abrogati = [i for i, r in enumerate(ids) if any(y in r for y in ("2006-04-12;163", "2016-04-18;50"))]
+    assert all(vigente < i for i in abrogati), (
+        f"norma abrogata sopra quella vigente: {ids}"
+    )
+
+
+def test_search_dedup_documento_atto(search_ready):
+    """Lo stesso atto del Senato non esce come documento + atto."""
+    rows = m._impl_search("responsabilità amministrativa", limit=20)
+    ids = {r["id"] for r in rows}
+    doppi = {
+        i for i in ids
+        if i.startswith("senato:atto:") and i.replace("senato:atto:", "senato:") in ids
+    }
+    assert not doppi, f"stesso atto due volte in search: {doppi}"
+
+
 def test_search_hybrid_dlgs(search_ready):
     rows = m._impl_search("D.Lgs 231/2001", limit=3)
     assert any("decreto.legislativo:2001-06-08;231" in r["id"] for r in rows)
