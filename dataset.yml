@@ -284,7 +284,7 @@ mart:
         primary_key: [id]
         min_rows: 10000
       mart_legal_search_keys:
-        required_columns: [id, title_folded, is_major]
+        required_columns: [id, title_folded]
         primary_key: [id]
         min_rows: 10000
       mart_legal_texts:

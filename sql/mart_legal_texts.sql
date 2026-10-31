@@ -2,6 +2,7 @@
 --
 -- Ordine: dopo mart_legal_nodes (e support già dichiarati in dataset.yml).
 -- Copre: articoli Cost. (testo) + pronunce Corte (testo/dispositivo).
+-- `esito` rimossa 2026-11: era NULL su tutte le righe, nessun consumer.
 -- Massime: vedi mart_legal_massime (campi chiave per search/query).
 
 WITH articoli AS (
@@ -11,8 +12,7 @@ WITH articoli AS (
         a.heading AS title,
         a.testo AS testo,
         NULL::VARCHAR AS dispositivo,
-        NULL::VARCHAR AS ecli,
-        NULL::VARCHAR AS esito
+        NULL::VARCHAR AS ecli
     FROM read_parquet('{support.articoli_costituzione.path}') a
     WHERE a.articolo IS NOT NULL AND NULLIF(a.testo, '') IS NOT NULL
 ),
@@ -25,14 +25,13 @@ pronunce AS (
         COALESCE(p.ecli, 'sentenza') AS title,
         p.testo AS testo,
         p.dispositivo AS dispositivo,
-        p.ecli AS ecli,
-        NULL::VARCHAR AS esito
+        p.ecli AS ecli
     FROM read_parquet('{support.pronunce_corte_costituzionale.path}') p
     WHERE p.anno_pronuncia IS NOT NULL AND p.numero_pronuncia IS NOT NULL
 )
 
-SELECT id, kind, title, testo, dispositivo, ecli, esito
+SELECT id, kind, title, testo, dispositivo, ecli
 FROM articoli
 UNION ALL
-SELECT id, kind, title, testo, dispositivo, ecli, esito
+SELECT id, kind, title, testo, dispositivo, ecli
 FROM pronunce

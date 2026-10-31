@@ -50,16 +50,18 @@ class TestNodes:
         assert count > 400_000, f"Expected >400K nodes, got {count}"
 
     def test_no_duplicate_ids(self, con):
+        """`id` è chiave primaria del mart: un duplicato rompe i join MCP.
+
+        Il filtro sui `promovimento:` era un'eccezione per un bug chiuso
+        (dedup in build_legal_nodes.py, script poi rimosso): ora vale per tutti.
+        """
         dups = con.execute("""
             SELECT id, COUNT(*) as cnt
             FROM nodes
             GROUP BY id
             HAVING cnt > 1
         """).fetchall()
-        # Known issue: 197 promovimento duplicates (fix applied in build_legal_nodes.py)
-        # Will resolve on next graph rebuild. Filter them for now.
-        real_dups = [d for d in dups if not d[0].startswith("promovimento:")]
-        assert len(real_dups) == 0, f"Found {len(real_dups)} non-promovimento duplicate node IDs"
+        assert not dups, f"{len(dups)} id duplicati, es. {[d[0] for d in dups[:3]]}"
 
     def test_all_nodes_have_tipo(self, con):
         missing = con.execute("""

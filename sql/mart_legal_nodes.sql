@@ -1,7 +1,8 @@
 -- mart_legal_nodes.sql — nodi unici del Legal Knowledge Graph
 --
--- Una riga per nodo (id unico). Colonne allineate allo storico
--- data/legal_nodes.parquet per non rompere MCP/dashboard.
+-- Una riga per nodo (id unico). Schema canonico del mart: il layer legacy
+-- (`data/*.parquet`) e la dashboard sono stati rimossi, qui non ci sono più
+-- fallback.
 -- Dedup: `is_current` per normativa (identità dell'atto in italia-corpus:
 -- una sola espressione per URN) + ROW_NUMBER per le altre sorgenti +
 -- esclusione id gia' presenti in normativa (backbone).
