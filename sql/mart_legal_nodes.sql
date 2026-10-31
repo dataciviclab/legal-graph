@@ -876,28 +876,66 @@ all_nodes AS (
 
 SELECT
     id,
-    CASE tipo
-        WHEN 'emend' THEN 'Emendamento'
-        WHEN 'emendc' THEN 'Emendamento con contributo'
-        WHEN 'sommcomm' THEN 'Sommario commissione'
-        WHEN 'resaula' THEN 'Risoluzione assemblea'
-        WHEN 'ordinaria' THEN 'Legge ordinaria'
-        WHEN 'ddlpres' THEN 'DDL del Presidente'
-        WHEN 'ddldcomm' THEN 'DDL commissione'
-        WHEN 'ddlmess' THEN 'DDL messaggio'
-        WHEN 'S' THEN 'Sentenza'
-        WHEN 'O' THEN 'Ordinanza'
-        WHEN 'DIR_DEL' THEN 'Direttiva delegata'
-        WHEN 'DIR_IMPL' THEN 'Direttiva di implementazione'
-        WHEN 'REG_DEL' THEN 'Regolamento delegato'
-        WHEN 'REG_IMPL' THEN 'Regolamento di implementazione'
-        WHEN 'SENATORE' THEN 'Senatore'
-        WHEN 'DEPUTATO' THEN 'Deputato'
-        WHEN 'VOTAZIONE' THEN 'Votazione'
-        WHEN 'DDL COSTITUZIONALE' THEN 'DDL Costituzionale'
-        WHEN 'GIUDICE' THEN 'Giudice'
-        WHEN 'PROMOVIMENTO' THEN 'Atto di promovimento'
-        ELSE tipo
+    CASE
+        -- codici grezzi delle fonti Senato (emendamenti / dibattito)
+        WHEN tipo IN ('emend', 'emendc', 'Emendamento', 'Emendamento con contributo') THEN 'EMENDAMENTO'
+        WHEN tipo IN ('sommcomm', 'Sommario commissione') THEN 'SOMMARIO'
+        WHEN tipo IN ('resaula', 'Risoluzione assemblea') THEN 'RISOLUZIONE'
+        WHEN tipo IN ('ddlpres', 'ddldcomm', 'ddlmess', 'DDL del Presidente',
+                      'DDL commissione', 'DDL messaggio') THEN 'DDL'
+        WHEN tipo IN ('S', 'Sentenza') THEN 'SENTENZA'
+        WHEN tipo IN ('O', 'Ordinanza') THEN 'ORDINANZA'
+        WHEN tipo IN ('SENATORE', 'Senatore') THEN 'SENATORE'
+        WHEN tipo IN ('DEPUTATO', 'Deputato') THEN 'DEPUTATO'
+        WHEN tipo IN ('VOTAZIONE', 'Votazione') THEN 'VOTAZIONE'
+        WHEN tipo IN ('GIUDICE', 'Giudice') THEN 'GIUDICE'
+        WHEN tipo IN ('PROMOVIMENTO', 'Atto di promovimento') THEN 'ATTO DI PROMOVIMENTO'
+        WHEN tipo = 'ATTO CAMERA' THEN 'ATTO CAMERA'
+        -- Atti parlamentari: open-politica mette la `natura` nel campo tipo
+        -- (a volte una data, per drift upstream). Sono DDL, non leggi.
+        WHEN source IN ('senato', 'senato_corpus', 'camera_ddl', 'iter_costituzionale')
+             AND LOWER(tipo) LIKE '%costituz%' THEN 'DDL COSTITUZIONALE'
+        WHEN source IN ('senato', 'senato_corpus', 'camera_ddl', 'iter_costituzionale') THEN 'DDL'
+        -- Norme regionali/provinciali citate dalla Corte: un solo tipo canonico
+        WHEN tipo LIKE 'LEGGE DELLA REGIONE%' OR tipo LIKE 'LEGGE REGIONE%'
+          OR tipo LIKE 'LEGGE PROVINCIA%' OR tipo LIKE 'LEGGE DELLA PROVINCIA%'
+          OR LOWER(tipo) = 'legge regionale' THEN 'LEGGE REGIONALE'
+        -- Descrizioni delle massime (`norma:*`): minuscole, spesso con
+        -- qualificazioni regionali/ministeriali. Normalizzo solo i tipi
+        -- ricorrenti; il resto resta ALTRO (0,1% dei nodi).
+        WHEN LOWER(tipo) = 'legge' THEN 'LEGGE'
+        WHEN LOWER(tipo) = 'legge di conversione' THEN 'LEGGE'
+        WHEN LOWER(tipo) = 'decreto legge' THEN 'DECRETO-LEGGE'
+        WHEN LOWER(tipo) = 'decreto legge luogotenenziale' THEN 'DECRETO LEGISLATIVO LUOGOTENENZIALE'
+        WHEN LOWER(tipo) = 'decreto legislativo' THEN 'DECRETO LEGISLATIVO'
+        WHEN LOWER(tipo) = 'legge costituzionale' THEN 'LEGGE COSTITUZIONALE'
+        WHEN LOWER(tipo) = 'decreto del presidente della repubblica'
+            THEN 'DECRETO DEL PRESIDENTE DELLA REPUBBLICA'
+        WHEN LOWER(tipo) = 'decreto ministeriale' OR LOWER(tipo) LIKE 'decreto del ministro%'
+            THEN 'DECRETO MINISTERIALE'
+        -- Tipi normativi canonici (normativa, costituzione, gu)
+        WHEN tipo = 'COSTITUZIONE' THEN 'COSTITUZIONE'
+        WHEN tipo IN ('LEGGE', 'legge', 'Legge ordinaria') THEN 'LEGGE'
+        WHEN tipo = 'LEGGE COSTITUZIONALE' THEN 'LEGGE COSTITUZIONALE'
+        WHEN tipo = 'DECRETO-LEGGE' THEN 'DECRETO-LEGGE'
+        WHEN tipo = 'DECRETO LEGISLATIVO' THEN 'DECRETO LEGISLATIVO'
+        WHEN tipo = 'DECRETO LEGISLATIVO LUOGOTENENZIALE' THEN 'DECRETO LEGISLATIVO LUOGOTENENZIALE'
+        WHEN tipo = 'DECRETO' THEN 'DECRETO'
+        WHEN tipo = 'DECRETO DEL PRESIDENTE DELLA REPUBBLICA' THEN 'DECRETO DEL PRESIDENTE DELLA REPUBBLICA'
+        WHEN tipo IN ('DECRETO DEL PRESIDENTE DEL CONSIGLIO DEI MINISTRI',
+                      'DECRETO DEL PRESIDENTE DEL CONSIGLIO')
+            THEN 'DECRETO DEL PRESIDENTE DEL CONSIGLIO DEI MINISTRI'
+        WHEN tipo = 'REGIO DECRETO' THEN 'REGIO DECRETO'
+        WHEN tipo IN ('REGIO DECRETO LEGGE', 'REGIO DECRETO-LEGGE') THEN 'REGIO DECRETO LEGGE'
+        WHEN tipo = 'REGIO DECRETO LEGISLATIVO' THEN 'REGIO DECRETO LEGISLATIVO'
+        WHEN tipo = 'DECRETO LUOGOTENENZIALE' THEN 'DECRETO LUOGOTENENZIALE'
+        WHEN tipo = 'DECRETO MINISTERIALE' THEN 'DECRETO MINISTERIALE'
+        WHEN tipo = 'DIRETTIVA' THEN 'DIRETTIVA'
+        WHEN tipo = 'REGOLAMENTO' THEN 'REGOLAMENTO'
+        WHEN source = 'decreti_legge' THEN 'DECRETO-LEGGE'
+        WHEN source = 'revisioni' THEN 'LEGGE COSTITUZIONALE'
+        WHEN source = 'pnrr' THEN 'PNRR'
+        ELSE 'ALTRO'
     END AS tipo,
     data,
     numero,
