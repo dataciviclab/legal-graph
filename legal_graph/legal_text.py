@@ -120,12 +120,23 @@ def strip_front_matter(text: str) -> str:
 
 
 def articles_overview(text: str) -> dict[str, Any]:
-    """Numeri di articolo disponibili: serve a dire *cosa* esiste, non solo 404."""
-    nums = [m.group(2) for m in _ARTICLE_HEADING.finditer(text)]
+    """Articoli disponibili: serve a dire *cosa* esiste, non solo 404.
+
+    `articles` conta i numeri base (1..229), `headings` tutti gli heading: i
+    `-bis`/`-ter` sono articoli in più ma non alzano il numero massimo, e
+    dichiarare "233 articoli" con `last_article: 229` confondeva.
+    """
+    labels = [m.group(2) for m in _ARTICLE_HEADING.finditer(text)]
+    base: list[str] = []
+    for label in labels:
+        stem = label.split("-")[0]
+        if stem not in base:
+            base.append(stem)
     return {
-        "articles": len(nums),
-        "first_article": nums[0] if nums else None,
-        "last_article": nums[-1] if nums else None,
+        "articles": len(base),
+        "headings": len(labels),
+        "first_article": base[0] if base else None,
+        "last_article": base[-1] if base else None,
     }
 
 

@@ -135,7 +135,7 @@ def legal_node(
     structured_output=True,
 )
 def legal_text(
-    node_id: str, max_chars: int = 8000, articolo: int = 0
+    node_id: str, max_chars: int = 8000, articolo: int | str = 0
 ) -> dict[str, Any]:
     return guard_timed(
         _impl_legal_text,

@@ -76,8 +76,23 @@ Testo dell'articolo due bis.
 
     def test_overview_articoli(self):
         ov = articles_overview(strip_front_matter(self.MD))
-        assert ov["articles"] == 3
+        # 1, 2 e 2-bis: tre heading, due numeri base (i -bis non alzano il massimo)
+        assert ov["headings"] == 3
+        assert ov["articles"] == 2
         assert ov["first_article"] == "1"
+        assert ov["last_article"] == "2"
+
+    def test_articolo_bis(self):
+        found = resolve_node("urn:nir:stato:decreto.legislativo:2023-03-31;36")
+        res = fetch_normativa_text(
+            collezione=found.node["collezione"],
+            filename=found.node["source_filename"],
+            articolo="82-bis",
+            max_chars=800,
+        )
+        assert "error" not in res, res.get("error")
+        assert res["heading"].startswith("### Articolo 82-bis")
+        assert res["articolo"] == "82-bis"
 
     def test_articolo_su_codice_reale(self):
         found = resolve_node("urn:nir:stato:decreto.legislativo:2023-03-31;36")
@@ -136,6 +151,17 @@ class TestMcpLegalText:
         assert out.get("ambiguous") is True
         assert out["candidates"]
         assert "error" in out
+
+    def test_tool_articolo_bis(self):
+        # il tool dichiara `int | str`: "2-bis" deve passare, non essere rifiutato
+        out = _impl_legal_text(
+            "urn:nir:stato:decreto.legislativo:2023-03-31;36",
+            max_chars=800,
+            articolo="82-bis",
+        )
+        assert "error" not in out, out.get("error")
+        assert out["articolo"] == "82-bis"
+        assert out["heading"].startswith("### Articolo 82-bis")
 
     def test_tool_articolo(self):
         out = _impl_legal_text(
