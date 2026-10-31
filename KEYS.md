@@ -129,6 +129,23 @@ Catena emend→atto: `emend.atto_num → nodo senato:{atto_num} → (DDL.urn_nor
 
 > Storico dashboard (senato-akn `mart_per_*`) non fa più parte di questo repo.
 
+## Tipi canonici (`nodes.tipo`)
+
+Il mart espone **30 tipi** (prima 457, con date e `Legge ordinaria` mescolati a
+`LEGGE`). Il filtro `legal_search(tipo=…)` confronta in maiuscolo:
+
+| gruppo | valori |
+|---|---|
+| normativi | `LEGGE` · `LEGGE COSTITUZIONALE` · `LEGGE REGIONALE` · `DECRETO-LEGGE` · `DECRETO LEGISLATIVO` · `DECRETO LEGISLATIVO LUOGOTENENZIALE` · `DECRETO` · `DECRETO DEL PRESIDENTE DELLA REPUBBLICA` · `DECRETO DEL PRESIDENTE DEL CONSIGLIO DEI MINISTRI` · `DECRETO MINISTERIALE` · `REGIO DECRETO` · `REGIO DECRETO LEGGE` · `REGIO DECRETO LEGISLATIVO` · `DECRETO LUOGOTENENZIALE` · `COSTITUZIONE` |
+| parlamentari | `DDL` · `DDL COSTITUZIONALE` · `EMENDAMENTO` · `SOMMARIO` · `RISOLUZIONE` · `VOTAZIONE` · `ATTO CAMERA` |
+| persone | `SENATORE` · `DEPUTATO` · `GIUDICE` |
+| giurisprudenza | `SENTENZA` · `ORDINANZA` · `ATTO DI PROMOVIMENTO` |
+| altro | `PNRR` · `ALTRO` (0,1%) |
+
+Regola: un atto parlamentare è **sempre** `DDL` o `DDL COSTITUZIONALE`, anche se
+open-politica mette la natura nel campo `tipo` (`Legge ordinaria`, una data,
+`di conversione di decreto-legge`). La legge è il nodo URN, non il DDL.
+
 ## Bug Fixati
 
 | # | Bug | Fix | Stato |
