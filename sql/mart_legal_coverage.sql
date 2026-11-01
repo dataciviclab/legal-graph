@@ -70,20 +70,20 @@ ddl_legge AS (
 ),
 
 -- Emendamenti: il denominatore sono gli emendamenti distinti
--- (legislatura, atto, emend_id) — NON i nodi `senato:emend:{leg}:{emend_id}`.
--- `emend_id` è il numero dentro l'atto ("1.1" esiste in centinaia di atti),
--- quindi il nodo aggrega più emendamenti: contare i nodi sottostima gli orfani
--- di ~5× (22.377 nodi vs 124.083 emendamenti).
+-- (legislatura, **fase**, emend_id), la stessa chiave di `edges_emend`.
+-- `emend_id` è il numero dentro l'atto ("1.1" esiste in centinaia di atti):
+-- usare `atto_num` (la directory, replicata fino a 57 volte) gonfiava le coppie
+-- di 6.982 e sottostimava la copertura (85,8% invece di 86,9%).
 emend AS (
     SELECT
         count(*) AS upstream_rows,
         count(DISTINCT (
             CAST(regexp_extract(legislatura, '(\d+)', 1) AS INTEGER),
-            atto_num,
+            fase,
             emend_id
         )) AS natural_pairs
     FROM read_parquet('{support.senato_emendamenti.path}')
-    WHERE emend_id IS NOT NULL AND atto_num IS NOT NULL
+    WHERE emend_id IS NOT NULL AND NULLIF(fase, '') IS NOT NULL
 ),
 
 -- Parametri delle massime: `parametro_codice` dice di quale atto è l'articolo
@@ -135,7 +135,7 @@ funnel AS (
             'senato-akn.senato_emendamenti',
             (SELECT upstream_rows FROM emend),
             (SELECT natural_pairs FROM emend),
-            'Target = nodo atto `senato:<atto_num>`: si perde dove l''atto non è nel grafo (leg 14/15/16, corpus AKN assente). Il denominatore sono gli emendamenti distinti, non i nodi: `emend_id` è il numero dentro l''atto.'
+            'Target = atto della fase (`fase + legislatura → senato_ddl.id_ddl`); fallback su `atto_num` solo quando la directory è unica (`n_atti_fase = 1`). Si perde dove la fase non ha un DDL e la directory è replicata (ambiguo) o l''atto è fuori corpus. Denominatore: emendamenti distinti (leg, fase, numero), non nodi.'
         ),
         (
             'invoca_parametro',
