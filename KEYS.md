@@ -114,6 +114,10 @@ Catena emend→atto: `emend.atto_num → nodo senato:{atto_num} → (DDL.urn_nor
 > è la directory di archiviazione e può essere replicata (fino a 57 copie per fase).
 > `edges_emend` risolve `fase + legislatura → senato_ddl.id_ddl → senato:{id_ddl}`;
 > `atto_num` resta solo come fallback quando la directory è unica (`n_atti_fase = 1`).
+>
+> Id del nodo emendamento: `senato:emend:{legislatura}:{fase}:{numero}` — la fase
+> (S.NNN) è parte dell'identità, altrimenti lo stesso numero in atti diversi
+> collassa su un nodo solo.
 
 ## I Marts del compose legal-graph (2026)
 

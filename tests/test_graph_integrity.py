@@ -356,6 +356,38 @@ class TestIdentitaNorme:
         assert n == 0, f"{n} DL presenti sia come dl:* sia come URN"
 
 
+class TestIdentitaEmendamenti:
+    """`senato:emend:{leg}:{fase}:{numero}`: l'atto entra nell'id.
+
+    Prima l'id era `senato:emend:{leg}:{numero}`: "1.1" esiste in centinaia di
+    atti, quindi un nodo aggregava emendamenti diversi (fino a 427 atti).
+    """
+
+    def test_id_contiene_fase(self, con):
+        bad = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'senato_emend' AND NULLIF(split_part(id, ':', 4), '') IS NULL
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} nodi emendamento senza fase nell'id"
+
+    def test_un_atto_una_fase(self, con):
+        """Tutti gli emendamenti collegati a un atto appartengono alla sua fase."""
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'emendamento'
+              AND target_id = 'senato:40754'
+              AND split_part(source_id, ':', 4) <> 'S.1385'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} emendamenti dell'Italicum con fase diversa"
+
+    def test_nessun_nodo_condiviso(self, con):
+        """L'id è unico: nessun nodo aggregato su più atti."""
+        dup = con.execute("""
+            SELECT COUNT(*) FROM (SELECT id FROM nodes GROUP BY 1 HAVING COUNT(*) > 1)
+        """).fetchone()[0]
+        assert dup == 0
+
+
 class TestTassonomia:
     """`tipo` canonico: pochi valori, nessun dato grezzo.
 
@@ -477,8 +509,9 @@ class TestCardinality:
 
     def test_node_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        # include deputati + votazioni + iter cost da OP/costituzione
-        assert 450_000 <= count <= 560_000, f"Node count {count} outside expected range"
+        # include deputati, votazioni, iter cost e un nodo per emendamento
+        # (legislatura, fase, numero): ~561k emendamenti distinti.
+        assert 750_000 <= count <= 900_000, f"Node count {count} outside expected range"
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]

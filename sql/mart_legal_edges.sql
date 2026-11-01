@@ -327,7 +327,8 @@ emend_target AS (
 
 edges_emend AS (
     SELECT
-        'senato:emend:' || CAST(regexp_extract(t.legislatura, '(\d+)', 1) AS BIGINT) || ':' || t.emend_id AS source_id,
+        'senato:emend:' || CAST(regexp_extract(t.legislatura, '(\d+)', 1) AS BIGINT)
+            || ':' || t.fase || ':' || t.emend_id AS source_id,
         'emendamento' AS relation,
         t.target_id,
         1 AS weight,

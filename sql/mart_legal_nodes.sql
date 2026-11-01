@@ -295,7 +295,11 @@ nodes_emend AS (
         stato, materia, qualita_score, sunsetting_score
     FROM (
         SELECT
-            'senato:emend:' || CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT) || ':' || emend_id AS id,
+            -- identità: (legislatura, fase, numero). `emend_id` è il numero
+            -- dentro l'atto ("1.1" esiste in centinaia di atti): senza la fase
+            -- il nodo aggregava emendamenti diversi dello stesso numero.
+            'senato:emend:' || CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT)
+                || ':' || fase || ':' || emend_id AS id,
             tipologia AS tipo,
             CAST(work_date AS VARCHAR) AS data,
             emend_id AS numero,
@@ -313,7 +317,7 @@ nodes_emend AS (
             NULL::INTEGER AS qualita_score,
             NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
-                PARTITION BY CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT), emend_id
+                PARTITION BY CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT), fase, emend_id
                 ORDER BY document_id
             ) AS _rn
         FROM read_parquet('{support.senato_emendamenti.path}')
