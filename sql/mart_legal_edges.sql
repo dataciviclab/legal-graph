@@ -292,33 +292,54 @@ edges_corpus AS (
       )
 ),
 
-edges_emend AS (
-    -- Target = nodo atto del grafo (`senato:X`), che esiste sia per i DDL di
-    -- open-politica sia per gli atti presenti solo nel corpus AKN (i nodi
-    -- `senato_corpus` creati da nodes_corpus_ddl).
-    --
-    -- Prima il join era solo su `senato_ddl.id_ddl`: leg 19 → 15 atti su 486
-    -- (l'export open-politica si ferma a id 55687, gli emendamenti arrivano a
-    -- 60421), 103.829 emendamenti senza arco su 248.127 (42%). Con l'EXISTS sul
-    -- mart i collegati passano a 225.750 (91%) e gli edge a 665.278.
-    --
-    -- NOTA: `fase` non entra nel join — emend.fase è formato Senato (S.NNNN),
-    -- ddl.fase è formato Camera (C.NNNN). L'atto è identificato da atto_num.
+-- Bridge atto Senato: `fase` (S.NNN) è la chiave, `atto_num` è la directory
+-- di archiviazione e può essere replicata (fino a 57 copie per fase; dedup
+-- upstream 2026-11). Risoluzione del nodo atto in due passi, nell'ordine:
+--   1) fase + legislatura → `senato_ddl.id_ddl`  → `senato:{id_ddl}`
+--   2) fase non in `senato_ddl` e directory unica (`n_atti_fase = 1`)
+--      → `senato:{atto_num}`
+-- Se resta ambiguo (fase fuori da open-politica e directory replicata) non si
+-- emette l'edge: meglio un buco dichiarato in coverage che un atto sbagliato.
+ddl_fase AS (
     SELECT
-        'senato:emend:' || CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS BIGINT) || ':' || e.emend_id AS source_id,
-        'emendamento' AS relation,
-        'senato:' || CAST(e.atto_num AS VARCHAR) AS target_id,
-        1 AS weight,
-        YEAR(e.work_date) AS source_year,
-        NULL::INTEGER AS target_year,
-        LEFT(e.text_integrale, 100) AS evidence
+        CAST(legislatura AS INTEGER) AS legislatura,
+        fase,
+        -- 11 fasi hanno più di un id_ddl: scelta deterministica
+        MIN(id_ddl) AS id_ddl
+    FROM read_parquet({support.senato_ddl.outputs}, union_by_name = true)
+    WHERE id_ddl IS NOT NULL AND NULLIF(fase, '') IS NOT NULL
+    GROUP BY 1, 2
+),
+
+emend_target AS (
+    SELECT
+        e.*,
+        COALESCE(
+            'senato:' || CAST(df.id_ddl AS VARCHAR),
+            CASE WHEN e.n_atti_fase = 1
+                 THEN 'senato:' || CAST(e.atto_num AS VARCHAR) END
+        ) AS target_id
     FROM read_parquet('{support.senato_emendamenti.path}') e
-    WHERE e.emend_id IS NOT NULL AND e.atto_num IS NOT NULL
+    LEFT JOIN ddl_fase df
+      ON df.legislatura = CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS INTEGER)
+     AND df.fase = e.fase
+),
+
+edges_emend AS (
+    SELECT
+        'senato:emend:' || CAST(regexp_extract(t.legislatura, '(\d+)', 1) AS BIGINT) || ':' || t.emend_id AS source_id,
+        'emendamento' AS relation,
+        t.target_id,
+        1 AS weight,
+        YEAR(t.work_date) AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(t.text_integrale, 100) AS evidence
+    FROM emend_target t
+    WHERE t.emend_id IS NOT NULL
+      AND t.target_id IS NOT NULL
       AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'senato:' || CAST(e.atto_num AS VARCHAR)
+          SELECT 1 FROM mart_legal_nodes n WHERE n.id = t.target_id
       )
-    GROUP BY e.legislatura, e.emend_id, e.work_date, e.text_integrale, e.atto_num
 ),
 
 edges_dib AS (

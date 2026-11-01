@@ -416,14 +416,19 @@ class TestEmendamenti:
         assert tot > 200_000, f"attesi >200k nodi emendamento, trovati {tot}"
         assert orfani / tot < 0.15, f"{orfani}/{tot} nodi emendamento isolati"
 
-    def test_collegati_ad_atti_del_corpus(self, con):
-        """Atti presenti solo nel corpus AKN (fuori export open-politica)."""
-        n = con.execute("""
-            SELECT COUNT(*) FROM edges e
+    def test_target_sono_atti_senato(self, con):
+        """Il target è l'atto risolto via `fase` (nodo `senato:*`).
+
+        Il fallback su `atto_num` (nodi `senato_corpus`) vale solo per le fasi
+        fuori da open-politica con directory unica: deve restare minoritario.
+        """
+        righe = dict(con.execute("""
+            SELECT n.source, COUNT(*) FROM edges e
             JOIN nodes n ON n.id = e.target_id
-            WHERE e.relation = 'emendamento' AND n.source = 'senato_corpus'
-        """).fetchone()[0]
-        assert n > 100_000, f"solo {n} emendamenti collegati a nodi del corpus"
+            WHERE e.relation = 'emendamento' GROUP BY 1
+        """).fetchall())
+        assert righe.get("senato", 0) > 450_000, righe
+        assert righe.get("senato_corpus", 0) < 20_000, righe
 
 
 # ── Metrics integrity ───────────────────────────────────────────

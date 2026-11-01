@@ -189,12 +189,11 @@ def test_sentenza_jurisprudence_parametri(search_ready):
 
 
 def test_parliament_counts(search_ready):
-    # DDL 53574: usato al posto di 40754 dopo il fix atto_num (issue #21).
-    # 40754 aveva 0 emendamenti reali — il vecchio join fase+legislatura
-    # produceva falsi positivi.
-    p = m._impl_node("senato:53574", view="parliament")
+    # 40754 = S.1385 Leg17 (Italicum): con il join su `fase` è l'atto giusto,
+    # non più la directory di archiviazione degli emendamenti.
+    p = m._impl_node("senato:40754", view="parliament")
     assert "error" not in p
-    assert (p.get("n_emendamenti") or 0) > 1000
+    assert (p.get("n_emendamenti") or 0) > 10_000, p.get("n_emendamenti")
     assert p.get("emendamenti_per_legislatura")
 
 

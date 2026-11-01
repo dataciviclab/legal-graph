@@ -110,9 +110,10 @@ open-politica.ponte_persona   ←→  senatore:* ↔ deputato:*  [collega edge]
 
 Catena emend→atto: `emend.atto_num → nodo senato:{atto_num} → (DDL.urn_normattiva) → normativa.urn`
 
-> Dal 2026-11 l'edge `emendamento` ha come target il **nodo** `senato:{atto_num}`
-> (`EXISTS` su mart_legal_nodes), non solo `id_ddl` di open-politica: copre anche
-> gli atti presenti solo nel corpus AKN (leg 19).
+> Dal 2026-11 la chiave del bridge è **`fase`** (S.NNN), non `atto_num`: quest'ultimo
+> è la directory di archiviazione e può essere replicata (fino a 57 copie per fase).
+> `edges_emend` risolve `fase + legislatura → senato_ddl.id_ddl → senato:{id_ddl}`;
+> `atto_num` resta solo come fallback quando la directory è unica (`n_atti_fase = 1`).
 
 ## I Marts del compose legal-graph (2026)
 
