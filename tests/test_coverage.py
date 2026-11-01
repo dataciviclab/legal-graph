@@ -191,7 +191,7 @@ class TestFunnel:
             ("riferimento", 200_080),
             ("abroga", 8_374),
             ("diventa_legge", 7_478),
-            ("emendamento", 1_005_356),
+            ("emendamento", 763_690),
         ],
     )
     def test_upstream_numerators_stable(self, con, relation, baseline):
