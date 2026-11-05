@@ -6,7 +6,8 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
+from legal_graph.mcp import db
+from legal_graph.mcp.db import _has_col, _view_exists, locked
 from legal_graph.mcp.textfold import _fold
 from legal_graph.resolve import Resolved, resolve_row
 
@@ -162,7 +163,7 @@ def _top_edges(
 
 
 def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
-    con = _get_con()
+    con = db._get_con()
     if not _view_exists(con, "metrics"):
         return None
     try:
@@ -438,7 +439,6 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
 
 def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
-    _refresh_views(con)
     impugna = con.execute(
         """
         SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
@@ -741,7 +741,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
 
 @locked
 def _impl_node(node_id: str, view: str = "overview", depth: int = 3) -> dict[str, Any]:
-    con = _get_con()
+    con = db._get_con()
     view = (view or "overview").strip().lower()
     if view not in _NODE_VIEWS:
         return {

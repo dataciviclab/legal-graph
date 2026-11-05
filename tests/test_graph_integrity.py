@@ -12,29 +12,7 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from legal_graph.paths import (
-    resolve_edges_file,
-    resolve_metrics_file,
-    resolve_nodes_file,
-    source_exists,
-)
-
-
-@pytest.fixture(scope="module")
-def con():
-    """In-memory DuckDB with graph data loaded (compose o legacy)."""
-    c = duckdb.connect(":memory:")
-    nodes_file = resolve_nodes_file()
-    edges_file = resolve_edges_file()
-    metrics_file = resolve_metrics_file()
-    if source_exists(nodes_file):
-        c.execute(f"CREATE TABLE nodes AS SELECT * FROM read_parquet('{nodes_file}')")
-    if source_exists(edges_file):
-        c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges_file}')")
-    if source_exists(metrics_file):
-        c.execute(f"CREATE TABLE metrics AS SELECT * FROM read_parquet('{metrics_file}')")
-    yield c
-    c.close()
+# La connessione ai mart è la fixture `con` di `tests/conftest.py`.
 
 
 def _has_table(con: duckdb.DuckDBPyConnection, name: str) -> bool:

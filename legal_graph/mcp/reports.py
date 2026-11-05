@@ -8,7 +8,8 @@ import duckdb
 
 from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
-from legal_graph.mcp.db import _get_con, _refresh_views, _view_exists, db_lock, locked
+from legal_graph.mcp import db
+from legal_graph.mcp.db import _view_exists, db_lock, locked
 
 _MAX_ROWS = 100
 
@@ -17,7 +18,6 @@ def _impl_legal_text(
 ) -> dict[str, Any]:
     # solo le letture sul grafo stanno sotto lock: il fetch del testo è di rete
     with db_lock():
-        _refresh_views(_get_con())
         found = resolve_text_node(node_id)
     if found.node is None:
         if found.candidates:
@@ -75,7 +75,7 @@ def _impl_legal_text(
                 return {**base, **ic}
         if source != "normativa":
             with db_lock():
-                texts_ok = _view_exists(_get_con(), "texts")
+                texts_ok = _view_exists(db._get_con(), "texts")
             return {
                 **base,
                 "error": (
@@ -99,7 +99,7 @@ def _impl_legal_text(
             if "error" not in result:
                 return {**base, **result}
         with db_lock():
-            texts_ok = _view_exists(_get_con(), "texts")
+            texts_ok = _view_exists(db._get_con(), "texts")
         return {
             **base,
             "error": (
@@ -122,10 +122,7 @@ def _impl_legal_text(
 
 @locked
 def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
-    con = _get_con()
-    # Un rebuild parziale (`make run`) può aver aggiunto tabelle dopo l'avvio
-    # del server: la connessione è cachata, quindi la view va riconnessa qui.
-    _refresh_views(con)
+    con = db._get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
     sql_clean = (sql or "").strip()
     first = sql_clean.upper().split(None, 1)[0] if sql_clean else ""
@@ -229,7 +226,7 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
 
 @locked
 def _impl_insights(report: str = "summary") -> dict[str, Any]:
-    con = _get_con()
+    con = db._get_con()
     if not _view_exists(con, "metrics"):
         return {
             "error": (

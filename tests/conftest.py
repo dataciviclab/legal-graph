@@ -1,21 +1,27 @@
-"""Fixture condivise per la suite.
+"""Fixture condivise per la suite: una sola connessione ai mart.
 
-I mart sono VIEW su parquet: ogni chiamata MCP rilegge i file (525k nodi,
-525k chiavi di ricerca) e una `legal_search` costa ~1,5s. Materializzando i
-mart in tabelle temporanee all'inizio della sessione la suite scende di oltre
-metà, senza cambiare cosa viene verificato: restano gli stessi dati, letti una
-volta.
+I mart sono VIEW su parquet: ogni chiamata MCP rilegge i file (831k righe su
+`search_keys`) e una `legal_search` costa ~2s. Materializzandoli una volta in
+tabelle temporanee la suite scende di oltre metà, senza cambiare cosa viene
+verificato: restano gli stessi dati, letti una volta.
 
 La materializzazione mantiene la semantica dell'MCP: le tabelle hanno gli
-stessi nomi delle view e `_view_exists` (che guarda `SHOW TABLES`) le vede,
-quindi `_ensure_view`/`_refresh_views` non le ricreano.
+stessi nomi delle view e `_view_exists` le vede, quindi `refresh_views` non le
+ricrea.
+
+Settaggi: il server MCP usa 1 thread e 256MB (scelta prudente, la connessione
+è condivisa). Qui i core ci sono e la memoria è libera, quindi la suite li usa.
+Alzare i thread **senza** alzare la memoria manda DuckDB in OOM (e `_run_sk`
+restituisce `[]`, non un errore).
 """
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
-from legal_graph.mcp import db, node_views, reports, search
+from legal_graph.mcp import db
 from legal_graph.paths import (
     resolve_coverage_file,
     resolve_edges_file,
@@ -29,6 +35,11 @@ from legal_graph.paths import (
     source_exists,
 )
 
+# Da impostare prima che `db._get_con()` crei la connessione: `setdefault` per
+# lasciare la precedenza a chi lancia la suite con valori propri.
+os.environ.setdefault("LEGAL_GRAPH_THREADS", str(min(8, os.cpu_count() or 1)))
+os.environ.setdefault("LEGAL_GRAPH_MEMORY_LIMIT", "3GB")
+
 MART = {
     "nodes": resolve_nodes_file,
     "edges": resolve_edges_file,
@@ -41,86 +52,69 @@ MART = {
     "massime": resolve_massime_file,
 }
 
+_MART_ASSENTE = "mart assente — esegui `make run` o `make download-gcs`"
+
 
 def _materializza(con) -> None:
     """Sostituisce le view con tabelle temporanee equivalenti."""
-    con.execute("SET memory_limit='3GB'")
     for nome, resolver in MART.items():
         path = resolver()
         if not source_exists(path) or not db._view_exists(con, nome):
             continue
-        # solo le VIEW vanno sostituite: se è già una tabella (bootstrap rotto,
-        # o materializzazione già avvenuta) lasciala stare, così l'errore lo
-        # segnala il test di contratto e non un DROP VIEW opaco qui dentro
-        tipo = con.execute(
-            "SELECT table_type FROM information_schema.tables WHERE table_name = ?",
-            [nome],
-        ).fetchone()
-        if tipo and tipo[0] != "VIEW":
+        # solo le VIEW vanno sostituite: se è già una tabella (materializzazione
+        # già avvenuta) lasciala stare, così l'errore lo segnala il test di
+        # contratto e non un DROP VIEW opaco qui dentro
+        if not _e_view(con, nome):
             continue
         con.execute(f"CREATE TEMP TABLE _m_{nome} AS SELECT * FROM read_parquet('{path}')")
         con.execute(f"DROP VIEW {nome}")
         con.execute(f"ALTER TABLE _m_{nome} RENAME TO {nome}")
 
 
-_GET_CON_ORIGINALE = None  # factory non materializzata, salvata dalla fixture autouse
+def _e_view(con, nome: str) -> bool:
+    row = con.execute(
+        "SELECT table_type FROM information_schema.tables WHERE table_name = ?",
+        [nome],
+    ).fetchone()
+    return row is not None and row[0] == "VIEW"
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _mart_in_memoria():
-    """Materializza i mart una volta per connessione creata."""
-    global _GET_CON_ORIGINALE
+    """Materializza i mart una volta, sulla connessione condivisa."""
     originale = db._get_con
-    _GET_CON_ORIGINALE = originale
-    fatti: set[int] = set()
+    fatto = False
 
     def wrapper():
+        nonlocal fatto
         con = originale()
-        if id(con) not in fatti:
+        if not fatto:
             _materializza(con)
-            fatti.add(id(con))
+            fatto = True
         return con
 
-    # i moduli importano `_get_con` per nome: va sostituito dove è usato
-    from legal_graph import mcp_server
-
-    moduli = [db, search, node_views, reports, mcp_server]
-    originali = {mod: mod._get_con for mod in moduli if hasattr(mod, "_get_con")}
-    for mod in originali:
-        mod._get_con = wrapper
-    # i fixture di modulo chiamano `_reset_con()` per avere una connessione
-    # fresca: in una sessione di test il mart non cambia, quindi la connessione
-    # materializzata resta valida e non si ripaga il setup (5s per modulo)
-    reset_originale = mcp_server._reset_con
-    mcp_server._reset_con = lambda: None
+    db._get_con = wrapper
     try:
         yield
     finally:
-        for mod, fn in originali.items():
-            mod._get_con = fn
-        mcp_server._reset_con = reset_originale
+        db._get_con = originale
         db.reset_con()
 
 
 @pytest.fixture(scope="session")
-def get_con_originale(_mart_in_memoria):
-    """Factory di connessione NON materializzata: serve a verificare il
-    bootstrap (view sul parquet), che la materializzazione per velocità salta.
+def con(_mart_in_memoria):
+    """Connessione ai mart, materializzata: quella usata da tutti i test.
 
-    Dipende dalla fixture autouse perché è quella che la salva prima di
-    sostituire `_get_con` nei moduli.
+    In CI (`LEGAL_GRAPH_REQUIRE_MART=1`) un mart mancante è un errore: la
+    pipeline costruisce i mart prima dei test, uno skip silenzioso
+    nasconderebbe un build rotto.
     """
-    assert _GET_CON_ORIGINALE is not None
-    return _GET_CON_ORIGINALE
-
-
-@pytest.fixture(scope="session")
-def mart_pronto():
-    """Salta i test se i mart non sono stati costruiti (`make run`)."""
-    import legal_graph.mcp_server as m
-
-    m._reset_con()
-    con = m._get_con()
-    if not m._has_mart_search(con):
-        pytest.skip("mart assente — esegui `make run`")
-    return con
+    try:
+        connection = db._get_con()
+    except FileNotFoundError:
+        connection = None
+    if connection is None or not db._view_exists(connection, "search_keys"):
+        if os.environ.get("LEGAL_GRAPH_REQUIRE_MART") == "1":
+            pytest.fail(_MART_ASSENTE)
+        pytest.skip(_MART_ASSENTE)
+    return connection

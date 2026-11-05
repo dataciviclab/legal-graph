@@ -7,7 +7,8 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
+from legal_graph.mcp import db
+from legal_graph.mcp.db import _has_col, _view_exists, locked
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
@@ -308,8 +309,7 @@ def _impl_search(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
-    con = _get_con()
-    _refresh_views(con)
+    con = db._get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
     q = (query or "").strip()
     folded = _fold(q)

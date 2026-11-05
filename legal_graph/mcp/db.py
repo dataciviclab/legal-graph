@@ -1,7 +1,26 @@
-"""Connessione DuckDB cachata e VIEW sui mart compose."""
+"""Connessione DuckDB cachata e VIEW sui mart compose.
+
+Tre responsabilità separate in tre punti:
+- `_new_con()`     → connessione con i soli settaggi (thread/memoria da env)
+- `_bootstrap_views()` → lega le VIEW ai parquet risolti da `paths`
+- `_get_con()`     → cache del processo: `_new_con` + `_bootstrap_views`
+
+Tenerle separate permette ai test di esercitare il bootstrap su una
+connessione propria, senza resettare la cache globale del server.
+
+Settaggi (env, default = comportamento server prudente):
+- `LEGAL_GRAPH_THREADS`       → thread DuckDB per query (default 1)
+- `LEGAL_GRAPH_MEMORY_LIMIT`  → memoria per connessione (default 256MB)
+
+Alzare i thread **richiede** di alzare anche la memoria: con 256MB DuckDB va
+in OOM su una singola query parallela e `_run_sk` restituisce `[]` (nessun
+risultato, non un errore). Per la suite: vedi `tests/conftest.py`.
+"""
 from __future__ import annotations
 
 import functools
+import os
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -22,22 +41,47 @@ from legal_graph.paths import (
     source_exists,
 )
 
-_cached_con: duckdb.DuckDBPyConnection | None = None
+_default_con: duckdb.DuckDBPyConnection | None = None
+
+_DEFAULT_THREADS = 1
+_DEFAULT_MEMORY_LIMIT = "256MB"
+_MEMORY_RE = re.compile(r"^\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB)$", re.IGNORECASE)
 
 
 def reset_con() -> None:
     """Drop della connessione cachata (test / rebuild parziale)."""
-    global _cached_con
-    _cached_con = None
+    global _default_con
+    _default_con = None
+
+
+def _settings() -> tuple[int, str]:
+    """Thread e memory limit dalle env, con validazione (errore leggibile)."""
+    raw_threads = os.environ.get("LEGAL_GRAPH_THREADS", "").strip()
+    raw_memory = os.environ.get("LEGAL_GRAPH_MEMORY_LIMIT", "").strip()
+    threads = _DEFAULT_THREADS
+    if raw_threads:
+        try:
+            threads = int(raw_threads)
+        except ValueError as exc:
+            raise ValueError(
+                f"LEGAL_GRAPH_THREADS={raw_threads!r} non intero"
+            ) from exc
+        if threads < 1:
+            raise ValueError(f"LEGAL_GRAPH_THREADS={threads} (atteso >= 1)")
+    memory = raw_memory or _DEFAULT_MEMORY_LIMIT
+    if not _MEMORY_RE.match(memory):
+        raise ValueError(
+            f"LEGAL_GRAPH_MEMORY_LIMIT={memory!r} non valido (es. '512MB', '3GB')"
+        )
+    return threads, memory
 
 
 def _view_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
-    rows = con.execute("SHOW TABLES").fetchall()
-    views = con.execute(
-        "SELECT table_name FROM information_schema.tables WHERE table_type='VIEW'"
-    ).fetchall()
-    names = {r[0] for r in rows} | {r[0] for r in views}
-    return name in names
+    row = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+        [name],
+    ).fetchone()
+    return row is not None
 
 
 def _has_col(con: duckdb.DuckDBPyConnection, view: str, col: str) -> bool:
@@ -80,22 +124,23 @@ def locked(fn):
     return wrapper
 
 
-def _get_con() -> duckdb.DuckDBPyConnection:
-    """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
-    global _cached_con
-    if _cached_con is not None:
-        return _cached_con
+def _new_con() -> duckdb.DuckDBPyConnection:
+    """Connessione DuckDB vuota con i settaggi di processo."""
+    threads, memory = _settings()
+    con = duckdb.connect(":memory:")
+    con.execute(f"SET threads={threads}")
+    con.execute(f"SET memory_limit='{memory}'")
+    return con
+
+
+def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Lega le VIEW ai parquet mart (locale o GCS) risolti da `paths`.
+
+    Chiamata una volta per connessione. Non riconnette: per recuperare mart
+    comparsi dopo il bootstrap usare `refresh_views`.
+    """
     nodes_file = resolve_nodes_file()
     edges_file = resolve_edges_file()
-    metrics_file = resolve_metrics_file()
-    search_keys_file = resolve_search_keys_file()
-    node_rel_file = resolve_node_rel_file()
-    emend_leg_file = resolve_emend_leg_file()
-    texts_file = resolve_texts_file()
-    massime_file = resolve_massime_file()
-    con = duckdb.connect(":memory:")
-    con.execute("SET memory_limit='256MB'")
-    con.execute("SET threads=1")
     if not source_exists(nodes_file) or not source_exists(edges_file):
         raise FileNotFoundError(
             "Mart legal-graph non disponibili. Esegui `make run` locale "
@@ -103,37 +148,30 @@ def _get_con() -> duckdb.DuckDBPyConnection:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    # bilancio di copertura: interrogabile via legal_query (SELECT * FROM coverage)
-    coverage_file = resolve_coverage_file()
-    if source_exists(coverage_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW coverage AS SELECT * FROM read_parquet('{coverage_file}')"
-        )
-    if source_exists(metrics_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
-        )
-    if source_exists(search_keys_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW search_keys AS SELECT * FROM read_parquet('{search_keys_file}')"
-        )
-    if source_exists(node_rel_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW node_rel AS SELECT * FROM read_parquet('{node_rel_file}')"
-        )
-    if source_exists(emend_leg_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW emend_leg AS SELECT * FROM read_parquet('{emend_leg_file}')"
-        )
-    if source_exists(texts_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW texts AS SELECT * FROM read_parquet('{texts_file}')"
-        )
-    if source_exists(massime_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW massime AS SELECT * FROM read_parquet('{massime_file}')"
-        )
-    _cached_con = con
+    for nome, resolver in (
+        ("coverage", resolve_coverage_file),
+        ("metrics", resolve_metrics_file),
+        ("search_keys", resolve_search_keys_file),
+        ("node_rel", resolve_node_rel_file),
+        ("emend_leg", resolve_emend_leg_file),
+        ("texts", resolve_texts_file),
+        ("massime", resolve_massime_file),
+    ):
+        path = resolver()
+        if source_exists(path):
+            con.execute(
+                f"CREATE OR REPLACE VIEW {nome} AS SELECT * FROM read_parquet('{path}')"
+            )
+
+
+def _get_con() -> duckdb.DuckDBPyConnection:
+    """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
+    global _default_con
+    if _default_con is not None:
+        return _default_con
+    con = _new_con()
+    _bootstrap_views(con)
+    _default_con = con
     return con
 
 
@@ -141,20 +179,21 @@ def _ensure_view(
     con: duckdb.DuckDBPyConnection,
     name: str,
     path: str | Path | None,
-) -> bool:
+) -> None:
     """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no."""
-    if not source_exists(path):
-        return _view_exists(con, name)
-    if _view_exists(con, name):
-        return True
+    if not source_exists(path) or _view_exists(con, name):
+        return
     con.execute(
         f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
     )
-    return True
 
 
-def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
-    """Riconnette le view mart dopo un rebuild parziale."""
+def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Riconnette le view mart dopo un rebuild parziale.
+
+    Fuori dal percorso caldo: `_get_con` fa già il bootstrap completo. Serve
+    solo quando `make run` aggiunge una tabella nuova a server avviato.
+    """
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())
     _ensure_view(con, "coverage", resolve_coverage_file())
@@ -164,4 +203,3 @@ def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     _ensure_view(con, "emend_leg", resolve_emend_leg_file())
     _ensure_view(con, "texts", resolve_texts_file())
     _ensure_view(con, "massime", resolve_massime_file())
-
