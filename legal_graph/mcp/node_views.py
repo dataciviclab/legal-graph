@@ -87,21 +87,19 @@ def _node_payload(row: tuple) -> dict[str, Any]:
 
 def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str, Any]:
     if _view_exists(con, "node_rel"):
-        out = dict(
-            con.execute(
-                "SELECT relation, n_out FROM node_rel WHERE id = ? ORDER BY n_out DESC, relation LIMIT 12",
-                [actual_id],
-            ).fetchall()
-        )
-        inn = dict(
-            con.execute(
-                "SELECT relation, n_in FROM node_rel WHERE id = ? ORDER BY n_in DESC, relation LIMIT 12",
-                [actual_id],
-            ).fetchall()
-        )
-        out = {k: int(v or 0) for k, v in out.items()}
-        inn = {k: int(v or 0) for k, v in inn.items()}
-        return {"out": out, "in": inn, "source": "mart_legal_node_rel"}
+        # una scansione sola: dentro e fuori stanno nella stessa riga. Le due
+        # query separate costavano due scan del mart (5,7MB) per un nodo.
+        rows = con.execute(
+            "SELECT relation, n_in, n_out FROM node_rel WHERE id = ?",
+            [actual_id],
+        ).fetchall()
+        out = {r[0]: int(r[2] or 0) for r in rows}
+        inn = {r[0]: int(r[1] or 0) for r in rows}
+        def top(conteggi: dict[str, int]) -> dict[str, int]:
+            """Top 12, tie-break sul nome: ordine stabile tra chiamate."""
+            return dict(sorted(conteggi.items(), key=lambda kv: (-kv[1], kv[0]))[:12])
+
+        return {"out": top(out), "in": top(inn), "source": "mart_legal_node_rel"}
     out = dict(
         con.execute(
             """
@@ -162,8 +160,9 @@ def _top_edges(
     ]
 
 
-def _node_intelligence(actual_id: str) -> dict[str, Any] | None:
-    con = db._get_con()
+def _node_intelligence(
+    con: duckdb.DuckDBPyConnection, actual_id: str
+) -> dict[str, Any] | None:
     if not _view_exists(con, "metrics"):
         return None
     try:
@@ -298,7 +297,7 @@ def _view_overview(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str,
     except Exception:  # noqa: BLE001
         hint = None
     try:
-        intel = _node_intelligence(actual_id)
+        intel = _node_intelligence(con, actual_id)
     except Exception:  # noqa: BLE001
         intel = None
     return {
