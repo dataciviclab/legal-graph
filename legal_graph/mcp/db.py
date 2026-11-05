@@ -8,13 +8,17 @@ Tre responsabilità separate in tre punti:
 Tenerle separate permette ai test di esercitare il bootstrap su una
 connessione propria, senza resettare la cache globale del server.
 
-Settaggi (env, default = comportamento server prudente):
-- `LEGAL_GRAPH_THREADS`       → thread DuckDB per query (default 1)
+Settaggi (env):
+- `LEGAL_GRAPH_THREADS`       → thread DuckDB per query (default min(4, cpu))
 - `LEGAL_GRAPH_MEMORY_LIMIT`  → memoria per connessione (default 256MB)
 
-Alzare i thread **richiede** di alzare anche la memoria: con 256MB DuckDB va
-in OOM su una singola query parallela e `_run_sk` restituisce `[]` (nessun
-risultato, non un errore). Per la suite: vedi `tests/conftest.py`.
+I thread contano: una `legal_search` è uno scan completo di `search_keys`
+(831k righe, nessun indice utilizzabile per `LIKE '%…%'`), quindi passa da
+~2,4s a 1 thread a ~0,9s con 4. Con i mart come VIEW sui parquet 256MB
+bastano anche in parallelo. Se invece le tabelle sono materializzate nella
+stessa connessione (come nella suite) la memoria va alzata: con 256MB e
+~150MB di tabelle temporanee DuckDB va in OOM e `_run_sk` restituisce `[]`
+(nessun risultato, non un errore). Vedi `tests/conftest.py`.
 """
 from __future__ import annotations
 
@@ -43,9 +47,13 @@ from legal_graph.paths import (
 
 _default_con: duckdb.DuckDBPyConnection | None = None
 
-_DEFAULT_THREADS = 1
 _DEFAULT_MEMORY_LIMIT = "256MB"
 _MEMORY_RE = re.compile(r"^\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB)$", re.IGNORECASE)
+
+
+def _default_threads() -> int:
+    """Thread per query: 4 bastano a saturare lo scan, oltre costa memoria."""
+    return max(1, min(4, os.cpu_count() or 1))
 
 
 def reset_con() -> None:
@@ -58,7 +66,7 @@ def _settings() -> tuple[int, str]:
     """Thread e memory limit dalle env, con validazione (errore leggibile)."""
     raw_threads = os.environ.get("LEGAL_GRAPH_THREADS", "").strip()
     raw_memory = os.environ.get("LEGAL_GRAPH_MEMORY_LIMIT", "").strip()
-    threads = _DEFAULT_THREADS
+    threads = _default_threads()
     if raw_threads:
         try:
             threads = int(raw_threads)
