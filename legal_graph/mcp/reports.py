@@ -242,7 +242,7 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
             """
             SELECT id, title, referenced_by, impact_score, age_years
             FROM metrics WHERE impact_level = 'critical'
-            ORDER BY referenced_by DESC LIMIT 20
+            ORDER BY referenced_by DESC, id LIMIT 20
             """
         ).fetchall()
         return {
@@ -258,7 +258,7 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
             """
             SELECT id, title, age_years, referenced_by
             FROM metrics WHERE age_risk = 'obsolete_candidate'
-            ORDER BY age_years DESC LIMIT 20
+            ORDER BY age_years DESC, id LIMIT 20
             """
         ).fetchall()
         return {
@@ -274,7 +274,7 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
             """
             SELECT id, title, "references", referenced_by, age_years
             FROM metrics WHERE complexity_level IN ('very_complex', 'complex')
-            ORDER BY "references" DESC LIMIT 20
+            ORDER BY "references" DESC, id LIMIT 20
             """
         ).fetchall()
         return {
@@ -290,7 +290,7 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
             """
             SELECT id, title, last_referenced_year, referenced_by
             FROM metrics WHERE activity_level = 'dormant' AND referenced_by > 5
-            ORDER BY referenced_by DESC LIMIT 20
+            ORDER BY referenced_by DESC, id LIMIT 20
             """
         ).fetchall()
         return {
@@ -317,13 +317,13 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
     critical = con.execute(
         """
         SELECT id, title, referenced_by FROM metrics
-        WHERE impact_level = 'critical' ORDER BY referenced_by DESC LIMIT 5
+        WHERE impact_level = 'critical' ORDER BY referenced_by DESC, id LIMIT 5
         """
     ).fetchall()
     obsolete = con.execute(
         """
         SELECT id, title, age_years, referenced_by FROM metrics
-        WHERE age_risk = 'obsolete_candidate' ORDER BY age_years DESC LIMIT 5
+        WHERE age_risk = 'obsolete_candidate' ORDER BY age_years DESC, id LIMIT 5
         """
     ).fetchall()
     return {

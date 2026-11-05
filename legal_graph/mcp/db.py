@@ -10,15 +10,15 @@ connessione propria, senza resettare la cache globale del server.
 
 Settaggi (env):
 - `LEGAL_GRAPH_THREADS`       → thread DuckDB per query (default min(4, cpu))
-- `LEGAL_GRAPH_MEMORY_LIMIT`  → memoria per connessione (default 256MB)
+- `LEGAL_GRAPH_MEMORY_LIMIT`  → memoria per connessione (default 1GB)
 
 I thread contano: una `legal_search` è uno scan completo di `search_keys`
 (831k righe, nessun indice utilizzabile per `LIKE '%…%'`), quindi passa da
-~2,4s a 1 thread a ~0,9s con 4. Con i mart come VIEW sui parquet 256MB
-bastano anche in parallelo. Se invece le tabelle sono materializzate nella
-stessa connessione (come nella suite) la memoria va alzata: con 256MB e
-~150MB di tabelle temporanee DuckDB va in OOM e `_run_sk` restituisce `[]`
-(nessun risultato, non un errore). Vedi `tests/conftest.py`.
+~2,4s a 1 thread a ~0,9s con 4. Il limite di memoria è un tetto, non una
+prenotazione (RSS reale ~350MB). 256MB non bastano: la memoria si accumula
+nella connessione tra chiamate, e dopo qualche query pesante i thread
+paralleli vanno in OOM — che ora diventa un errore esplicito (`_errore_sk`),
+non più una lista vuota.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from legal_graph.paths import (
 
 _default_con: duckdb.DuckDBPyConnection | None = None
 
-_DEFAULT_MEMORY_LIMIT = "256MB"
+_DEFAULT_MEMORY_LIMIT = "1GB"
 _MEMORY_RE = re.compile(r"^\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB)$", re.IGNORECASE)
 
 

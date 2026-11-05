@@ -9,10 +9,10 @@ La materializzazione mantiene la semantica dell'MCP: le tabelle hanno gli
 stessi nomi delle view e `_view_exists` le vede, quindi `refresh_views` non le
 ricrea.
 
-Settaggi: il server MCP usa `min(4, cpu)` thread e 256MB (i mart restano VIEW
-sui parquet). Qui servono più thread **e** più memoria, perché la suite
-materializza i mart in tabelle temporanee: con 256MB e ~150MB di tabelle
-DuckDB va in OOM e `_run_sk` restituisce `[]`, non un errore.
+Settaggi: il server MCP usa `min(4, cpu)` thread e 1GB (i mart restano VIEW
+sui parquet). Qui servono più thread e più memoria, perché la suite materializza
+i mart in tabelle temporanee: dentro lo stesso budget, i thread paralleli non
+hanno spazio.
 """
 
 from __future__ import annotations

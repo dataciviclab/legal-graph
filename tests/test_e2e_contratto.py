@@ -256,6 +256,31 @@ def test_node_depth_non_rompe(grafo):
         assert not out.get("error"), f"depth={depth} → {out}"
 
 
+def test_node_chain_deterministica(grafo):
+    """La stessa richiesta deve dare la stessa catena.
+
+    Regressione: `LIMIT 8` per nodo con `ORDER BY weight DESC` e pesi interi
+    (molti pareggi) sceglieva righe diverse a ogni chiamata — l'ordine di scan
+    parallelo decideva il taglio. Per un grafo letto dagli agenti una risposta
+    non riproducibile è un difetto, non un dettaglio.
+    """
+    primo = m.legal_node(CODICE_COMUNICAZIONI, view="chain", depth=3)
+    secondo = m.legal_node(CODICE_COMUNICAZIONI, view="chain", depth=3)
+    assert primo == secondo
+
+
+def test_oom_search_non_e_lista_vuota():
+    """Un OOM di DuckDB deve uscire come errore, non come "nessun risultato"."""
+    import duckdb
+
+    from legal_graph.mcp.search import _errore_sk
+
+    oom = _errore_sk(duckdb.OutOfMemoryException("Out of Memory Error"))
+    assert oom and "error" in oom[0] and "LEGAL_GRAPH_MEMORY_LIMIT" in oom[0]["hint"]
+    # altri errori DuckDB restano vuoti (comportamento preesistente, non un OOM)
+    assert _errore_sk(duckdb.BinderException("Column not found")) == []
+
+
 # --- E. legal_text ------------------------------------------------------------
 
 

@@ -89,13 +89,13 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
     if _view_exists(con, "node_rel"):
         out = dict(
             con.execute(
-                "SELECT relation, n_out FROM node_rel WHERE id = ? ORDER BY n_out DESC LIMIT 12",
+                "SELECT relation, n_out FROM node_rel WHERE id = ? ORDER BY n_out DESC, relation LIMIT 12",
                 [actual_id],
             ).fetchall()
         )
         inn = dict(
             con.execute(
-                "SELECT relation, n_in FROM node_rel WHERE id = ? ORDER BY n_in DESC LIMIT 12",
+                "SELECT relation, n_in FROM node_rel WHERE id = ? ORDER BY n_in DESC, relation LIMIT 12",
                 [actual_id],
             ).fetchall()
         )
@@ -106,7 +106,7 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
         con.execute(
             """
             SELECT relation, COUNT(*) FROM edges WHERE source_id = ?
-            GROUP BY 1 ORDER BY 2 DESC LIMIT 12
+            GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 12
             """,
             [actual_id],
         ).fetchall()
@@ -115,7 +115,7 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
         con.execute(
             """
             SELECT relation, COUNT(*) FROM edges WHERE target_id = ?
-            GROUP BY 1 ORDER BY 2 DESC LIMIT 12
+            GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 12
             """,
             [actual_id],
         ).fetchall()
@@ -140,7 +140,7 @@ def _top_edges(
         FROM edges e
         LEFT JOIN nodes n ON n.id = e.{join_col}
         WHERE e.{column} = ?
-        ORDER BY e.weight DESC
+        ORDER BY e.weight DESC, e.{join_col}, e.relation
         LIMIT ?
         """,
         [actual_id, limit],
@@ -316,77 +316,95 @@ def _view_overview(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str,
     }
 
 
+def _bfs(
+    con: duckdb.DuckDBPyConnection,
+    start: str,
+    depth: int,
+    *,
+    outbound: bool,
+) -> list[tuple[str, str, str, int, str, int | None]]:
+    """BFS per livelli: **una query per livello**, non una per nodo.
+
+    La versione precedente faceva 2 query per ogni nodo visitato (arco + nodo):
+    ~71 query per `depth=3`, ognuna uno scan completo di `edges` (1,2M righe,
+    nessun indice su parquet) → 3,3s sul codice 36/2023. Qui il frontier del
+    livello è un `IN (...)`: 3 scan per direzione.
+
+    Il tie-break esplicito `ORDER BY weight DESC, {nid}` non è cosmetico: i
+    pesi sono interi piccoli, e senza tie-break il `LIMIT 8` per nodo sceglieva
+    righe diverse a ogni chiamata (ordine di scan parallelo) → la stessa catena
+    cambiava da una chiamata all'altra.
+    """
+    a, b = ("source_id", "target_id") if outbound else ("target_id", "source_id")
+    in_rel = ",".join("?" * len(_CHAIN_RELS))
+    visited = {start}
+    frontier = [start]
+    trovate: list[tuple[str, str, str, int, str, int | None]] = []
+    for _ in range(depth):
+        if not frontier:
+            break
+        placeholders = ",".join("?" * len(frontier))
+        rows = con.execute(
+            f"""
+            WITH cand AS (
+                SELECT e.{a} AS parent, e.{b} AS nid, e.relation, e.weight,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY e.{a}
+                           ORDER BY e.weight DESC, e.{b}, e.relation
+                       ) AS rn
+                FROM edges e
+                WHERE e.{a} IN ({placeholders}) AND e.relation IN ({in_rel})
+            )
+            SELECT c.parent, c.nid, c.relation, c.weight,
+                   n.tipo, LEFT(n.title, 100), n.anno
+            FROM cand c LEFT JOIN nodes n ON n.id = c.nid
+            WHERE c.rn <= 8
+            """,
+            [*frontier, *_CHAIN_RELS],
+        ).fetchall()
+        posizione = {nodo: i for i, nodo in enumerate(frontier)}
+        rows.sort(key=lambda r: (posizione[r[0]], -r[3], r[1]))
+        prossimo: list[str] = []
+        for _parent, nid, relation, weight, tipo, title, anno in rows:
+            if nid in visited:
+                continue
+            visited.add(nid)
+            prossimo.append(nid)
+            trovate.append((relation, nid, tipo or "?", title or "", weight, anno))
+        frontier = prossimo
+    return trovate
+
+
 def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> dict[str, Any]:
     actual_id = node_row[0]
     depth = max(1, min(int(depth or 3), 5))
-    forward: list[dict[str, Any]] = []
-    visited = {actual_id}
-    queue: list[tuple[str, int]] = [(actual_id, 0)]
-    in_clause = ",".join("?" * len(_CHAIN_RELS))
-    while queue:
-        current, d = queue.pop(0)
-        if d >= depth:
-            continue
-        edges = con.execute(
-            f"""
-            SELECT relation, target_id, weight FROM edges
-            WHERE source_id = ? AND relation IN ({in_clause})
-            ORDER BY weight DESC LIMIT 8
-            """,
-            [current, *_CHAIN_RELS],
-        ).fetchall()
-        for rel, target, weight in edges:
-            if target in visited:
-                continue
-            visited.add(target)
-            tnode = con.execute(
-                "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 1", [target]
-            ).fetchone()
-            forward.append(
-                {
-                    "relation": rel,
-                    "target_id": target,
-                    "target_tipo": tnode[0] if tnode else "?",
-                    "target_title": (tnode[1] or "")[:100] if tnode else "",
-                    "target_anno": tnode[2] if tnode else None,
-                    "weight": weight,
-                }
-            )
-            queue.append((target, d + 1))
 
-    backward: list[dict[str, Any]] = []
-    visited_b = {actual_id}
-    queue_b: list[tuple[str, int]] = [(actual_id, 0)]
-    while queue_b:
-        current, d = queue_b.pop(0)
-        if d >= depth:
-            continue
-        edges = con.execute(
-            f"""
-            SELECT relation, source_id, weight FROM edges
-            WHERE target_id = ? AND relation IN ({in_clause})
-            ORDER BY weight DESC LIMIT 8
-            """,
-            [current, *_CHAIN_RELS],
-        ).fetchall()
-        for rel, source, weight in edges:
-            if source in visited_b:
-                continue
-            visited_b.add(source)
-            snode = con.execute(
-                "SELECT tipo, title, anno FROM nodes WHERE id = ? LIMIT 1", [source]
-            ).fetchone()
-            backward.append(
-                {
-                    "relation": rel,
-                    "source_id": source,
-                    "source_tipo": snode[0] if snode else "?",
-                    "source_title": (snode[1] or "")[:100] if snode else "",
-                    "source_anno": snode[2] if snode else None,
-                    "weight": weight,
-                }
-            )
-            queue_b.append((source, d + 1))
+    forward = [
+        {
+            "relation": relation,
+            "target_id": nid,
+            "target_tipo": tipo,
+            "target_title": title,
+            "target_anno": anno,
+            "weight": weight,
+        }
+        for relation, nid, tipo, title, weight, anno in _bfs(
+            con, actual_id, depth, outbound=True
+        )
+    ]
+    backward = [
+        {
+            "relation": relation,
+            "source_id": nid,
+            "source_tipo": tipo,
+            "source_title": title,
+            "source_anno": anno,
+            "weight": weight,
+        }
+        for relation, nid, tipo, title, weight, anno in _bfs(
+            con, actual_id, depth, outbound=False
+        )
+    ]
 
     top_riferimenti_in: list[dict[str, Any]] = []
     top_riferimenti_out: list[dict[str, Any]] = []
@@ -396,7 +414,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             SELECT e.source_id, e.weight, n.tipo, LEFT(n.title, 120), n.anno
             FROM edges e JOIN nodes n ON n.id = e.source_id
             WHERE e.target_id = ? AND e.relation = 'riferimento'
-            ORDER BY e.weight DESC LIMIT 5
+            ORDER BY e.weight DESC, e.source_id LIMIT 5
             """,
             [actual_id],
         ).fetchall()
@@ -410,7 +428,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             SELECT e.target_id, e.weight, n.tipo, LEFT(n.title, 120), n.anno
             FROM edges e JOIN nodes n ON n.id = e.target_id
             WHERE e.source_id = ? AND e.relation = 'riferimento'
-            ORDER BY e.weight DESC LIMIT 5
+            ORDER BY e.weight DESC, e.target_id LIMIT 5
             """,
             [actual_id],
         ).fetchall()
@@ -444,7 +462,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'impugna'
-        ORDER BY e.weight DESC LIMIT 15
+        ORDER BY e.weight DESC, e.target_id LIMIT 15
         """,
         [actual_id],
     ).fetchall()
@@ -453,7 +471,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'impugna'
-        ORDER BY e.weight DESC LIMIT 15
+        ORDER BY e.weight DESC, e.source_id LIMIT 15
         """,
         [actual_id],
     ).fetchall()
@@ -487,7 +505,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
         FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
-        ORDER BY e.weight DESC LIMIT 15
+        ORDER BY e.weight DESC, e.source_id LIMIT 15
         """,
         [actual_id],
     ).fetchall()
@@ -497,6 +515,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         SELECT e.target_id, LEFT(n.title, 120), e.evidence
         FROM edges e LEFT JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'relatore_sentenza'
+        ORDER BY e.target_id
         LIMIT 5
         """,
         [actual_id],
@@ -506,7 +525,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         SELECT e.source_id, LEFT(n.title, 120), n.anno
         FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'relatore_sentenza'
-        ORDER BY n.anno DESC LIMIT 15
+        ORDER BY n.anno DESC, e.source_id LIMIT 15
         """,
         [actual_id],
     ).fetchall()
@@ -639,7 +658,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
             SELECT legislatura, n_emend
             FROM emend_leg
             WHERE target_id = ? AND legislatura IS NOT NULL
-            ORDER BY n_emend DESC
+            ORDER BY n_emend DESC, legislatura
             LIMIT 8
             """,
             [actual_id],
@@ -654,7 +673,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
             FROM edges e
             WHERE e.target_id = ? AND e.relation = 'emendamento'
             GROUP BY 1
-            ORDER BY 2 DESC
+            ORDER BY 2 DESC, 1
             LIMIT 8
             """,
             [actual_id],
@@ -671,7 +690,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         SELECT e.source_id, LEFT(n.title, 120), n.anno
         FROM edges e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'intervento'
-        ORDER BY n.anno DESC LIMIT 10
+        ORDER BY n.anno DESC, e.source_id LIMIT 10
         """,
         [actual_id],
     ).fetchall()
@@ -680,6 +699,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         SELECT e.target_id, LEFT(n.title, 120), n.anno
         FROM edges e JOIN nodes n ON e.target_id = n.id
         WHERE e.source_id = ? AND e.relation = 'diventa_legge'
+        ORDER BY e.target_id
         LIMIT 5
         """,
         [actual_id],
