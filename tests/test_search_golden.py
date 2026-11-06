@@ -123,7 +123,7 @@ def test_legal_text_sentenza_and_art(search_ready):
         assert "mart_legal_texts" in t1["error"] or "non trovato" in t1["error"]
     else:
         assert t1.get("text")
-        assert t1.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+        assert t1.get("via") in {"mart_legal_texts", "github_raw", "cache", "locale"}
     t2 = m.legal_text("costituzione:art:3", max_chars=800)
     if "error" not in t2:
         assert "dignità" in (t2.get("text") or "").lower() or "cittadini" in (
@@ -157,7 +157,7 @@ def test_sentenza_alias_no_pad(search_ready):
     assert j["node"]["id"] == "sentenza:2009-0151"
     t = m.legal_text("sentenza:2009-151", max_chars=200)
     assert "error" not in t, t.get("error")
-    assert t.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+    assert t.get("via") in {"mart_legal_texts", "github_raw", "cache", "locale"}
 
 
 def test_legal_text_norma_hint(search_ready):

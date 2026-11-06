@@ -168,11 +168,17 @@ def _candidate_paths(collezione: str, filename: str) -> list[str]:
     return [f"{prefix}/{c}/{filename}" for c in colls]
 
 
-def _fetch_remote(rel_path: str) -> tuple[str, str]:
+def _fetch_remote(rel_path: str) -> tuple[str, str, str]:
+    """(testo, url, via) — `via="cache"` se il testo viene dalla cache locale.
+
+    Serve a distinguere una risposta fresca da una vecchia: prima anche i
+    cache hit si dichiaravano `github_raw`, quindi un agente non poteva sapere
+    se il testo era aggiornato.
+    """
     url = f"{IC_RAW_BASE}/{quote(rel_path)}"
     cached = _read_cache(url)
     if cached is not None:
-        return cached, url
+        return cached, url, "cache"
     result = _get_http().get(url)
     if not result.is_ok:
         raise OSError(str(result.err) if result.err else f"HTTP fallito per {url}")
@@ -182,7 +188,7 @@ def _fetch_remote(rel_path: str) -> tuple[str, str]:
         raise OSError(f"HTTP {status} per {url}")
     text = resp.text
     _write_cache(url, text)
-    return text, url
+    return text, url, "github_raw"
 
 
 def _fetch_local(rel_path: str) -> str | None:
@@ -234,8 +240,7 @@ def fetch_normativa_text(
     # 1) remoto (GitHub raw) — percorso primario del compose
     for rel in candidates:
         try:
-            text, url = _fetch_remote(rel)
-            via = "github_raw"
+            text, url, via = _fetch_remote(rel)
             break
         except OSError as exc:
             errors.append(f"{rel}: {exc}")

@@ -34,6 +34,18 @@ def test_fetch_mart_text_url_non_raggiungibile(monkeypatch, tmp_path):
     assert "assente" in out["error"]
 
 
+def test_cache_hit_dichiarata(monkeypatch, tmp_path):
+    """Un testo servito dalla cache non deve dichiararsi `github_raw`."""
+    from legal_graph import legal_text as lt
+
+    monkeypatch.setattr(lt, "TEXT_CACHE", tmp_path)
+    rel = "Codici/finto.md"
+    lt._write_cache(f"{lt.IC_RAW_BASE}/{rel}", "---\ntitolo: x\n---\ntesto di prova")
+    text, _url, via = lt._fetch_remote(rel)
+    assert via == "cache"
+    assert "testo di prova" in text
+
+
 def test_atto_fuori_collezione_normattiva():
     """I 171 nodi `atti_api` hanno l'URN come filename: non è un 404.
 
@@ -160,7 +172,7 @@ class TestFetchNormativaText:
             max_chars=2000,
         )
         assert "error" not in result
-        assert result["via"] in {"github_raw", "locale"}
+        assert result["via"] in {"github_raw", "cache", "locale"}
         assert result["text"]
         assert result["truncated"] is True  # max_chars=2000
         assert len(result["text"]) <= 2000 + 50
