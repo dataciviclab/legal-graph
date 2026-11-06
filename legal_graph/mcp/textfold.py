@@ -24,6 +24,19 @@ _STOP = frozenset(
         "non", "esiste", "questo", "que", "anche", "altre", "solo", "molto",
         "dopo", "prima", "oltre", "circa", "quale", "quali", "qualcuno",
         "essere", "sono", "ave", "aveva", "sara", "sarebbe",
+        # preposizioni articolate e congiunzioni: senza queste, una domanda
+        # come "sicurezza sul lavoro" richiedeva "sul" *dentro il titolo* e
+        # scartava il D.Lgs 81/2008 (che dice "nei luoghi di lavoro").
+        "sul", "sullo", "sulla", "sui", "sugli", "sulle",
+        "dal", "dallo", "dai", "dagli", "dalle",
+        "col", "colla", "coi", "cogli", "colle", "tra", "fra",
+        "piu", "meno", "senza", "entro", "presso", "verso", "durante",
+        "secondo", "contro", "sopra", "sotto", "quindi", "perche", "affinche",
+        # attacco delle domande dei cittadini: non sono termini del tema
+        "cosa", "chi", "quanto", "quanta", "quanti", "quante",
+        "dice", "dire", "dura", "funziona", "serve", "posso", "puo",
+        "deve", "devo", "trova", "trovo", "chiedere", "richiedere",
+        "ottenere", "avere", "hanno", "fare", "fa", "si",
     }
 )
 
