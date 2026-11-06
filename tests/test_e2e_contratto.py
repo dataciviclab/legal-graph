@@ -381,6 +381,8 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
     monkeypatch.setattr(db, "resolve_texts_file", lambda: mancante)
     monkeypatch.setattr(db, "resolve_massime_file", lambda: mancante)
     monkeypatch.setattr(db, "resolve_edges_in_file", lambda: mancante)
+    # senza metadata leggibile si ricade sul probe per tabella
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: "http://127.0.0.1:9/metadata.json")
     con = db._new_con()
     try:
         db._bootstrap_views(con)
@@ -390,6 +392,48 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
         }
         assert "nodes" in nomi
         assert {"texts", "massime", "edges_in"}.isdisjoint(nomi), nomi
+    finally:
+        con.close()
+
+
+def test_bootstrap_usa_metadata_del_publish(monkeypatch, tmp_path):
+    """`metadata.json` elenca le tabelle caricate: le altre non si creano.
+
+    Evita un probe HTTP per tabella (~0,3s l'uno) a ogni bootstrap in modalità
+    `gcs`. Il test usa mart locali ma un metadata che dichiara un publish
+    parziale: `texts` esiste su disco e non deve finire tra le view.
+    """
+    import json
+
+    from legal_graph.mcp import db
+
+    pubblicate = {
+        "tables": [
+            {"name": n}
+            for n in (
+                "mart_legal_nodes",
+                "mart_legal_edges",
+                "mart_legal_edges_in",
+                "mart_legal_coverage",
+                "mart_legal_node_metrics",
+                "mart_legal_search_keys",
+                "mart_legal_node_rel",
+                "mart_legal_emend_leg",
+            )
+        ]
+    }
+    meta = tmp_path / "metadata.json"
+    meta.write_text(json.dumps(pubblicate), encoding="utf-8")
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: meta)
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert {"nodes", "edges", "edges_in", "coverage"} <= nomi
+        assert {"texts", "massime"}.isdisjoint(nomi), nomi
     finally:
         con.close()
 
