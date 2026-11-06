@@ -117,3 +117,4 @@ LEFT JOIN incoming i ON n.id = i.target_id
 LEFT JOIN outgoing o ON n.id = o.source_id
 LEFT JOIN formulaic f ON n.id = f.target_id
 LEFT JOIN formulaic_out fo ON n.id = fo.source_id
+ORDER BY n.id
