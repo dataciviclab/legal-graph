@@ -1,11 +1,18 @@
 """Path resolution per legal-graph.
 
-Priorità sorgente mart (tabelle leggere del compose):
+Priorità sorgente mart (tabelle del compose):
 1. Variabile d'ambiente LEGAL_GRAPH_MART_DIR (override locale/CI)
 2. compose toolkit locale: out/data/mart/legal_graph/<year>/
 3. GCS pubblico: via lab_connectors.gcs.paths (path contract Lab)
 
-texts / massime: **solo locale** (non nel primo publish GCS).
+`LEGAL_GRAPH_SOURCE` sceglie la sorgente in modo esplicito:
+- `auto` (default): locale se esiste, altrimenti GCS (comportamento storico)
+- `local`: solo mart locali (nessun fallback: se manca, errore a valle)
+- `gcs`: solo GCS, anche se un build locale è presente (evita di servire
+  dati vecchi quando il publish è più fresco)
+
+Il contract di publish copre 9 tabelle: le 7 del grafo sono online, texts e
+massime lo diventano dal primo run di pipeline successivo al 2026-11.
 Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations
@@ -22,7 +29,10 @@ YEAR = "2026"
 
 DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
 
-# Tabelle pubblicate sul GCS (rilascio 1: grafo, no testi lunghi)
+SOURCE_ENV = "LEGAL_GRAPH_SOURCE"
+SOURCE_MODES = ("auto", "local", "gcs")
+
+# Tabelle coperte dal publish GCS (dal 2026-11: anche texts/massime)
 GCS_MART_TABLES = frozenset(
     {
         "mart_legal_nodes",
@@ -33,6 +43,8 @@ GCS_MART_TABLES = frozenset(
         "mart_legal_search_keys",
         "mart_legal_node_rel",
         "mart_legal_emend_leg",
+        "mart_legal_texts",
+        "mart_legal_massime",
     }
 )
 
@@ -43,6 +55,18 @@ def mart_dir() -> Path:
     if env:
         return Path(env)
     return DEFAULT_MART_DIR
+
+
+def source_mode() -> str:
+    """Sorgente richiesta: `auto` | `local` | `gcs` (default `auto`)."""
+    raw = os.environ.get(SOURCE_ENV, "").strip().lower()
+    if not raw:
+        return "auto"
+    if raw not in SOURCE_MODES:
+        raise ValueError(
+            f"{SOURCE_ENV}={raw!r} non valido (attesi: {', '.join(SOURCE_MODES)})"
+        )
+    return raw
 
 
 def gcs_url(table: str) -> str:
@@ -60,11 +84,17 @@ def gcs_url(table: str) -> str:
 
 
 def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:
-    """Risolvi una tabella mart: locale → GCS (se ammesso)."""
+    """Risolvi una tabella mart secondo `LEGAL_GRAPH_SOURCE`.
+
+    `auto`: locale se presente, altrimenti GCS.
+    `local`: solo locale (None se assente, nessun fallback remoto).
+    `gcs`: solo GCS (None se la tabella non è pubblicata o `allow_gcs=False`).
+    """
+    mode = source_mode()
     local = mart_dir() / f"{table}.parquet"
-    if local.exists():
+    if mode in ("auto", "local") and local.exists():
         return local
-    if allow_gcs and table in GCS_MART_TABLES:
+    if mode in ("auto", "gcs") and allow_gcs and table in GCS_MART_TABLES:
         return gcs_url(table)
     return None
 
@@ -123,9 +153,8 @@ def resolve_emend_leg_file() -> PathLike | None:
 
 
 def resolve_texts_file() -> PathLike | None:
-    # non su GCS nel primo rilascio
-    return resolve("mart_legal_texts", allow_gcs=False)
+    return resolve("mart_legal_texts")
 
 
 def resolve_massime_file() -> PathLike | None:
-    return resolve("mart_legal_massime", allow_gcs=False)
+    return resolve("mart_legal_massime")

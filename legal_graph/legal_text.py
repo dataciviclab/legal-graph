@@ -277,11 +277,11 @@ def fetch_mart_text(
 ) -> dict:
     """Testo da mart_legal_texts (articoli Cost. + pronunce Corte)."""
     texts_file = resolve_texts_file()
-    if texts_file is None or not texts_file.exists():
+    if not source_exists(texts_file):
         return {
             "error": (
-                "mart_legal_texts assente — esegui `make run` per produrre "
-                "testi articoli Cost. e pronunce."
+                "mart_legal_texts assente — esegui `make run` o pubblica i mart "
+                "su GCS per i testi di articoli Cost. e pronunce."
             )
         }
     max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
@@ -293,6 +293,10 @@ def fetch_mart_text(
             cols="id, kind, title, testo, dispositivo, ecli",
             node_id=node_id,
         )
+    except duckdb.Error as exc:
+        # URL pubblico non raggiungibile (es. tabella non ancora pubblicata):
+        # errore leggibile invece dell'eccezione DuckDB grezza.
+        return {"error": f"mart_legal_texts non leggibile ({texts_file}): {exc}"}
     finally:
         con.close()
     if res.row is None:
