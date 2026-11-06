@@ -11,6 +11,7 @@
 # Output: out/data/mart/legal_graph/2026/
 #   - mart_legal_nodes.parquet
 #   - mart_legal_edges.parquet
+#   - mart_legal_edges_in.parquet   (stessa tabella, ordinata per target_id)
 
 root: "out"
 schema_version: 1
