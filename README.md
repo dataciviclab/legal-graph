@@ -59,7 +59,7 @@ legal_search("responsabilita amministrativa")
 
 ```bash
 make run          # compose: mart da rete → out/data/mart/ (gitignored)
-make download-gcs # senza build: scarica da GCS (7 tabelle grafo + texts/massime se online)
+make download-gcs # senza build: scarica da GCS (8 tabelle grafo; texts/massime/edges_in se online)
 make test         # integrità + golden search + bilancio copertura
 make lint
 ```
