@@ -223,8 +223,11 @@ def _ensure_view(
 def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     """Riconnette le view mart dopo un rebuild parziale.
 
-    Fuori dal percorso caldo: `_get_con` fa già il bootstrap completo. Serve
-    solo quando `make run` aggiunge una tabella nuova a server avviato.
+    **Non è più automatica.** Veniva chiamata a ogni tool (~50ms di query di
+    catalogo per chiamata) ed è stata tolta dal percorso caldo: `_get_con` fa
+    già il bootstrap completo. Conseguenza voluta: un server già avviato non
+    vede tabelle comparse dopo `make run` — per quello serve riavviare, oppure
+    chiamare questa funzione (la usa il test del bootstrap).
     """
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())

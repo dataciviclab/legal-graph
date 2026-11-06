@@ -1,8 +1,9 @@
 # Pipeline — legal-graph
 #
-# Compose mart-only: build da rete → test → sync GCS (7 tabelle grafo) → registry.
+# Compose mart-only: build da rete → test → sync GCS (10 tabelle mart) → registry.
 # I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
-# texts/massime restano locali/MCP-only nel primo rilascio (no GCS).
+# texts/massime/edges_in sono nel publish: attivi per i client dal primo run
+# di pipeline che li carica (prima l'MCP degrada su GitHub raw / `edges`).
 #
 # Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**|
 # legal_graph/**|tests/**.

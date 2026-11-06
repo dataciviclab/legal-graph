@@ -26,6 +26,8 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
+2b mart_legal_edges_in      ← FROM mart_legal_edges, stesse righe ordinate per
+                              target_id (query in entrata con row-group pruning)
 3 mart_legal_coverage       ← FROM mart_legal_edges + support: righe upstream
                               → coppie distinte → edge (funnel per relazione)
 4 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
@@ -53,7 +55,7 @@ ricalcolati), quindi il bilancio non può divergere dal grafo pubblicato.
 ## Come si usa
 
 ```bash
-make run              # compose da rete → 9 mart
+make run              # compose da rete → 10 mart
 make test             # integrità + golden + E2E di contratto
 make lint
 ```

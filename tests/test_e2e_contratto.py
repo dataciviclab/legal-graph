@@ -257,16 +257,19 @@ def test_node_depth_non_rompe(grafo):
 
 
 def test_node_chain_deterministica(grafo):
-    """La stessa richiesta deve dare la stessa catena.
+    """La stessa richiesta deve dare la stessa catena, per contratto.
 
-    Regressione: `LIMIT 8` per nodo con `ORDER BY weight DESC` e pesi interi
-    (molti pareggi) sceglieva righe diverse a ogni chiamata — l'ordine di scan
-    parallelo decideva il taglio. Per un grafo letto dagli agenti una risposta
-    non riproducibile è un difetto, non un dettaglio.
+    Il taglio `LIMIT 8` per nodo ordinava solo per `weight`: con i pesi interi
+    (molti pareggi) l'ordine dipendeva dallo scan — prima dell'ordinamento dei
+    parquet e con più thread cambiava davvero. Oggi il layout ordinato lo rende
+    stabile per caso; il tie-break (`weight DESC, id, relation`) lo rende un
+    contratto. Il secondo nodo ha cinque relazioni verso lo stesso target
+    (abroga/sostituisce/modifica/split/riferimento): è il caso di pareggio
+    che il test deve coprire.
     """
-    primo = m.legal_node(CODICE_COMUNICAZIONI, view="chain", depth=3)
-    secondo = m.legal_node(CODICE_COMUNICAZIONI, view="chain", depth=3)
-    assert primo == secondo
+    for nid in (CODICE_COMUNICAZIONI, "urn:nir:stato:decreto.legislativo:2024-12-31;209"):
+        chiamate = [m.legal_node(nid, view="chain", depth=2) for _ in range(3)]
+        assert chiamate[0] == chiamate[1] == chiamate[2], f"catena instabile su {nid}"
 
 
 def test_oom_search_non_e_lista_vuota():

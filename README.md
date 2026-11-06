@@ -71,9 +71,13 @@ Output locale: `out/data/mart/legal_graph/2026/` (**non committato**).
 | Tabella | GCS |
 |---|---|
 | `nodes` · `edges` · `edges_in` · `coverage` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` (online) |
-| `texts` · `massime` | stesso path, **dal primo run di pipeline dopo il merge** (oggi solo locali) |
+| `texts` · `massime` | stesso path, **dal primo run di pipeline dopo il merge** (fino ad allora restano locali). Cambio di policy rispetto al «primo rilascio senza testi lunghi»: +16MB pubblicati, in cambio `legal_text` su Costituzione/pronunce non dipende dalla rete |
 
 MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
+
+Le view sui mart sono create al bootstrap della connessione: dopo un `make run`
+che aggiunge tabelle nuove serve **riavviare** l'MCP (il refresh per chiamata è
+stato tolto: costava ~50ms di query di catalogo su ogni tool).
 
 `LEGAL_GRAPH_SOURCE` rende la scelta esplicita:
 

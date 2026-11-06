@@ -52,3 +52,17 @@ class TestAttuaDelega:
               AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = e.target_id)
         """).fetchone()[0]
         assert missing == 0, f"{missing} attua_delega con target non in nodes"
+
+    def test_target_atti_api(self, con):
+        """Gli atti fuori collezione restano bersaglio dell'euristica.
+
+        `support.atti_api` in `normativa_types` serve a questo: senza, gli edge
+        `attua_delega` verso i 171 atti Normattiva API (181 oggi) spariscono.
+        La soglia 1.000 di `test_edges_exist` non se ne accorgerebbe (2.683 →
+        2.502), quindi serve un'asserzione sul sottoinsieme.
+        """
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges e JOIN nodes n ON n.id = e.target_id
+            WHERE e.relation = 'attua_delega' AND n.vigenza_fonte = 'atti_api'
+        """).fetchone()[0]
+        assert n > 50, f"attua_delega verso atti_api: {n} (attesi >50)"

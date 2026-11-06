@@ -374,7 +374,10 @@ def _bfs(
             [*frontier, *_CHAIN_RELS],
         ).fetchall()
         posizione = {nodo: i for i, nodo in enumerate(frontier)}
-        rows.sort(key=lambda r: (posizione[r[0]], -r[3], r[1]))
+        # `relation` chiude l'ordinamento: due relazioni diverse verso lo stesso
+        # nodo (es. abroga + sostituisce) hanno lo stesso peso, e senza il quarto
+        # campo l'etichetta che esce dipende dall'ordine di scan.
+        rows.sort(key=lambda r: (posizione[r[0]], -r[3], r[1], r[2]))
         prossimo: list[str] = []
         for _parent, nid, relation, weight, tipo, title, anno in rows:
             if nid in visited:
