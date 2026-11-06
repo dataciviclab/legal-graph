@@ -157,6 +157,8 @@ normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
 - Coperto bene: catene legislative, `attua_delega`, modifiche AKN (`abroga`/`sostituisce`), Corte Cost. (+ relatore), firmatari Camera/Senato, D.Lgs "di sistema"
 - Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
 - `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts); senza `articolo` restituisce la testa del documento (max 50k caratteri), non l'atto intero
+- `legal_text` dichiara da dove viene il testo (`via`): `mart_legal_texts` (Costituzione/pronunce), `github_raw` (fetch da italia-corpus), `cache` (già in `data/text_cache/`, non è una fetch fresca), `locale` (repo IC clonato)
+- atti fuori collezione IC (`atti_api`, 171 nodi: es. L. 241/1990, L. 194/1978): il testo **non esiste** nel corpus, `legal_text` risponde con `error` + `normattiva_url` (link al testo vigente) invece di un errore di fetch
 - id parziali: `legal_node`/`legal_text` risolvono un id parziale **solo se unico**, altrimenti rispondono `id ambiguo` con i candidati (mai un atto scelto a caso)
 - Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
 - `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata

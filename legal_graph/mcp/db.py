@@ -23,6 +23,7 @@ non più una lista vuota.
 from __future__ import annotations
 
 import functools
+import logging
 import os
 import re
 import threading
@@ -39,6 +40,7 @@ from legal_graph.paths import (
     resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_massime_file,
+    resolve_metadata_file,
     resolve_metrics_file,
     resolve_node_rel_file,
     resolve_nodes_file,
@@ -46,6 +48,8 @@ from legal_graph.paths import (
     resolve_texts_file,
     source_exists,
 )
+
+logger = logging.getLogger(__name__)
 
 _default_con: duckdb.DuckDBPyConnection | None = None
 
@@ -162,17 +166,11 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
     # pipeline (edges_in, texts, massime). `source_exists` dice True anche per
     # una URL che risponde 404 — e DuckDB legge lo schema alla CREATE VIEW,
     # quindi la view fallirebbe subito. `_sorgente_leggibile` fa un probe.
-    for nome, resolver in (
-        ("edges_in", resolve_edges_in_file),
-        ("coverage", resolve_coverage_file),
-        ("metrics", resolve_metrics_file),
-        ("search_keys", resolve_search_keys_file),
-        ("node_rel", resolve_node_rel_file),
-        ("emend_leg", resolve_emend_leg_file),
-        ("texts", resolve_texts_file),
-        ("massime", resolve_massime_file),
-    ):
-        _ensure_view(con, nome, resolver())
+    pubblicate = _tabelle_pubblicate(con)
+    for vista, tabella, resolver in _mart_opzionali():
+        if pubblicate is not None and tabella not in pubblicate:
+            continue
+        _ensure_view(con, vista, resolver(), remoto_verificato=pubblicate is not None)
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
@@ -184,6 +182,44 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     _bootstrap_views(con)
     _default_con = con
     return con
+
+
+def _mart_opzionali() -> tuple[tuple[str, str, object], ...]:
+    """(view, tabella mart, resolver) delle tabelle che possono mancare.
+
+    Costruita a ogni chiamata perché i resolver sono funzioni di modulo:
+    risolverli qui rende sostituibili nei test (come il resto del modulo).
+    """
+    return (
+        ("edges_in", "mart_legal_edges_in", resolve_edges_in_file),
+        ("coverage", "mart_legal_coverage", resolve_coverage_file),
+        ("metrics", "mart_legal_node_metrics", resolve_metrics_file),
+        ("search_keys", "mart_legal_search_keys", resolve_search_keys_file),
+        ("node_rel", "mart_legal_node_rel", resolve_node_rel_file),
+        ("emend_leg", "mart_legal_emend_leg", resolve_emend_leg_file),
+        ("texts", "mart_legal_texts", resolve_texts_file),
+        ("massime", "mart_legal_massime", resolve_massime_file),
+    )
+
+
+def _tabelle_pubblicate(con: duckdb.DuckDBPyConnection) -> set[str] | None:
+    """Tabelle elencate in `metadata.json` del publish, o None se illeggibile.
+
+    Un probe per tabella costa un GET remoto (~0,3s): il metadata è una
+    richiesta sola e dice cosa è stato caricato davvero.
+    """
+    path = resolve_metadata_file()
+    if path is None:
+        return None
+    try:
+        rows = con.execute(
+            "SELECT t.name FROM (SELECT unnest(tables) AS t FROM read_json_auto(?))",
+            [str(path)],
+        ).fetchall()
+    except duckdb.Error:
+        return None
+    nomi = {r[0] for r in rows if r[0]}
+    return nomi or None
 
 
 def _sorgente_leggibile(
@@ -211,13 +247,30 @@ def _ensure_view(
     con: duckdb.DuckDBPyConnection,
     name: str,
     path: str | Path | None,
+    *,
+    remoto_verificato: bool = False,
 ) -> None:
-    """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no."""
-    if not _sorgente_leggibile(con, path) or _view_exists(con, name):
+    """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no.
+
+    `remoto_verificato` salta il probe HTTP: lo usa il bootstrap quando
+    `metadata.json` elenca già quella tabella tra quelle pubblicate.
+    """
+    if _view_exists(con, name) or not source_exists(path):
         return
-    con.execute(
-        f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
-    )
+    if not remoto_verificato and not _sorgente_leggibile(con, path):
+        return
+    try:
+        con.execute(
+            f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
+        )
+    except duckdb.Error as exc:
+        # `remoto_verificato` è un'informazione, non una garanzia: se il bucket
+        # non ha (più) quel parquet la view non è essenziale e la feature
+        # degrada (testi da GitHub raw, archi in entrata su `edges`). Su file
+        # locale invece l'errore deve restare rumoroso.
+        if not is_remote(path):
+            raise
+        logger.warning("view %s non creata (%s): %s", name, path, exc)
 
 
 def refresh_views(con: duckdb.DuckDBPyConnection) -> None:

@@ -99,6 +99,22 @@ def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:
     return None
 
 
+def resolve_metadata_file() -> PathLike | None:
+    """`metadata.json` del publish: elenca le tabelle effettivamente caricate.
+
+    Locale se c'è (accanto ai mart), altrimenti accanto ai parquet su GCS.
+    `None` se la modalità non ammette quella sorgente.
+    """
+    mode = source_mode()
+    local = mart_dir() / "metadata.json"
+    if mode in ("auto", "local") and local.exists():
+        return local
+    if mode in ("auto", "gcs"):
+        # stessa directory dei parquet: lo scrive il publish accanto a loro
+        return gcs_url("mart_legal_nodes").rsplit("/", 1)[0] + "/metadata.json"
+    return None
+
+
 def is_remote(source: PathLike | None) -> bool:
     return isinstance(source, str) and source.startswith(("http://", "https://"))
 

@@ -85,6 +85,18 @@ def test_search_sentenze_with_source(search_ready):
     assert all(r["source"] == "costituzione" for r in rows)
 
 
+def test_stopword_non_nasconde_l_atto(search_ready):
+    """Le preposizioni articolate non devono entrare nell'AND della query.
+
+    "sicurezza sul lavoro" richiedeva la parola "sul" *dentro il titolo* e
+    scartava il D.Lgs 81/2008 ("...nei luoghi di lavoro"). Misurato nell'eval
+    cittadino locale: era 1 dei 9 casi `tema` che fallivano.
+    """
+    rows = m.legal_search("sicurezza sul lavoro", limit=5)
+    ids = [r["id"] for r in rows]
+    assert any("2008-04-09;81" in i for i in ids), ids
+
+
 def test_search_topic_not_overfiltered(search_ready):
     rows = m.legal_search("responsabilità società reati ambientali", limit=3)
     assert rows, "topic libero over-filtrato a 0"
@@ -123,7 +135,7 @@ def test_legal_text_sentenza_and_art(search_ready):
         assert "mart_legal_texts" in t1["error"] or "non trovato" in t1["error"]
     else:
         assert t1.get("text")
-        assert t1.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+        assert t1.get("via") in {"mart_legal_texts", "github_raw", "cache", "locale"}
     t2 = m.legal_text("costituzione:art:3", max_chars=800)
     if "error" not in t2:
         assert "dignità" in (t2.get("text") or "").lower() or "cittadini" in (
@@ -157,7 +169,7 @@ def test_sentenza_alias_no_pad(search_ready):
     assert j["node"]["id"] == "sentenza:2009-0151"
     t = m.legal_text("sentenza:2009-151", max_chars=200)
     assert "error" not in t, t.get("error")
-    assert t.get("via") in {"mart_legal_texts", "github_raw", "locale"}
+    assert t.get("via") in {"mart_legal_texts", "github_raw", "cache", "locale"}
 
 
 def test_legal_text_norma_hint(search_ready):

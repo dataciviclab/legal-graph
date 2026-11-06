@@ -52,6 +52,24 @@ def test_invalid_mode_raises(monkeypatch):
         paths.resolve("mart_legal_nodes")
 
 
+def test_metadata_locale_se_presente(_env_pulita):
+    meta = _env_pulita / "metadata.json"
+    meta.write_text("{}", encoding="utf-8")
+    assert paths.resolve_metadata_file() == meta
+
+
+def test_metadata_su_gcs_in_modalita_gcs(monkeypatch):
+    monkeypatch.setenv(paths.SOURCE_ENV, "gcs")
+    url = paths.resolve_metadata_file()
+    assert str(url).startswith("https://storage.googleapis.com/")
+    assert str(url).endswith("/metadata.json")
+
+
+def test_metadata_none_in_locale_senza_file(monkeypatch):
+    monkeypatch.setenv(paths.SOURCE_ENV, "local")
+    assert paths.resolve_metadata_file() is None
+
+
 @pytest.mark.parametrize(
     "table",
     [

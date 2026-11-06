@@ -298,6 +298,13 @@ def test_text_costituzione(grafo):
     assert out.get("text"), f"nessun testo: {str(out)[:200]}"
 
 
+def test_text_atto_fuori_collezione(grafo):
+    """Atto `atti_api` (fuori collezione IC): errore con link Normattiva."""
+    out = m.legal_text("urn:nir:stato:legge:1978-05-22;194")
+    assert "fuori collezione" in (out.get("error") or ""), out
+    assert out.get("normattiva_url", "").startswith("https://www.normattiva.it/uri-res/N2Ls?urn:nir:")
+
+
 def test_text_nodo_inesistente(grafo):
     out = m.legal_text("urn:nir:stato:legge:1800-01-01;999999")
     assert out.get("error")
@@ -374,6 +381,8 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
     monkeypatch.setattr(db, "resolve_texts_file", lambda: mancante)
     monkeypatch.setattr(db, "resolve_massime_file", lambda: mancante)
     monkeypatch.setattr(db, "resolve_edges_in_file", lambda: mancante)
+    # senza metadata leggibile si ricade sul probe per tabella
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: "http://127.0.0.1:9/metadata.json")
     con = db._new_con()
     try:
         db._bootstrap_views(con)
@@ -383,6 +392,82 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
         }
         assert "nodes" in nomi
         assert {"texts", "massime", "edges_in"}.isdisjoint(nomi), nomi
+    finally:
+        con.close()
+
+
+def test_bootstrap_usa_metadata_del_publish(monkeypatch, tmp_path):
+    """`metadata.json` elenca le tabelle caricate: le altre non si creano.
+
+    Evita un probe HTTP per tabella (~0,3s l'uno) a ogni bootstrap in modalità
+    `gcs`. Il test usa mart locali ma un metadata che dichiara un publish
+    parziale: `texts` esiste su disco e non deve finire tra le view.
+    """
+    import json
+
+    from legal_graph.mcp import db
+
+    pubblicate = {
+        "tables": [
+            {"name": n}
+            for n in (
+                "mart_legal_nodes",
+                "mart_legal_edges",
+                "mart_legal_edges_in",
+                "mart_legal_coverage",
+                "mart_legal_node_metrics",
+                "mart_legal_search_keys",
+                "mart_legal_node_rel",
+                "mart_legal_emend_leg",
+            )
+        ]
+    }
+    meta = tmp_path / "metadata.json"
+    meta.write_text(json.dumps(pubblicate), encoding="utf-8")
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: meta)
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert {"nodes", "edges", "edges_in", "coverage"} <= nomi
+        assert {"texts", "massime"}.isdisjoint(nomi), nomi
+    finally:
+        con.close()
+
+
+def test_bootstrap_metadata_ottimistico(monkeypatch, tmp_path):
+    """Se il metadata elenca una tabella che il bucket non ha più, si degrada.
+
+    Il metadata è un'informazione, non un'autorizzazione: con
+    `remoto_verificato` il probe viene saltato, quindi l'unica difesa è che
+    una `CREATE VIEW` fallita su sorgente remota non faccia cadere il
+    bootstrap (era la classe di bug chiusa in #49).
+    """
+    import json
+
+    from legal_graph.mcp import db
+
+    meta = tmp_path / "metadata.json"
+    meta.write_text(
+        json.dumps({"tables": [{"name": "mart_legal_nodes"},
+                               {"name": "mart_legal_edges"},
+                               {"name": "mart_legal_texts"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: meta)
+    monkeypatch.setattr(db, "resolve_texts_file", lambda: "http://127.0.0.1:9/rimosso.parquet")
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert {"nodes", "edges"} <= nomi
+        assert "texts" not in nomi, "view creata su un parquet che non esiste"
     finally:
         con.close()
 

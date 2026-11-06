@@ -34,6 +34,34 @@ def test_fetch_mart_text_url_non_raggiungibile(monkeypatch, tmp_path):
     assert "assente" in out["error"]
 
 
+def test_cache_hit_dichiarata(monkeypatch, tmp_path):
+    """Un testo servito dalla cache non deve dichiararsi `github_raw`."""
+    from legal_graph import legal_text as lt
+
+    monkeypatch.setattr(lt, "TEXT_CACHE", tmp_path)
+    rel = "Codici/finto.md"
+    lt._write_cache(f"{lt.IC_RAW_BASE}/{rel}", "---\ntitolo: x\n---\ntesto di prova")
+    text, _url, via = lt._fetch_remote(rel)
+    assert via == "cache"
+    assert "testo di prova" in text
+
+
+def test_atto_fuori_collezione_normattiva():
+    """I 171 nodi `atti_api` hanno l'URN come filename: non è un 404.
+
+    Il testo non è in italia-corpus (collezione Normattiva API): la risposta
+    onesta è un errore strutturato con il link, non un path interno e un 404.
+    """
+    out = fetch_normativa_text(
+        collezione="Normattiva API", filename="urn:nir:stato:legge:1978-05-22;194"
+    )
+    assert "error" in out and "fuori collezione" in out["error"]
+    assert out["normattiva_url"] == (
+        "https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:legge:1978-05-22;194"
+    )
+    assert "hint" in out
+
+
 class TestResolveNode:
     def test_resolve_urn_exact(self):
         found = resolve_node("urn:nir:stato:decreto.legge:1996-01-24;30")
@@ -144,7 +172,7 @@ class TestFetchNormativaText:
             max_chars=2000,
         )
         assert "error" not in result
-        assert result["via"] in {"github_raw", "locale"}
+        assert result["via"] in {"github_raw", "cache", "locale"}
         assert result["text"]
         assert result["truncated"] is True  # max_chars=2000
         assert len(result["text"]) <= 2000 + 50
