@@ -21,6 +21,8 @@ from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exi
 from legal_graph.resolve import resolve_row, sql_quote
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
+# URN → testo vigente (link pubblico, usato per gli atti fuori collezione)
+NORMATTIVA_URI = "https://www.normattiva.it/uri-res/N2Ls?"
 # Override opzionale: repo IC clonato in locale (sviluppo/offline)
 IC_LOCAL_ROOT = Path(
     os.environ.get(
@@ -206,6 +208,21 @@ def fetch_normativa_text(
     """
     if not filename:
         return {"error": "source_filename mancante sul nodo normativa"}
+
+    # Atti fuori collezione (`support atti_api`): `source_filename` è l'URN, non
+    # un file markdown di italia-corpus. Il testo non è nel corpus e non c'è
+    # niente da scaricare: dirlo con il link Normattiva invece di lasciare un
+    # 404 su un path interno (171 nodi, incluse leggi note come la 194/1978).
+    if filename.startswith("urn:"):
+        return {
+            "error": (
+                "Atto fuori collezione italia-corpus (Normattiva API): il testo "
+                "non è nel corpus, non è un errore di fetch."
+            ),
+            "collezione": collezione,
+            "normattiva_url": f"{NORMATTIVA_URI}{filename}",
+            "hint": "Il grafo copre nodo e relazioni; per il testo apri normattiva_url.",
+        }
 
     max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
     candidates = _candidate_paths(collezione, filename)

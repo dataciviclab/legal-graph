@@ -298,6 +298,13 @@ def test_text_costituzione(grafo):
     assert out.get("text"), f"nessun testo: {str(out)[:200]}"
 
 
+def test_text_atto_fuori_collezione(grafo):
+    """Atto `atti_api` (fuori collezione IC): errore con link Normattiva."""
+    out = m.legal_text("urn:nir:stato:legge:1978-05-22;194")
+    assert "fuori collezione" in (out.get("error") or ""), out
+    assert out.get("normattiva_url", "").startswith("https://www.normattiva.it/uri-res/N2Ls?urn:nir:")
+
+
 def test_text_nodo_inesistente(grafo):
     out = m.legal_text("urn:nir:stato:legge:1800-01-01;999999")
     assert out.get("error")

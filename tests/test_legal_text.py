@@ -34,6 +34,22 @@ def test_fetch_mart_text_url_non_raggiungibile(monkeypatch, tmp_path):
     assert "assente" in out["error"]
 
 
+def test_atto_fuori_collezione_normattiva():
+    """I 171 nodi `atti_api` hanno l'URN come filename: non è un 404.
+
+    Il testo non è in italia-corpus (collezione Normattiva API): la risposta
+    onesta è un errore strutturato con il link, non un path interno e un 404.
+    """
+    out = fetch_normativa_text(
+        collezione="Normattiva API", filename="urn:nir:stato:legge:1978-05-22;194"
+    )
+    assert "error" in out and "fuori collezione" in out["error"]
+    assert out["normattiva_url"] == (
+        "https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:legge:1978-05-22;194"
+    )
+    assert "hint" in out
+
+
 class TestResolveNode:
     def test_resolve_urn_exact(self):
         found = resolve_node("urn:nir:stato:decreto.legge:1996-01-24;30")
