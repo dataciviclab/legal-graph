@@ -13,7 +13,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
 | SQL derivate | coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/` (7 tabelle grafo: 6 grafo + coverage) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` (7 tabelle grafo online; texts/massime dal primo run dopo il merge) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
@@ -79,7 +79,7 @@ Se manca `search_keys`/`metrics`: errore + hint `make run`.
 | `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
 | `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + **test** + sync GCS + registry PR |
 
-I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). texts/massime restano fuori dal GCS nel primo rilascio.
+I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Dal 2026-11 il publish GCS include anche texts/massime (attivi dal primo run dopo il merge): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
 Locale == CI: stessi target Makefile.
 
@@ -87,7 +87,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 9 tabelle (nodes, edges, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 10 tabelle (nodes, edges, edges_in, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline commit mart |

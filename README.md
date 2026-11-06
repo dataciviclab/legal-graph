@@ -59,7 +59,7 @@ legal_search("responsabilita amministrativa")
 
 ```bash
 make run          # compose: mart da rete → out/data/mart/ (gitignored)
-make download-gcs # senza build: scarica le 7 tabelle grafo da GCS
+make download-gcs # senza build: scarica da GCS (7 tabelle grafo + texts/massime se online)
 make test         # integrità + golden search + bilancio copertura
 make lint
 ```
@@ -70,14 +70,35 @@ Output locale: `out/data/mart/legal_graph/2026/` (**non committato**).
 
 | Tabella | GCS |
 |---|---|
-| `nodes` · `edges` · `coverage` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` |
-| `texts` · `massime` | locale / MCP-only (primo rilascio) |
+| `nodes` · `edges` · `edges_in` · `coverage` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` (online) |
+| `texts` · `massime` | stesso path, **dal primo run di pipeline dopo il merge** (oggi solo locali) |
 
 MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
 
+`LEGAL_GRAPH_SOURCE` rende la scelta esplicita:
+
+| Valore | Comportamento |
+|---|---|
+| `auto` (default) | locale se esiste, altrimenti GCS |
+| `local` | solo build locale (nessun fallback remoto) |
+| `gcs` | solo GCS, anche con build locale presente — evita di servire dati vecchi |
+
+Runtime DuckDB (default pensati per l'MCP locale):
+
+| Variabile | Default | Effetto |
+|---|---|---|
+| `LEGAL_GRAPH_THREADS` | `min(4, cpu)` | thread per query; `legal_search` è uno scan completo di `search_keys` (~2,4s a 1 thread, ~0,9s a 4) |
+| `LEGAL_GRAPH_MEMORY_LIMIT` | `1GB` | tetto di memoria per connessione (non prenotata: RSS reale ~350MB); da alzare se materializzi i mart nella stessa connessione |
+| `LEGAL_GRAPH_REQUIRE_MART` | assente | `1` → mart mancante è un errore, non uno skip (CI) |
+
+Con i mart come VIEW sui parquet 1GB è un tetto comodo, non una prenotazione.
+Con 256MB la memoria si esaurisce dopo qualche query pesante: in OOM la search
+risponde con un errore esplicito, non con una lista vuota.
+
 | Tabella | Ruolo |
 |---|---|
-| `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо |
+| `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо (archi ordinati per `source_id`) |
+| `mart_legal_edges_in` | stessa tabella degli archi ordinata per `target_id`: query "in entrata" con row-group pruning |
 | `mart_legal_coverage` | bilancio righe upstream → coppie → edge, per relazione |
 | `mart_legal_node_metrics` | intelligence (referenced_by, impact, età) |
 | `mart_legal_search_keys` | ranking search (id_num, title_folded) |
