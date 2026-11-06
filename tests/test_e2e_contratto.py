@@ -357,6 +357,33 @@ def test_payload_node_campi(grafo):
 # --- I. Bootstrap della connessione (non coperto dalla materializzazione) -----
 
 
+def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
+    """Una tabella non ancora pubblicata non deve rompere il bootstrap.
+
+    In modalità `gcs` i resolver restituiscono URL: `source_exists` dice True
+    anche per una URL che risponde 404, e DuckDB legge lo schema alla
+    CREATE VIEW, quindi il bootstrap esplodeva su `texts`/`massime` finché la
+    pipeline non le pubblicava. Il probe deve degradare alla tabella assente.
+    """
+    from legal_graph.mcp import db
+
+    mancante = "http://127.0.0.1:9/non_pubblicata.parquet"
+    monkeypatch.setattr(db, "resolve_texts_file", lambda: mancante)
+    monkeypatch.setattr(db, "resolve_massime_file", lambda: mancante)
+    monkeypatch.setattr(db, "resolve_edges_in_file", lambda: mancante)
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert "nodes" in nomi
+        assert {"texts", "massime", "edges_in"}.isdisjoint(nomi), nomi
+    finally:
+        con.close()
+
+
 def test_bootstrap_crea_view_sul_parquet():
     """`_bootstrap_views` deve creare VIEW sui parquet, non tabelle.
 

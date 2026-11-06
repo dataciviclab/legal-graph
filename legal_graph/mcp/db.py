@@ -158,13 +158,12 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    # copia degli archi ordinata per target_id (query "in entrata"): opzionale,
-    # finché non è pubblicata su GCS le view `edges` resta l'unica sorgente
-    if _sorgente_leggibile(con, resolve_edges_in_file()):
-        con.execute(
-            f"CREATE OR REPLACE VIEW edges_in AS SELECT * FROM read_parquet('{resolve_edges_in_file()}')"
-        )
+    # Tabelle opzionali: alcune sono pubblicate su GCS solo dal primo run di
+    # pipeline (edges_in, texts, massime). `source_exists` dice True anche per
+    # una URL che risponde 404 — e DuckDB legge lo schema alla CREATE VIEW,
+    # quindi la view fallirebbe subito. `_sorgente_leggibile` fa un probe.
     for nome, resolver in (
+        ("edges_in", resolve_edges_in_file),
         ("coverage", resolve_coverage_file),
         ("metrics", resolve_metrics_file),
         ("search_keys", resolve_search_keys_file),
@@ -173,11 +172,7 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
         ("texts", resolve_texts_file),
         ("massime", resolve_massime_file),
     ):
-        path = resolver()
-        if source_exists(path):
-            con.execute(
-                f"CREATE OR REPLACE VIEW {nome} AS SELECT * FROM read_parquet('{path}')"
-            )
+        _ensure_view(con, nome, resolver())
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
