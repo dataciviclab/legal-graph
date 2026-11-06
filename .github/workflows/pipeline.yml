@@ -42,6 +42,9 @@ jobs:
     env:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # i test girano subito dopo `make run`: un mart mancante deve fallire la
+      # pipeline, non skippare in silenzio
+      LEGAL_GRAPH_REQUIRE_MART: "1"
     steps:
       - uses: actions/checkout@v7
 
