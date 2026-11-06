@@ -85,6 +85,16 @@ def _node_payload(row: tuple) -> dict[str, Any]:
     return payload
 
 
+def _tabella_in(con: duckdb.DuckDBPyConnection) -> str:
+    """Relazione archi per le query "in entrata".
+
+    `edges_in` è la stessa tabella di `edges` ordinata per `target_id`: con il
+    row-group pruning le query che filtrano per target costano ~14ms invece di
+    ~50ms. Se il mart non è pubblicato si usa `edges` (stessi risultati).
+    """
+    return "edges_in" if _view_exists(con, "edges_in") else "edges"
+
+
 def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str, Any]:
     if _view_exists(con, "node_rel"):
         # una scansione sola: dentro e fuori stanno nella stessa riga. Le due
@@ -111,8 +121,8 @@ def _relation_counts(con: duckdb.DuckDBPyConnection, actual_id: str) -> dict[str
     )
     inn = dict(
         con.execute(
-            """
-            SELECT relation, COUNT(*) FROM edges WHERE target_id = ?
+            f"""
+            SELECT relation, COUNT(*) FROM {_tabella_in(con)} WHERE target_id = ?
             GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 12
             """,
             [actual_id],
@@ -130,12 +140,13 @@ def _top_edges(
 ) -> list[dict[str, Any]]:
     """Top edge in uscita (source_id) o in entrata (target_id)."""
     join_col = "target_id" if column == "source_id" else "source_id"
+    tabella = _tabella_in(con) if column == "target_id" else "edges"
     try:
         rows = con.execute(
         f"""
         SELECT e.relation, e.{join_col}, e.weight, e.source_year, e.target_year,
                n.tipo, LEFT(n.title, 90)
-        FROM edges e
+        FROM {tabella} e
         LEFT JOIN nodes n ON n.id = e.{join_col}
         WHERE e.{column} = ?
         ORDER BY e.weight DESC, e.{join_col}, e.relation
@@ -335,6 +346,7 @@ def _bfs(
     cambiava da una chiamata all'altra.
     """
     a, b = ("source_id", "target_id") if outbound else ("target_id", "source_id")
+    tabella = "edges" if outbound else _tabella_in(con)
     in_rel = ",".join("?" * len(_CHAIN_RELS))
     visited = {start}
     frontier = [start]
@@ -351,7 +363,7 @@ def _bfs(
                            PARTITION BY e.{a}
                            ORDER BY e.weight DESC, e.{b}, e.relation
                        ) AS rn
-                FROM edges e
+                FROM {tabella} e
                 WHERE e.{a} IN ({placeholders}) AND e.relation IN ({in_rel})
             )
             SELECT c.parent, c.nid, c.relation, c.weight,
@@ -456,6 +468,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
 
 def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
+    tabella_in = _tabella_in(con)
     impugna = con.execute(
         """
         SELECT e.target_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
@@ -466,9 +479,9 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         [actual_id],
     ).fetchall()
     impugnata_da = con.execute(
-        """
+        f"""
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        FROM {tabella_in} e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'impugna'
         ORDER BY e.weight DESC, e.source_id LIMIT 15
         """,
@@ -500,9 +513,9 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
             [actual_id],
         ).fetchall()
     citata_da = con.execute(
-        """
+        f"""
         SELECT e.source_id, n.tipo, LEFT(n.title, 120), n.anno, e.weight
-        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        FROM {tabella_in} e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'cita_costituzione'
         ORDER BY e.weight DESC, e.source_id LIMIT 15
         """,
@@ -520,9 +533,9 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
         [actual_id],
     ).fetchall()
     sentenze_relatore = con.execute(
-        """
+        f"""
         SELECT e.source_id, LEFT(n.title, 120), n.anno
-        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        FROM {tabella_in} e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'relatore_sentenza'
         ORDER BY n.anno DESC, e.source_id LIMIT 15
         """,
@@ -568,6 +581,7 @@ def _view_jurisprudence(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict
 
 def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[str, Any]:
     actual_id = node_row[0]
+    tabella_in = _tabella_in(con)
     use_emend_leg = _view_exists(con, "emend_leg")
     if use_emend_leg:
         n_emendamenti = con.execute(
@@ -576,7 +590,7 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         ).fetchone()[0]
     else:
         n_emendamenti = con.execute(
-            "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'emendamento'",
+            f"SELECT COUNT(*) FROM {tabella_in} WHERE target_id = ? AND relation = 'emendamento'",
             [actual_id],
         ).fetchone()[0]
     parent_title = node_row[2] or ""
@@ -602,10 +616,10 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         sample_source = "emend_leg"
     if not emendamenti:
         emendamenti = con.execute(
-            """
+            f"""
             SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight,
                    n.source_filename
-            FROM edges e
+            FROM {tabella_in} e
             LEFT JOIN nodes n ON e.source_id = n.id
             WHERE e.target_id = ? AND e.relation = 'emendamento'
               AND e.source_id LIKE 'senato:emend:%'
@@ -625,9 +639,9 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         # campioni vuoti o senza titolo: campiona per numero DDL nei source_id
         ddl_n = ddl_m.group(1)
         emendamenti = con.execute(
-            """
+            f"""
             SELECT e.source_id, LEFT(n.title, 140), n.anno, e.weight, n.source_filename
-            FROM edges e
+            FROM {tabella_in} e
             LEFT JOIN nodes n ON e.source_id = n.id
             WHERE e.target_id = ? AND e.relation = 'emendamento'
               AND (e.source_id ILIKE ? OR LOWER(COALESCE(n.title,'')) ILIKE ?)
@@ -641,8 +655,8 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         emendamenti = [
             (r[0], None, None, None, None)
             for r in con.execute(
-                """
-                SELECT source_id FROM edges
+                f"""
+                SELECT source_id FROM {tabella_in}
                 WHERE target_id = ? AND relation = 'emendamento'
                 ORDER BY weight DESC, source_id LIMIT 15
                 """,
@@ -664,12 +678,12 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         ).fetchall()
     else:
         top_emendatori = con.execute(
-            """
+            f"""
             SELECT
               CAST(NULLIF(regexp_extract(e.source_id, 'senato:emend:(\\d+):', 1), '') AS INTEGER)
                 AS legislatura,
               COUNT(*) AS cnt
-            FROM edges e
+            FROM {tabella_in} e
             WHERE e.target_id = ? AND e.relation = 'emendamento'
             GROUP BY 1
             ORDER BY 2 DESC, 1
@@ -681,13 +695,13 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
         {"legislatura": r[0], "n_emendamenti": r[1]} for r in top_emendatori if r[0] is not None
     ]
     n_interventi = con.execute(
-        "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'intervento'",
+        f"SELECT COUNT(*) FROM {tabella_in} WHERE target_id = ? AND relation = 'intervento'",
         [actual_id],
     ).fetchone()[0]
     interventi = con.execute(
-        """
+        f"""
         SELECT e.source_id, LEFT(n.title, 120), n.anno
-        FROM edges e JOIN nodes n ON e.source_id = n.id
+        FROM {tabella_in} e JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'intervento'
         ORDER BY n.anno DESC, e.source_id LIMIT 10
         """,
@@ -714,13 +728,13 @@ def _view_parliament(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[st
     ).fetchall()
     # firmatari (Camera deputato:*/Senato senatore:* → atto) — edge incoming
     n_firmatari = con.execute(
-        "SELECT COUNT(*) FROM edges WHERE target_id = ? AND relation = 'firmatario'",
+        f"SELECT COUNT(*) FROM {tabella_in} WHERE target_id = ? AND relation = 'firmatario'",
         [actual_id],
     ).fetchone()[0]
     firmatari = con.execute(
-        """
+        f"""
         SELECT e.source_id, LEFT(n.title, 120), e.weight, e.evidence
-        FROM edges e LEFT JOIN nodes n ON e.source_id = n.id
+        FROM {tabella_in} e LEFT JOIN nodes n ON e.source_id = n.id
         WHERE e.target_id = ? AND e.relation = 'firmatario'
         ORDER BY e.weight DESC, e.source_id LIMIT 15
         """,

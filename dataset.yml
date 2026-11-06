@@ -246,6 +246,9 @@ mart:
       sql: "sql/mart_legal_nodes.sql"
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+    # stessa tabella degli archi ordinata per target_id: query "in entrata"
+    - name: "mart_legal_edges_in"
+      sql: "sql/mart_legal_edges_in.sql"
     - name: "mart_legal_coverage"
       sql: "sql/mart_legal_coverage.sql"
     - name: "mart_legal_node_metrics"
@@ -273,6 +276,9 @@ mart:
         primary_key: [id]
         min_rows: 10000
       mart_legal_edges:
+        required_columns: [source_id, relation, target_id, weight]
+        min_rows: 10000
+      mart_legal_edges_in:
         required_columns: [source_id, relation, target_id, weight]
         min_rows: 10000
       mart_legal_coverage:

@@ -33,8 +33,10 @@ from pathlib import Path
 import duckdb
 
 from legal_graph.paths import (
+    is_remote,
     resolve_coverage_file,
     resolve_edges_file,
+    resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_massime_file,
     resolve_metrics_file,
@@ -156,6 +158,12 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
+    # copia degli archi ordinata per target_id (query "in entrata"): opzionale,
+    # finché non è pubblicata su GCS le view `edges` resta l'unica sorgente
+    if _sorgente_leggibile(con, resolve_edges_in_file()):
+        con.execute(
+            f"CREATE OR REPLACE VIEW edges_in AS SELECT * FROM read_parquet('{resolve_edges_in_file()}')"
+        )
     for nome, resolver in (
         ("coverage", resolve_coverage_file),
         ("metrics", resolve_metrics_file),
@@ -183,13 +191,34 @@ def _get_con() -> duckdb.DuckDBPyConnection:
     return con
 
 
+def _sorgente_leggibile(
+    con: duckdb.DuckDBPyConnection, path: str | Path | None
+) -> bool:
+    """True se il parquet è davvero leggibile.
+
+    Per un file locale basta `source_exists`. Per un URL remoto no: una tabella
+    non ancora pubblicata passerebbe il controllo e lascerebbe una view che
+    fallisce a *ogni* query (peggio di non averla). Qui si fa un probe leggero
+    (solo metadati parquet); se fallisce si usa il fallback.
+    """
+    if not source_exists(path):
+        return False
+    if not is_remote(path):
+        return True
+    try:
+        con.execute("SELECT 1 FROM read_parquet(?) LIMIT 0", [str(path)])
+    except duckdb.Error:
+        return False
+    return True
+
+
 def _ensure_view(
     con: duckdb.DuckDBPyConnection,
     name: str,
     path: str | Path | None,
 ) -> None:
     """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no."""
-    if not source_exists(path) or _view_exists(con, name):
+    if not _sorgente_leggibile(con, path) or _view_exists(con, name):
         return
     con.execute(
         f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
@@ -204,6 +233,7 @@ def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     """
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())
+    _ensure_view(con, "edges_in", resolve_edges_in_file())
     _ensure_view(con, "coverage", resolve_coverage_file())
     _ensure_view(con, "metrics", resolve_metrics_file())
     _ensure_view(con, "search_keys", resolve_search_keys_file())

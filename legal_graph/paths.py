@@ -27,6 +27,7 @@ GCS_MART_TABLES = frozenset(
     {
         "mart_legal_nodes",
         "mart_legal_edges",
+        "mart_legal_edges_in",
         "mart_legal_coverage",
         "mart_legal_node_metrics",
         "mart_legal_search_keys",
@@ -92,6 +93,11 @@ def resolve_nodes_file() -> PathLike | None:
 def resolve_edges_file() -> PathLike | None:
     """Parquet degli archi: solo mart compose (locale o GCS)."""
     return resolve("mart_legal_edges")
+
+
+def resolve_edges_in_file() -> PathLike | None:
+    """Archi ordinati per `target_id` (query in entrata); None se non pubblicato."""
+    return resolve("mart_legal_edges_in")
 
 
 def resolve_metrics_file() -> PathLike | None:

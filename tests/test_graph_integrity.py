@@ -91,6 +91,29 @@ class TestEdges:
         """).fetchone()[0]
         assert missing == 0, f"{missing} edges missing relation"
 
+    def test_edges_in_e_la_stessa_tabella(self, con):
+        """`edges_in` è `edges` in un altro ordine fisico, non un grafo diverso.
+
+        Le view MCP leggono `edges_in` per le query in entrata (parquet
+        ordinato per `target_id` → row-group pruning): se le due copie
+        divergessero, il grafo risponderebbe in modo diverso a seconda della
+        direzione della domanda.
+        """
+        if not _has_table(con, "edges_in"):
+            pytest.skip("mart_legal_edges_in assente — esegui make run")
+        n_edges, h_edges, n_in, h_in = con.execute(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM edges),
+              (SELECT SUM(hash(source_id, relation, target_id, weight)) FROM edges),
+              (SELECT COUNT(*) FROM edges_in),
+              (SELECT SUM(hash(source_id, relation, target_id, weight)) FROM edges_in)
+            """
+        ).fetchone()
+        assert (n_edges, h_edges) == (n_in, h_in), (
+            f"edges_in diverge da edges: {n_edges} righe vs {n_in}"
+        )
+
     def test_source_targets_exist_in_nodes(self, con):
         """Every edge source must exist as a node."""
         missing_src = con.execute("""

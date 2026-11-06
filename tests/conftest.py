@@ -25,6 +25,7 @@ from legal_graph.mcp import db
 from legal_graph.paths import (
     resolve_coverage_file,
     resolve_edges_file,
+    resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_massime_file,
     resolve_metrics_file,
@@ -43,6 +44,7 @@ os.environ.setdefault("LEGAL_GRAPH_MEMORY_LIMIT", "3GB")
 MART = {
     "nodes": resolve_nodes_file,
     "edges": resolve_edges_file,
+    "edges_in": resolve_edges_in_file,
     "coverage": resolve_coverage_file,
     "metrics": resolve_metrics_file,
     "search_keys": resolve_search_keys_file,
