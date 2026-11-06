@@ -39,3 +39,9 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "network: test che scaricano testo da GitHub raw (esclusi dal loop locale)",
+]
+# Loop locale ermetico: i test di rete girano con `pytest -m network`
+# (la pipeline li lancia dopo `make test`, dove la rete è già usata).
+addopts = "-m 'not network'"

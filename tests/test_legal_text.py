@@ -1,14 +1,37 @@
-"""Test legal_text — recupero testo da nodo normativa."""
+"""Test legal_text — recupero testo da nodo normativa.
+
+I test marcati `network` scaricano il markdown da GitHub raw (cache in
+`data/text_cache/`, gitignored): restano fuori dal loop locale, dove
+`data/text_cache/` è fredda e la rete non è un presupposto.
+"""
 from __future__ import annotations
+
+import pytest
 
 from legal_graph.legal_text import (
     articles_overview,
     extract_article,
+    fetch_mart_text,
     fetch_normativa_text,
     resolve_node,
     strip_front_matter,
 )
 from legal_graph.mcp_server import _impl_legal_text
+
+
+def test_fetch_mart_text_url_non_raggiungibile(monkeypatch, tmp_path):
+    """Sorgente remota assente: errore leggibile, non AttributeError/eccezione.
+
+    Regressione 2026-11: `texts_file.exists()` assumeva un Path locale; con
+    `LEGAL_GRAPH_SOURCE=gcs` il resolver restituisce una URL (str).
+    """
+    mancante = str(tmp_path / "mart_legal_texts.parquet")
+    monkeypatch.setattr(
+        "legal_graph.legal_text.resolve_texts_file", lambda: mancante
+    )
+    out = fetch_mart_text("costituzione:art:3")
+    assert "error" in out
+    assert "assente" in out["error"]
 
 
 class TestResolveNode:
@@ -82,6 +105,7 @@ Testo dell'articolo due bis.
         assert ov["first_article"] == "1"
         assert ov["last_article"] == "2"
 
+    @pytest.mark.network
     def test_articolo_bis(self):
         found = resolve_node("urn:nir:stato:decreto.legislativo:2023-03-31;36")
         res = fetch_normativa_text(
@@ -94,6 +118,7 @@ Testo dell'articolo due bis.
         assert res["heading"].startswith("### Articolo 82-bis")
         assert res["articolo"] == "82-bis"
 
+    @pytest.mark.network
     def test_articolo_su_codice_reale(self):
         found = resolve_node("urn:nir:stato:decreto.legislativo:2023-03-31;36")
         assert found.node is not None
@@ -111,6 +136,7 @@ Testo dell'articolo due bis.
 
 
 class TestFetchNormativaText:
+    @pytest.mark.network
     def test_fetch_known_act(self):
         result = fetch_normativa_text(
             collezione="DL decaduti",
@@ -123,6 +149,7 @@ class TestFetchNormativaText:
         assert result["truncated"] is True  # max_chars=2000
         assert len(result["text"]) <= 2000 + 50
 
+    @pytest.mark.network
     def test_fetch_multi_collection_first_wins(self):
         result = fetch_normativa_text(
             collezione="DL e leggi di conversione;Leggi di ratifica",
@@ -138,6 +165,7 @@ class TestFetchNormativaText:
 
 
 class TestMcpLegalText:
+    @pytest.mark.network
     def test_tool_normativa(self):
         out = _impl_legal_text("urn:nir:stato:decreto.legge:1996-01-24;30", max_chars=1500)
         assert "error" not in out
@@ -152,6 +180,7 @@ class TestMcpLegalText:
         assert out["candidates"]
         assert "error" in out
 
+    @pytest.mark.network
     def test_tool_articolo_bis(self):
         # il tool dichiara `int | str`: "2-bis" deve passare, non essere rifiutato
         out = _impl_legal_text(
@@ -163,6 +192,7 @@ class TestMcpLegalText:
         assert out["articolo"] == "82-bis"
         assert out["heading"].startswith("### Articolo 82-bis")
 
+    @pytest.mark.network
     def test_tool_articolo(self):
         out = _impl_legal_text(
             "urn:nir:stato:decreto.legislativo:2023-03-31;36",

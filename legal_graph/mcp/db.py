@@ -1,7 +1,30 @@
-"""Connessione DuckDB cachata e VIEW sui mart compose."""
+"""Connessione DuckDB cachata e VIEW sui mart compose.
+
+Tre responsabilità separate in tre punti:
+- `_new_con()`     → connessione con i soli settaggi (thread/memoria da env)
+- `_bootstrap_views()` → lega le VIEW ai parquet risolti da `paths`
+- `_get_con()`     → cache del processo: `_new_con` + `_bootstrap_views`
+
+Tenerle separate permette ai test di esercitare il bootstrap su una
+connessione propria, senza resettare la cache globale del server.
+
+Settaggi (env):
+- `LEGAL_GRAPH_THREADS`       → thread DuckDB per query (default min(4, cpu))
+- `LEGAL_GRAPH_MEMORY_LIMIT`  → memoria per connessione (default 1GB)
+
+I thread contano: una `legal_search` è uno scan completo di `search_keys`
+(831k righe, nessun indice utilizzabile per `LIKE '%…%'`), quindi passa da
+~2,4s a 1 thread a ~0,9s con 4. Il limite di memoria è un tetto, non una
+prenotazione (RSS reale ~350MB). 256MB non bastano: la memoria si accumula
+nella connessione tra chiamate, e dopo qualche query pesante i thread
+paralleli vanno in OOM — che ora diventa un errore esplicito (`_errore_sk`),
+non più una lista vuota.
+"""
 from __future__ import annotations
 
 import functools
+import os
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -10,8 +33,10 @@ from pathlib import Path
 import duckdb
 
 from legal_graph.paths import (
+    is_remote,
     resolve_coverage_file,
     resolve_edges_file,
+    resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_massime_file,
     resolve_metrics_file,
@@ -22,22 +47,51 @@ from legal_graph.paths import (
     source_exists,
 )
 
-_cached_con: duckdb.DuckDBPyConnection | None = None
+_default_con: duckdb.DuckDBPyConnection | None = None
+
+_DEFAULT_MEMORY_LIMIT = "1GB"
+_MEMORY_RE = re.compile(r"^\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB)$", re.IGNORECASE)
+
+
+def _default_threads() -> int:
+    """Thread per query: 4 bastano a saturare lo scan, oltre costa memoria."""
+    return max(1, min(4, os.cpu_count() or 1))
 
 
 def reset_con() -> None:
     """Drop della connessione cachata (test / rebuild parziale)."""
-    global _cached_con
-    _cached_con = None
+    global _default_con
+    _default_con = None
+
+
+def _settings() -> tuple[int, str]:
+    """Thread e memory limit dalle env, con validazione (errore leggibile)."""
+    raw_threads = os.environ.get("LEGAL_GRAPH_THREADS", "").strip()
+    raw_memory = os.environ.get("LEGAL_GRAPH_MEMORY_LIMIT", "").strip()
+    threads = _default_threads()
+    if raw_threads:
+        try:
+            threads = int(raw_threads)
+        except ValueError as exc:
+            raise ValueError(
+                f"LEGAL_GRAPH_THREADS={raw_threads!r} non intero"
+            ) from exc
+        if threads < 1:
+            raise ValueError(f"LEGAL_GRAPH_THREADS={threads} (atteso >= 1)")
+    memory = raw_memory or _DEFAULT_MEMORY_LIMIT
+    if not _MEMORY_RE.match(memory):
+        raise ValueError(
+            f"LEGAL_GRAPH_MEMORY_LIMIT={memory!r} non valido (es. '512MB', '3GB')"
+        )
+    return threads, memory
 
 
 def _view_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
-    rows = con.execute("SHOW TABLES").fetchall()
-    views = con.execute(
-        "SELECT table_name FROM information_schema.tables WHERE table_type='VIEW'"
-    ).fetchall()
-    names = {r[0] for r in rows} | {r[0] for r in views}
-    return name in names
+    row = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+        [name],
+    ).fetchone()
+    return row is not None
 
 
 def _has_col(con: duckdb.DuckDBPyConnection, view: str, col: str) -> bool:
@@ -80,22 +134,23 @@ def locked(fn):
     return wrapper
 
 
-def _get_con() -> duckdb.DuckDBPyConnection:
-    """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
-    global _cached_con
-    if _cached_con is not None:
-        return _cached_con
+def _new_con() -> duckdb.DuckDBPyConnection:
+    """Connessione DuckDB vuota con i settaggi di processo."""
+    threads, memory = _settings()
+    con = duckdb.connect(":memory:")
+    con.execute(f"SET threads={threads}")
+    con.execute(f"SET memory_limit='{memory}'")
+    return con
+
+
+def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Lega le VIEW ai parquet mart (locale o GCS) risolti da `paths`.
+
+    Chiamata una volta per connessione. Non riconnette: per recuperare mart
+    comparsi dopo il bootstrap usare `refresh_views`.
+    """
     nodes_file = resolve_nodes_file()
     edges_file = resolve_edges_file()
-    metrics_file = resolve_metrics_file()
-    search_keys_file = resolve_search_keys_file()
-    node_rel_file = resolve_node_rel_file()
-    emend_leg_file = resolve_emend_leg_file()
-    texts_file = resolve_texts_file()
-    massime_file = resolve_massime_file()
-    con = duckdb.connect(":memory:")
-    con.execute("SET memory_limit='256MB'")
-    con.execute("SET threads=1")
     if not source_exists(nodes_file) or not source_exists(edges_file):
         raise FileNotFoundError(
             "Mart legal-graph non disponibili. Esegui `make run` locale "
@@ -103,60 +158,80 @@ def _get_con() -> duckdb.DuckDBPyConnection:
         )
     con.execute(f"CREATE OR REPLACE VIEW nodes AS SELECT * FROM read_parquet('{nodes_file}')")
     con.execute(f"CREATE OR REPLACE VIEW edges AS SELECT * FROM read_parquet('{edges_file}')")
-    # bilancio di copertura: interrogabile via legal_query (SELECT * FROM coverage)
-    coverage_file = resolve_coverage_file()
-    if source_exists(coverage_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW coverage AS SELECT * FROM read_parquet('{coverage_file}')"
-        )
-    if source_exists(metrics_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW metrics AS SELECT * FROM read_parquet('{metrics_file}')"
-        )
-    if source_exists(search_keys_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW search_keys AS SELECT * FROM read_parquet('{search_keys_file}')"
-        )
-    if source_exists(node_rel_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW node_rel AS SELECT * FROM read_parquet('{node_rel_file}')"
-        )
-    if source_exists(emend_leg_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW emend_leg AS SELECT * FROM read_parquet('{emend_leg_file}')"
-        )
-    if source_exists(texts_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW texts AS SELECT * FROM read_parquet('{texts_file}')"
-        )
-    if source_exists(massime_file):
-        con.execute(
-            f"CREATE OR REPLACE VIEW massime AS SELECT * FROM read_parquet('{massime_file}')"
-        )
-    _cached_con = con
+    # Tabelle opzionali: alcune sono pubblicate su GCS solo dal primo run di
+    # pipeline (edges_in, texts, massime). `source_exists` dice True anche per
+    # una URL che risponde 404 — e DuckDB legge lo schema alla CREATE VIEW,
+    # quindi la view fallirebbe subito. `_sorgente_leggibile` fa un probe.
+    for nome, resolver in (
+        ("edges_in", resolve_edges_in_file),
+        ("coverage", resolve_coverage_file),
+        ("metrics", resolve_metrics_file),
+        ("search_keys", resolve_search_keys_file),
+        ("node_rel", resolve_node_rel_file),
+        ("emend_leg", resolve_emend_leg_file),
+        ("texts", resolve_texts_file),
+        ("massime", resolve_massime_file),
+    ):
+        _ensure_view(con, nome, resolver())
+
+
+def _get_con() -> duckdb.DuckDBPyConnection:
+    """Connessione DuckDB cachata con VIEW sui mart compose (fallback legacy)."""
+    global _default_con
+    if _default_con is not None:
+        return _default_con
+    con = _new_con()
+    _bootstrap_views(con)
+    _default_con = con
     return con
+
+
+def _sorgente_leggibile(
+    con: duckdb.DuckDBPyConnection, path: str | Path | None
+) -> bool:
+    """True se il parquet è davvero leggibile.
+
+    Per un file locale basta `source_exists`. Per un URL remoto no: una tabella
+    non ancora pubblicata passerebbe il controllo e lascerebbe una view che
+    fallisce a *ogni* query (peggio di non averla). Qui si fa un probe leggero
+    (solo metadati parquet); se fallisce si usa il fallback.
+    """
+    if not source_exists(path):
+        return False
+    if not is_remote(path):
+        return True
+    try:
+        con.execute("SELECT 1 FROM read_parquet(?) LIMIT 0", [str(path)])
+    except duckdb.Error:
+        return False
+    return True
 
 
 def _ensure_view(
     con: duckdb.DuckDBPyConnection,
     name: str,
     path: str | Path | None,
-) -> bool:
+) -> None:
     """Crea la VIEW se il parquet esiste (locale o GCS) ma la view no."""
-    if not source_exists(path):
-        return _view_exists(con, name)
-    if _view_exists(con, name):
-        return True
+    if not _sorgente_leggibile(con, path) or _view_exists(con, name):
+        return
     con.execute(
         f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
     )
-    return True
 
 
-def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
-    """Riconnette le view mart dopo un rebuild parziale."""
+def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Riconnette le view mart dopo un rebuild parziale.
+
+    **Non è più automatica.** Veniva chiamata a ogni tool (~50ms di query di
+    catalogo per chiamata) ed è stata tolta dal percorso caldo: `_get_con` fa
+    già il bootstrap completo. Conseguenza voluta: un server già avviato non
+    vede tabelle comparse dopo `make run` — per quello serve riavviare, oppure
+    chiamare questa funzione (la usa il test del bootstrap).
+    """
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())
+    _ensure_view(con, "edges_in", resolve_edges_in_file())
     _ensure_view(con, "coverage", resolve_coverage_file())
     _ensure_view(con, "metrics", resolve_metrics_file())
     _ensure_view(con, "search_keys", resolve_search_keys_file())
@@ -164,4 +239,3 @@ def _refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     _ensure_view(con, "emend_leg", resolve_emend_leg_file())
     _ensure_view(con, "texts", resolve_texts_file())
     _ensure_view(con, "massime", resolve_massime_file())
-

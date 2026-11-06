@@ -7,7 +7,8 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.mcp.db import _get_con, _has_col, _refresh_views, _view_exists, locked
+from legal_graph.mcp import db
+from legal_graph.mcp.db import _has_col, _view_exists, locked
 from legal_graph.mcp.textfold import (
     _EN_IT_GLOSSARY,
     _STOP,
@@ -193,7 +194,7 @@ def _base_order(exact_id: str | None = None) -> str:
         "WHEN 'abrogato' THEN 3 ELSE 1 END"
     )
     parts.append("COALESCE(m.referenced_by, 0) DESC")
-    parts.extend(["k.anno DESC NULLS LAST", "k.title"])
+    parts.extend(["k.anno DESC NULLS LAST", "k.title", "k.id"])
     return ", ".join(parts)
 
 
@@ -253,8 +254,29 @@ def _run_sk(
             extra_where.strip()[:120],
             len(order_params),
         )
-        return []
+        return _errore_sk(exc)
     return [_payload(r) for r in rows]
+
+
+def _errore_sk(exc: duckdb.Error) -> list[dict[str, Any]]:
+    """OOM → errore esplicito, non `[]`.
+
+    La memoria disponibile può esaurirsi (thread paralleli + scan di
+    `search_keys`): restituire una lista vuota farebbe passare un problema di
+    configurazione per "nessun risultato", il tipo di risposta che un agente
+    legge come risposta del grafo.
+    """
+    if isinstance(exc, duckdb.OutOfMemoryException):
+        return [
+            {
+                "error": "Memoria esaurita durante la search (out of memory).",
+                "hint": (
+                    "Alza LEGAL_GRAPH_MEMORY_LIMIT (es. '1GB') o abbassa "
+                    "LEGAL_GRAPH_THREADS."
+                ),
+            }
+        ]
+    return []
 
 
 def _phrase_where(terms: list[str], mode: str) -> tuple[str, list[Any]]:
@@ -308,8 +330,7 @@ def _impl_search(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search thin: intent → SQL su mart search_keys + metrics (+ nodes per data)."""
-    con = _get_con()
-    _refresh_views(con)
+    con = db._get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
     q = (query or "").strip()
     folded = _fold(q)

@@ -11,28 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-import duckdb
 import pytest
 
-from legal_graph.paths import (
-    resolve_coverage_file,
-    resolve_edges_file,
-    source_exists,
-)
-
-
-@pytest.fixture(scope="module")
-def con():
-    """DuckDB con coverage + edges materializzati (skip se mart assente)."""
-    coverage = resolve_coverage_file()
-    edges = resolve_edges_file()
-    if not source_exists(coverage) or not source_exists(edges):
-        pytest.skip("mart coverage/edges non presenti (esegui make run)")
-    c = duckdb.connect(":memory:")
-    c.execute(f"CREATE TABLE coverage AS SELECT * FROM read_parquet('{coverage}')")
-    c.execute(f"CREATE TABLE edges AS SELECT * FROM read_parquet('{edges}')")
-    yield c
-    c.close()
+# La connessione ai mart (coverage + edges inclusi) è la fixture `con`
+# di `tests/conftest.py`.
 
 
 class TestCoverageContract:

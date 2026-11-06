@@ -7,25 +7,9 @@ exact → alias → parziale **solo se unico**.
 """
 from __future__ import annotations
 
-import duckdb
-import pytest
-
-from legal_graph.paths import resolve_nodes_file, source_exists
 from legal_graph.resolve import resolve_row
 
-
-@pytest.fixture(scope="module")
-def con():
-    path = resolve_nodes_file()
-    if not source_exists(path):
-        pytest.skip("mart nodes assente — esegui make run")
-    c = duckdb.connect(":memory:")
-    c.execute(
-        f"CREATE TABLE nodes AS "
-        f"SELECT id, source, title, anno FROM read_parquet('{path}')"
-    )
-    yield c
-    c.close()
+# La connessione ai mart è la fixture `con` di `tests/conftest.py`.
 
 
 def _resolve(con, node_id):
@@ -71,13 +55,28 @@ class TestParziale:
         assert r.row[0].endswith(";117")
 
     def test_ambiguita_non_restituisce_riga(self, con):
-        """Invariante: riga valorizzata ⇒ id esatto o unico candidato."""
+        """Invariante: riga valorizzata ⇒ id esatto o unico candidato.
+
+        Campione sparso su tutto lo spazio degli id (non i primi N, che
+        sarebbero tutti dello stesso namespace): ogni risoluzione costa uno
+        scan `LIKE`, quindi 40 id bastano a coprire la classe di bug — che era
+        sistematica (253/300), non un caso isolato.
+        """
         ids = [
             row[0]
             for row in con.execute(
-                "SELECT id FROM nodes WHERE length(id) > 20 LIMIT 150"
+                """
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn
+                    FROM nodes WHERE length(id) > 20
+                )
+                WHERE rn % 1031 = 0
+                ORDER BY rn
+                LIMIT 40
+                """
             ).fetchall()
         ]
+        assert len(ids) > 20, f"campione troppo piccolo: {len(ids)}"
         for nid in ids:
             r = _resolve(con, nid[: len(nid) - 1])
             if r.row is not None:

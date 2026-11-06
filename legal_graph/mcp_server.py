@@ -25,14 +25,14 @@ from lab_connectors.mcp import create_mcp_server, guard_timed
 
 # Re-export per i test golden (import legal_graph.mcp_server as m)
 from legal_graph.mcp import db as _db
-from legal_graph.mcp.db import _get_con, _view_exists  # noqa: F401 — re-export test
+from legal_graph.mcp.db import _view_exists  # noqa: F401 — re-export test
 from legal_graph.mcp.node_views import _impl_node
 from legal_graph.mcp.reports import _impl_insights, _impl_legal_text, _impl_query
-from legal_graph.mcp.search import _has_mart_search, _impl_search  # noqa: F401
+from legal_graph.mcp.search import _impl_search
 
 
 def _reset_con() -> None:
-    """Drop connessione DuckDB cachata (uso test: m._reset_con())."""
+    """Drop connessione DuckDB cachata (hook per chi guida il server da test)."""
     _db.reset_con()
 
 

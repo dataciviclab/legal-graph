@@ -34,7 +34,17 @@ download-gcs:
 	for t in mart_legal_nodes mart_legal_edges mart_legal_coverage \
 	         mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel \
 	         mart_legal_emend_leg; do \
-		curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet" && echo "✅ $$t" || exit 1; \
+		curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet.tmp" \
+			&& mv "$$DIR/$$t.parquet.tmp" "$$DIR/$$t.parquet" \
+			&& echo "✅ $$t" || { rm -f "$$DIR/$$t.parquet.tmp"; exit 1; }; \
+	done; \
+	for t in mart_legal_edges_in mart_legal_texts mart_legal_massime; do \
+		if curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet.tmp"; then \
+			mv "$$DIR/$$t.parquet.tmp" "$$DIR/$$t.parquet"; echo "✅ $$t"; \
+		else \
+			rm -f "$$DIR/$$t.parquet.tmp"; \
+			echo "⚠️  $$t non ancora su GCS — resta il file locale se presente"; \
+		fi; \
 	done
 
 .PHONY: help

@@ -1,8 +1,9 @@
 # Pipeline — legal-graph
 #
-# Compose mart-only: build da rete → test → sync GCS (7 tabelle grafo) → registry.
+# Compose mart-only: build da rete → test → sync GCS (10 tabelle mart) → registry.
 # I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
-# texts/massime restano locali/MCP-only nel primo rilascio (no GCS).
+# texts/massime/edges_in sono nel publish: attivi per i client dal primo run
+# di pipeline che li carica (prima l'MCP degrada su GitHub raw / `edges`).
 #
 # Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**|
 # legal_graph/**|tests/**.
@@ -42,6 +43,9 @@ jobs:
     env:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # i test girano subito dopo `make run`: un mart mancante deve fallire la
+      # pipeline, non skippare in silenzio
+      LEGAL_GRAPH_REQUIRE_MART: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -55,7 +59,13 @@ jobs:
       - name: Verify tests su mart costruiti
         run: make test
 
-      # ── GCS: solo tabelle grafo (no texts/massime) ─────────────────
+      # `addopts` in pyproject esclude i test `network` (fetch da GitHub raw):
+      # nel loop locale la cache testo è fredda e la rete non è un presupposto.
+      # Qui i mart sono già stati costruiti dalla rete, quindi girano anche loro.
+      - name: Verify test di rete (testo da GitHub raw)
+        run: python3 -m pytest tests/ -m network -q
+
+      # ── GCS: tutte le 10 tabelle mart (grafo + edges_in + texts/massime) ─
       - name: GCP Auth (WIF)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         uses: google-github-actions/auth@v3
@@ -70,12 +80,12 @@ jobs:
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Sync grafo to GCS (no texts/massime)
+      - name: Sync mart to GCS (10 tabelle)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         run: |
           SRC="out/data/mart/legal_graph/2026"
           DEST="gs://dataciviclab-mart/legal-graph/legal_graph/2026"
-          TABLES="mart_legal_nodes mart_legal_edges mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg"
+          TABLES="mart_legal_nodes mart_legal_edges mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg mart_legal_texts mart_legal_massime"
           for t in $TABLES; do
             f="$SRC/${t}.parquet"
             if [ ! -f "$f" ]; then
@@ -85,7 +95,7 @@ jobs:
             gsutil -q cp "$f" "$DEST/${t}.parquet"
             echo "✅ $t"
           done
-          # metadata leggero del compose (senza testi)
+          # metadata del compose (righe/schema, non i dati)
           if [ -f "$SRC/metadata.json" ]; then
             gsutil -q cp "$SRC/metadata.json" "$DEST/metadata.json"
           fi

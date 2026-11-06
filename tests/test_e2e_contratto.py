@@ -52,11 +52,8 @@ CODICE_COMUNICAZIONI = "urn:nir:stato:decreto.legislativo:2003-08-01;259"
 
 
 @pytest.fixture(scope="module")
-def grafo():
-    m._reset_con()
-    con = m._get_con()
-    if not m._has_mart_search(con):
-        pytest.skip("mart assente — esegui `make run`")
+def grafo(con):
+    """Connessione ai mart, già materializzata dal conftest."""
     return con
 
 
@@ -126,7 +123,7 @@ def test_chain_colonne_obbligatorie_normativa(grafo, colonna):
     ],
 )
 def test_query_comandi_consentiti(grafo, sql):
-    out = m._impl_query(sql, limit=5)
+    out = m.legal_query(sql, limit=5)
     assert out and not out[0].get("error"), f"{sql} → {out}"
 
 
@@ -141,7 +138,7 @@ def test_query_comandi_consentiti(grafo, sql):
     ],
 )
 def test_query_comandi_rifiutati(grafo, sql):
-    out = m._impl_query(sql, limit=5)
+    out = m.legal_query(sql, limit=5)
     assert out and (out[0].get("error") or out[0].get("note")), f"{sql} non gestita: {out}"
 
 
@@ -151,76 +148,65 @@ def test_query_comandi_rifiutati(grafo, sql):
 @pytest.mark.parametrize(
     "query",
     [
-        "231",
-        "231/2001",
-        "n. 231 del 2001",
         "1978",
         "urn:nir:stato:legge:1978-05-22;194",
-        "ECLI:IT:COST:2009:151",
-        "art. 3 della Costituzione",
-        "direttiva UE 2019/1937",
         "rifiuti urbani",
-        '"codice del terzo settore"',
     ],
 )
 def test_search_intent(grafo, query):
-    rows = m._impl_search(query, limit=5)
+    """Query che i golden non coprono: anno, URN, tema libero.
+
+    Gli altri intent (numeri, ECLI, Costituzione, direttive UE) sono già
+    verificati da `test_search_golden` con l'id atteso, asserzione più forte
+    di un semplice "non vuoto".
+    """
+    rows = m.legal_search(query, limit=5)
     assert rows and not rows[0].get("error"), f"{query!r} → {rows}"
 
 
 @pytest.mark.parametrize(
     "query,filtro",
     [
-        ("rifiuti", {"materia": "ambientale"}),
-        ("rifiuti", {"stato": "vigente"}),
-        ("rifiuti", {"tipo": "DECRETO LEGISLATIVO"}),
         ("rifiuti", {"anno_min": 2010}),
         ("rifiuti", {"anno_max": 1990}),
-        ("costituzione", {"source": "costituzione"}),
         ("codice", {"collezione": "Codici"}),
-        ("rifiuti", {"vigenza_fonte": "normattiva"}),
         ("rifiuti", {"min_score": 70}),
     ],
 )
 def test_search_filtri_singoli(grafo, query, filtro):
-    rows = m._impl_search(query, limit=5, **filtro)
+    """Filtri non coperti da `test_search_filtro_coerente_sui_risultati`."""
+    rows = m.legal_search(query, limit=5, **filtro)
     assert rows and not rows[0].get("error"), f"{query!r} + {filtro} → {rows}"
 
 
 def test_search_filtri_combinati(grafo):
-    rows = m._impl_search("rifiuti", materia="ambientale", stato="vigente", anno_min=2000, limit=5)
+    rows = m.legal_search("rifiuti", materia="ambientale", stato="vigente", anno_min=2000, limit=5)
     assert rows, "filtri combinati vuoti"
     for r in rows:
         assert r["materia"] == "ambientale"
         assert r["stato"] == "vigente"
 
 
-@pytest.mark.parametrize(
-    "chiave,valore",
-    [
+def test_search_filtro_coerente_sui_risultati(grafo):
+    """Regressione #32: il boost di ordinamento non deve annullare i filtri.
+
+    Copre anche `materia`/`stato`/`tipo`/`vigenza_fonte` che i golden provano
+    solo su query testuali.
+    """
+    for chiave, valore in (
         ("materia", "ambientale"),
         ("stato", "vigente"),
         ("tipo", "DECRETO LEGISLATIVO"),
         ("vigenza_fonte", "normattiva"),
-    ],
-)
-def test_search_filtro_coerente_sui_risultati(grafo, chiave, valore):
-    rows = m._impl_search("rifiuti", limit=10, **{chiave: valore})
-    assert rows
-    assert all((r.get(chiave) or "").lower() == valore.lower() for r in rows), rows
-
-
-def test_search_filtro_su_query_testuale_multipla(grafo):
-    """Regressione #32: il boost di ordinamento non deve annullare i filtri."""
-    rows = m._impl_search("elettroniche", materia="comunicazioni", limit=5)
-    assert rows, "query testuale + materia vuota"
-    assert all(r["materia"] == "comunicazioni" for r in rows)
-    assert any(CODICE_COMUNICAZIONI in r["id"] for r in rows)
+    ):
+        rows = m.legal_search("rifiuti", limit=10, **{chiave: valore})
+        assert rows, f"{chiave}={valore} vuoto"
+        assert all((r.get(chiave) or "").lower() == valore.lower() for r in rows), rows
 
 
 @pytest.mark.parametrize("limit", [1, 0, 100000])
 def test_search_limit_clampato(grafo, limit):
-    rows = m._impl_search("rifiuti", limit=limit)
+    rows = m.legal_search("rifiuti", limit=limit)
     assert rows and len(rows) <= 200, f"limit={limit} → {len(rows)} righe"
 
 
@@ -234,7 +220,7 @@ def test_search_limit_clampato(grafo, limit):
     ],
 )
 def test_search_casi_limite_gestiti(grafo, kwargs):
-    rows = m._impl_search(limit=5, **kwargs)
+    rows = m.legal_search(limit=5, **kwargs)
     assert not rows or rows[0].get("error"), f"{kwargs} → {rows}"
 
 
@@ -243,12 +229,12 @@ def test_search_casi_limite_gestiti(grafo, kwargs):
 
 @pytest.mark.parametrize("view", ["overview", "chain", "jurisprudence", "parliament"])
 def test_node_viste(grafo, view):
-    out = m._impl_node(CODICE_COMUNICAZIONI, view=view, depth=2)
+    out = m.legal_node(CODICE_COMUNICAZIONI, view=view, depth=2)
     assert isinstance(out, dict) and not out.get("error"), f"{view} → {out}"
 
 
 def test_node_id_parziale(grafo):
-    out = m._impl_node("decreto.legislativo:2017-07-03;117")
+    out = m.legal_node("decreto.legislativo:2017-07-03;117")
     assert out.get("node", {}).get("id", "").endswith("2017-07-03;117")
 
 
@@ -260,32 +246,60 @@ def test_node_id_parziale(grafo):
     ],
 )
 def test_node_errori_gestiti(grafo, nid, view):
-    out = m._impl_node(nid, view=view)
+    out = m.legal_node(nid, view=view)
     assert isinstance(out, dict) and out.get("error"), f"{nid}/{view} → {out}"
 
 
 def test_node_depth_non_rompe(grafo):
     for depth in (0, 1, 100):
-        out = m._impl_node(CODICE_COMUNICAZIONI, view="chain", depth=depth)
+        out = m.legal_node(CODICE_COMUNICAZIONI, view="chain", depth=depth)
         assert not out.get("error"), f"depth={depth} → {out}"
+
+
+def test_node_chain_deterministica(grafo):
+    """La stessa richiesta deve dare la stessa catena, per contratto.
+
+    Il taglio `LIMIT 8` per nodo ordinava solo per `weight`: con i pesi interi
+    (molti pareggi) l'ordine dipendeva dallo scan — prima dell'ordinamento dei
+    parquet e con più thread cambiava davvero. Oggi il layout ordinato lo rende
+    stabile per caso; il tie-break (`weight DESC, id, relation`) lo rende un
+    contratto. Il secondo nodo ha cinque relazioni verso lo stesso target
+    (abroga/sostituisce/modifica/split/riferimento): è il caso di pareggio
+    che il test deve coprire.
+    """
+    for nid in (CODICE_COMUNICAZIONI, "urn:nir:stato:decreto.legislativo:2024-12-31;209"):
+        chiamate = [m.legal_node(nid, view="chain", depth=2) for _ in range(3)]
+        assert chiamate[0] == chiamate[1] == chiamate[2], f"catena instabile su {nid}"
+
+
+def test_oom_search_non_e_lista_vuota():
+    """Un OOM di DuckDB deve uscire come errore, non come "nessun risultato"."""
+    import duckdb
+
+    from legal_graph.mcp.search import _errore_sk
+
+    oom = _errore_sk(duckdb.OutOfMemoryException("Out of Memory Error"))
+    assert oom and "error" in oom[0] and "LEGAL_GRAPH_MEMORY_LIMIT" in oom[0]["hint"]
+    # altri errori DuckDB restano vuoti (comportamento preesistente, non un OOM)
+    assert _errore_sk(duckdb.BinderException("Column not found")) == []
 
 
 # --- E. legal_text ------------------------------------------------------------
 
 
 def test_text_normativa(grafo):
-    out = m._impl_legal_text(CODICE_COMUNICAZIONI, max_chars=300)
+    out = m.legal_text(CODICE_COMUNICAZIONI, max_chars=300)
     assert out.get("text"), f"nessun testo: {str(out)[:200]}"
     assert out.get("chars", 0) > 0
 
 
 def test_text_costituzione(grafo):
-    out = m._impl_legal_text("costituzione:art:3", max_chars=300)
+    out = m.legal_text("costituzione:art:3", max_chars=300)
     assert out.get("text"), f"nessun testo: {str(out)[:200]}"
 
 
 def test_text_nodo_inesistente(grafo):
-    out = m._impl_legal_text("urn:nir:stato:legge:1800-01-01;999999")
+    out = m.legal_text("urn:nir:stato:legge:1800-01-01;999999")
     assert out.get("error")
 
 
@@ -294,7 +308,7 @@ def test_text_nodo_inesistente(grafo):
 
 @pytest.mark.parametrize("report", ["summary", "critical", "obsolete", "complex", "dormant"])
 def test_insights_report(grafo, report):
-    out = m._impl_insights(report)
+    out = m.legal_insights(report)
     assert isinstance(out, dict) and not out.get("error"), f"{report} → {str(out)[:150]}"
 
 
@@ -302,18 +316,18 @@ def test_insights_report(grafo, report):
 
 
 def test_coerenza_search_node_materia(grafo):
-    rows = m._impl_search("rifiuti", limit=5, source="normativa")
+    rows = m.legal_search("rifiuti", limit=5, source="normativa")
     assert len(rows) >= 3
     for r in rows[:3]:
-        nodo = m._impl_node(r["id"])
+        nodo = m.legal_node(r["id"])
         assert nodo.get("node", {}).get("materia") == r["materia"], f"disallineato su {r['id']}"
 
 
 def test_coerenza_search_esegue_in_query(grafo):
     """Un id trovato dalla search deve esistere anche per SQL."""
-    rows = m._impl_search("231/2001", limit=1)
+    rows = m.legal_search("231/2001", limit=1)
     nid = rows[0]["id"]
-    trovato = m._impl_query(f"SELECT COUNT(*) AS n FROM nodes WHERE id = '{nid}'", limit=1)
+    trovato = m.legal_query(f"SELECT COUNT(*) AS n FROM nodes WHERE id = '{nid}'", limit=1)
     assert trovato[0]["n"] == 1, f"{nid} non trovato via SQL"
 
 
@@ -321,12 +335,12 @@ def test_coerenza_search_esegue_in_query(grafo):
 
 
 def test_payload_search_campi(grafo):
-    rows = m._impl_search("231/2001", limit=1)
+    rows = m.legal_search("231/2001", limit=1)
     assert {"id", "tipo", "title", "data", "anno", "source", "stato", "materia"} <= set(rows[0])
 
 
 def test_payload_node_campi(grafo):
-    nodo = m._impl_node(CODICE_COMUNICAZIONI).get("node", {})
+    nodo = m.legal_node(CODICE_COMUNICAZIONI).get("node", {})
     attesi = {
         "id",
         "tipo",
@@ -346,18 +360,46 @@ def test_payload_node_campi(grafo):
 # --- I. Bootstrap della connessione (non coperto dalla materializzazione) -----
 
 
-def test_bootstrap_crea_view_sul_parquet(get_con_originale):
-    """`_get_con()` deve creare VIEW sui parquet, non tabelle.
+def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
+    """Una tabella non ancora pubblicata non deve rompere il bootstrap.
 
-    Il conftest materializza i mart in tabelle temporanee per velocità: senza
-    questo test il percorso reale di bootstrap (`_ensure_view`/`resolve_*`)
-    resterebbe non esercitato dalla suite.
+    In modalità `gcs` i resolver restituiscono URL: `source_exists` dice True
+    anche per una URL che risponde 404, e DuckDB legge lo schema alla
+    CREATE VIEW, quindi il bootstrap esplodeva su `texts`/`massime` finché la
+    pipeline non le pubblicava. Il probe deve degradare alla tabella assente.
     """
     from legal_graph.mcp import db
 
-    db.reset_con()
+    mancante = "http://127.0.0.1:9/non_pubblicata.parquet"
+    monkeypatch.setattr(db, "resolve_texts_file", lambda: mancante)
+    monkeypatch.setattr(db, "resolve_massime_file", lambda: mancante)
+    monkeypatch.setattr(db, "resolve_edges_in_file", lambda: mancante)
+    con = db._new_con()
     try:
-        con = get_con_originale()
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert "nodes" in nomi
+        assert {"texts", "massime", "edges_in"}.isdisjoint(nomi), nomi
+    finally:
+        con.close()
+
+
+def test_bootstrap_crea_view_sul_parquet():
+    """`_bootstrap_views` deve creare VIEW sui parquet, non tabelle.
+
+    Il conftest materializza i mart in tabelle temporanee per velocità: senza
+    questo test il percorso reale di bootstrap (`_bootstrap_views` + `paths`)
+    resterebbe non esercitato. Il bootstrap si prova su una connessione
+    propria: nessun reset della cache globale, nessuna ri-materializzazione.
+    """
+    from legal_graph.mcp import db
+
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
         tipi = {
             r[0]: r[1]
             for r in con.execute(
@@ -367,10 +409,8 @@ def test_bootstrap_crea_view_sul_parquet(get_con_originale):
         assert tipi.get("nodes") == "VIEW", f"nodes è {tipi.get('nodes')!r}"
         assert tipi.get("search_keys") == "VIEW", f"search_keys è {tipi.get('search_keys')!r}"
         assert con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] > 10000
-        # `_refresh_views` su view già presenti non deve rompere nulla
-        db._refresh_views(con)
+        # `refresh_views` su view già presenti non deve rompere nulla
+        db.refresh_views(con)
         assert con.execute("SELECT COUNT(*) FROM search_keys").fetchone()[0] > 10000
     finally:
-        # rimette la connessione materializzata per i test successivi
-        db.reset_con()
-        m._get_con()
+        con.close()

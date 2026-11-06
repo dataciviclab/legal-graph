@@ -33,3 +33,9 @@ FROM (
     GROUP BY 1, 2
 )
 GROUP BY id, relation
+-- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
+-- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
+-- con i parquet ordinati il row-group pruning salta la maggior parte del file
+-- (misurato: lookup nodo 70ms → 12ms, scan archi 52ms → 14ms) e il file è
+-- anche più piccolo perché ZSTD comprime meglio dati ordinati.
+ORDER BY id, relation
