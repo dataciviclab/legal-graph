@@ -85,6 +85,18 @@ def test_search_sentenze_with_source(search_ready):
     assert all(r["source"] == "costituzione" for r in rows)
 
 
+def test_stopword_non_nasconde_l_atto(search_ready):
+    """Le preposizioni articolate non devono entrare nell'AND della query.
+
+    "sicurezza sul lavoro" richiedeva la parola "sul" *dentro il titolo* e
+    scartava il D.Lgs 81/2008 ("...nei luoghi di lavoro"). Misurato nell'eval
+    cittadino locale: era 1 dei 9 casi `tema` che fallivano.
+    """
+    rows = m.legal_search("sicurezza sul lavoro", limit=5)
+    ids = [r["id"] for r in rows]
+    assert any("2008-04-09;81" in i for i in ids), ids
+
+
 def test_search_topic_not_overfiltered(search_ready):
     rows = m.legal_search("responsabilità società reati ambientali", limit=3)
     assert rows, "topic libero over-filtrato a 0"

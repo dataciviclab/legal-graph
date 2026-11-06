@@ -438,6 +438,40 @@ def test_bootstrap_usa_metadata_del_publish(monkeypatch, tmp_path):
         con.close()
 
 
+def test_bootstrap_metadata_ottimistico(monkeypatch, tmp_path):
+    """Se il metadata elenca una tabella che il bucket non ha più, si degrada.
+
+    Il metadata è un'informazione, non un'autorizzazione: con
+    `remoto_verificato` il probe viene saltato, quindi l'unica difesa è che
+    una `CREATE VIEW` fallita su sorgente remota non faccia cadere il
+    bootstrap (era la classe di bug chiusa in #49).
+    """
+    import json
+
+    from legal_graph.mcp import db
+
+    meta = tmp_path / "metadata.json"
+    meta.write_text(
+        json.dumps({"tables": [{"name": "mart_legal_nodes"},
+                               {"name": "mart_legal_edges"},
+                               {"name": "mart_legal_texts"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: meta)
+    monkeypatch.setattr(db, "resolve_texts_file", lambda: "http://127.0.0.1:9/rimosso.parquet")
+    con = db._new_con()
+    try:
+        db._bootstrap_views(con)
+        nomi = {
+            r[0]
+            for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert {"nodes", "edges"} <= nomi
+        assert "texts" not in nomi, "view creata su un parquet che non esiste"
+    finally:
+        con.close()
+
+
 def test_bootstrap_crea_view_sul_parquet():
     """`_bootstrap_views` deve creare VIEW sui parquet, non tabelle.
 

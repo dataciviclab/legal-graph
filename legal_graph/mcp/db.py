@@ -23,6 +23,7 @@ non più una lista vuota.
 from __future__ import annotations
 
 import functools
+import logging
 import os
 import re
 import threading
@@ -47,6 +48,8 @@ from legal_graph.paths import (
     resolve_texts_file,
     source_exists,
 )
+
+logger = logging.getLogger(__name__)
 
 _default_con: duckdb.DuckDBPyConnection | None = None
 
@@ -256,9 +259,18 @@ def _ensure_view(
         return
     if not remoto_verificato and not _sorgente_leggibile(con, path):
         return
-    con.execute(
-        f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
-    )
+    try:
+        con.execute(
+            f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
+        )
+    except duckdb.Error as exc:
+        # `remoto_verificato` è un'informazione, non una garanzia: se il bucket
+        # non ha (più) quel parquet la view non è essenziale e la feature
+        # degrada (testi da GitHub raw, archi in entrata su `edges`). Su file
+        # locale invece l'errore deve restare rumoroso.
+        if not is_remote(path):
+            raise
+        logger.warning("view %s non creata (%s): %s", name, path, exc)
 
 
 def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
