@@ -29,6 +29,30 @@ class TestModificaEdges:
         assert n == 0
 
 
+class TestCitazioniFuoriCorpus:
+    """Le citation AKN verso atti fuori corpus non si perdono (2026-11).
+
+    Prima l'upstream scartava le citation con bersaglio fuori dalle collezioni
+    (IC #86) e legal-graph non poteva agganciarle: L. 241/1990 aveva 0 edge.
+    """
+
+    def test_riferimento_alla_241(self, con):
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'riferimento'
+              AND target_id = 'urn:nir:stato:legge:1990-08-07;241'
+        """).fetchone()[0]
+        assert n > 0, "L. 241/1990 senza citazioni: bersagli fuori corpus persi"
+
+    def test_target_sempre_nel_grafo(self, con):
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            WHERE e.relation = 'riferimento'
+              AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = e.target_id)
+        """).fetchone()[0]
+        assert n == 0, f"{n} riferimenti con target dangling"
+
+
 class TestDeputati:
     def test_anagrafica_coperta(self, con):
         n = con.execute("""

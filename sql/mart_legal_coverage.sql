@@ -9,7 +9,7 @@
 -- "quanto entra nel grafo" è la coppia distinta.
 --
 -- Perché esiste: il compose filtra le righe che non riesce a collegare
--- (es. `WHERE r.risolto` in mart_legal_edges.sql) e i test vedono un grafo
+-- (es. bersaglio senza nodo in `edges_riferimenti`) e i test vedono un grafo
 -- con 0 dangling. Il "buco" non è un errore: è un numero che prima non
 -- esisteva. Qui quel numero è esplicito e verificabile.
 --
@@ -30,10 +30,15 @@
 WITH rif AS (
     SELECT
         count(*) AS upstream_rows,
-        count(DISTINCT (regexp_extract(fonte_filename, '/([^/]+)$', 1), bersaglio_filename))
-            AS natural_pairs
+        -- Identità del bersaglio: filename quando è nel corpus, URN quando è
+        -- fuori (dal 2026-11 le citation fuori corpus arrivano con
+        -- `bersaglio_urn` e `risolto=false`, non vengono più scartate a monte).
+        count(DISTINCT (
+            regexp_extract(fonte_filename, '/([^/]+)$', 1),
+            COALESCE(NULLIF(bersaglio_filename, ''), bersaglio_urn)
+        )) AS natural_pairs
     FROM read_parquet('{support.riferimenti.path}')
-    WHERE risolto
+    WHERE (risolto OR COALESCE(bersaglio_urn, '') <> '')
       AND NULLIF(regexp_extract(fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
 ),
 
@@ -114,7 +119,7 @@ funnel AS (
             'italia-corpus.riferimenti',
             (SELECT upstream_rows FROM rif),
             (SELECT natural_pairs FROM rif),
-            'Copertura del compose, non della fonte: i riferimenti che italia-corpus non risolve non arrivano nemmeno qui (IC #86). Coppie naturali su filename, prima della mappatura a URN e della guardia temporale.'
+            'Copertura del compose, non della fonte: dal 2026-11 le citation AKN con bersaglio fuori corpus arrivano con `bersaglio_urn` (risolto=false) e il denominatore le include; entrano nel grafo solo se l''URN aggancia un nodo. Prima venivano scartate a monte (IC #86). Coppie naturali su filename/URN, prima della mappatura ai nodi e della guardia temporale.'
         ),
         (
             'abroga',
@@ -156,8 +161,9 @@ all_edges AS (
         -- sono etichettati.
         count(*) FILTER (WHERE is_formulaic) AS formulaic_edges,
         count(*) FILTER (WHERE is_reading_clause) AS reading_clause_edges,
-        -- evidenza assente (`akn:ref`): oggi 56% dei riferimento,
-        -- target 0 quando italia-corpus#109 popola il contesto AKN
+        -- evidenza assente (`akn:ref`): segnaposto delle citation AKN senza
+        -- contesto, target 0 quando italia-corpus#109 popola il contesto AKN.
+        -- Dal 2026-11 include le citation fuori corpus (emesse con URN).
         count(*) FILTER (WHERE evidence_kind = 'missing') AS missing_evidence_edges
     FROM mart_legal_edges
     GROUP BY relation

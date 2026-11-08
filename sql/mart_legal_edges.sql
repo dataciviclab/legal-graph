@@ -38,23 +38,89 @@ normativa_types AS (
       )
 ),
 
+-- Chiave URN tollerante per le citation AKN: l'upstream scrive il tipo in
+-- forma concatenata (`decretolegislativo`) e a volte omette giorno/mese
+-- (`legge:1990;241`). Stessa regola di
+-- `italia-corpus/lab_tools/urn.py::annual_key` (slug del tipo + anno +
+-- numero), replicata qui perché il compose non importa codice dell'upstream.
+-- Serve alle citation con `risolto=false` (atto fuori corpus): prima venivano
+-- scartate a monte, ora arrivano con `bersaglio_urn`.
+riferimenti_citazioni AS (
+    SELECT
+        *,
+        regexp_extract(bersaglio_urn, '^urn:nir:([^:]+):', 1) AS t_emittente,
+        regexp_replace(
+            regexp_replace(
+                regexp_extract(bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
+                '[.\-]', '', 'g'
+            ),
+            'della|delle|dello|degli|dei|del', '', 'g'
+        ) AS t_tipo_slug,
+        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS t_anno,
+        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS t_numero
+    FROM read_parquet('{support.riferimenti.path}')
+),
+
+nodi_urn_key_raw AS (
+    SELECT
+        id,
+        regexp_extract(id, '^urn:nir:([^:]+):', 1) AS emittente,
+        regexp_replace(
+            regexp_replace(
+                regexp_extract(id, '^urn:nir:[^:]+:([^:]+):', 1),
+                '[.\-]', '', 'g'
+            ),
+            'della|delle|dello|degli|dei|del', '', 'g'
+        ) AS tipo_slug,
+        regexp_extract(id, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
+        regexp_extract(id, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
+    FROM mart_legal_nodes
+    WHERE id LIKE 'urn:nir:%'
+),
+
+-- Solo chiavi univoche: se due nodi collassano sulla stessa
+-- (emittente, tipo, anno, numero) l'aggancio sarebbe ambiguo e produrrebbe
+-- edge spuri (stessa guardia di `urn.expand_index`).
+nodi_urn_key AS (
+    SELECT * FROM (
+        SELECT
+            *,
+            count(*) OVER (PARTITION BY emittente, tipo_slug, anno, numero) AS n_chiave
+        FROM nodi_urn_key_raw
+        WHERE anno <> '' AND numero <> ''
+    ) WHERE n_chiave = 1
+),
+
 edges_riferimenti AS (
     SELECT
         COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
         'riferimento' AS relation,
-        COALESCE(lu2.urn, 'file:' || r.bersaglio_filename) AS target_id,
+        -- Priorità: nodo agganciato via URN (solo per i bersagli fuori corpus),
+        -- altrimenti risoluzione filename→URN come prima.
+        CASE
+            WHEN nk.id IS NOT NULL THEN nk.id
+            ELSE lu2.urn
+        END AS target_id,
         r.peso AS weight,
         r.fonte_anno AS source_year,
         r.bersaglio_anno AS target_year,
         -- Evidence: contesto del link capturato da grafo_riferimenti.py
         -- (colonna 'contesto' nel parquet; NULL se upstream non la produce ancora)
         LEFT(r.contesto, 200) AS evidence
-    FROM read_parquet('{support.riferimenti.path}') r
+    FROM riferimenti_citazioni r
     LEFT JOIN urn_lookup lu
       ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
     LEFT JOIN urn_lookup lu2
       ON r.bersaglio_filename = lu2.filename
-    WHERE r.risolto = true
+    LEFT JOIN nodi_urn_key nk
+      ON NOT r.risolto
+     AND nk.emittente = r.t_emittente
+     AND nk.tipo_slug = r.t_tipo_slug
+     AND nk.anno = r.t_anno
+     AND nk.numero = r.t_numero
+    WHERE (r.risolto OR COALESCE(r.bersaglio_urn, '') <> '')
+      -- Bersaglio agganciato: senza nodo l'edge sarebbe dangling e va scartato.
+      AND (nk.id IS NOT NULL OR lu2.urn IS NOT NULL)
       -- Guard: fonte_filename vuoto/malformato → source_id 'file:' dangling
       -- (drift upstream IC 2026-10; zero nodi file: nel grafo)
       AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
@@ -938,7 +1004,7 @@ reading_clause_edges AS (
     SELECT DISTINCT
         COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
         COALESCE(lu2.urn, 'file:' || r.bersaglio_filename) AS target_id
-    FROM read_parquet('{support.riferimenti.path}') r
+    FROM riferimenti_citazioni r
     LEFT JOIN urn_lookup lu
       ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
     LEFT JOIN urn_lookup lu2

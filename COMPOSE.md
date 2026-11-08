@@ -96,7 +96,7 @@ Locale == CI: stessi target Makefile.
 | Copertura onesta | ✅ [docs/COVERAGE.md](docs/COVERAGE.md) |
 | Bank analisi / Discussion | ✅ [docs/ANALISI.md](docs/ANALISI.md) |
 | Repo pubblico / MCP template org | ⏳ non ancora |
-| Hub FOIA 33/2011, 241/1990 | ⚠️ parziale — L. 241/1990 in grafo via Normattiva API (2026-10); L. 33/2011 ancora assente |
+| Hub FOIA 33/2011, 241/1990 | ⚠️ parziale — L. 241/1990 è nodo `atti_api` e dal 2026-11 riceve le citazioni (bersagli fuori corpus agganciati per URN); L. 33/2011 ancora assente |
 | Codici c.c./c.p. navigabili | ❌ gap |
 | FTS / giurisprudenza ordinaria / PNRR dataset | ❌ fuori grafo |
 

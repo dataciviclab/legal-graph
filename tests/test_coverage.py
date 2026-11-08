@@ -148,7 +148,12 @@ class TestFunnel:
         pct = con.execute(
             "SELECT edge_pct FROM coverage WHERE relation = 'riferimento'"
         ).fetchone()[0]
-        assert pct >= 50, f"copertura citazioni al {pct}% (atteso >=50%)"
+        # Dal 2026-11 il denominatore include le citation AKN con bersaglio
+        # fuori corpus (prima scartate a monte e quindi invisibili): entrano
+        # nel grafo solo quelle il cui URN aggancia un nodo, quindi la quota
+        # fisiologica scende (36,4% al primo build, era ~51% sul denominatore
+        # dei soli risolti). La soglia protegge dal collasso, non dal cambio.
+        assert pct >= 30, f"copertura citazioni al {pct}% (atteso >=30%)"
 
     def test_only_declared_funnels_have_denominator(self, con):
         """Nessun denominatore inventato sulle relazioni 1:1."""
@@ -170,7 +175,9 @@ class TestFunnel:
     @pytest.mark.parametrize(
         "relation,baseline",
         [
-            ("riferimento", 200_080),
+            # 2026-11: il denominatore include le citation AKN fuori corpus
+            # (prima scartate a monte: 200.080 righe risolte soltanto).
+            ("riferimento", 390_830),
             ("abroga", 8_374),
             ("diventa_legge", 7_478),
             ("emendamento", 763_690),
