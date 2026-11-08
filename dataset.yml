@@ -126,6 +126,14 @@ support:
     type: external
     repo: italia-corpus
     path: data/derived/atti_api.parquet
+  # Catalogo ufficiale Normattiva (~205k atti): serve ai nodi "catalogo" per
+  # gli atti citati che non sono nelle collezioni. Solo metadati, nessun testo.
+  - name: atti_index
+    type: external
+    repo: italia-corpus
+    slug: atti_index
+    layer: clean
+    years: [2026]
 
   # -- senato-akn (GCS clean -- file grandi) -----------------------
   - name: senato_corpus

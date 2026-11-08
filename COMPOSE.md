@@ -22,7 +22,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 
 ```text
 1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta,
-                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori)
+                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori,
+                              **nodi catalogo** da atti_index per gli atti citati
+                              fuori corpus: solo identità, nessun testo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)

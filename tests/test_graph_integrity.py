@@ -625,8 +625,16 @@ class TestCardinality:
         n_dl = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'dl:%'
         """).fetchone()[0]
-        # 670 attesi: i 213 DL già presenti come URN non creano più il nodo
-        assert 550 <= n_dl <= 900, f"Nodi dl: fuori range: {n_dl}"
+        # Dal 2026-11 i DL citati hanno il nodo **catalogo** (URN reale): il
+        # fallback `dl:*` resta solo per i non citati (12 nel build). Il
+        # contratto è "l'identità del DL esiste", non "esiste come dl:*".
+        n_dl_catalogo = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'catalogo' AND id LIKE 'urn:nir:stato:decreto.legge:%'
+        """).fetchone()[0]
+        assert 550 <= n_dl + n_dl_catalogo <= 2_500, (
+            f"Nodi DL fuori range: dl:*={n_dl} catalogo={n_dl_catalogo}"
+        )
         n_cam_atti = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'camera:atto:%'
         """).fetchone()[0]

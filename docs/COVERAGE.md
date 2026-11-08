@@ -32,7 +32,7 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 200.080 | 126.593 | 101.583 | 80,2% | snapshot dello stesso atto (righe→coppie), mappatura URN, guardia temporale |
+| `riferimento` | 390.830 | 317.343 | 187.743 | 59,2% | snapshot dello stesso atto (righe→coppie), bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
 | `emendamento` | 763.690 | 561.270 | 487.538 | 86,9% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
@@ -40,6 +40,12 @@ WHERE upstream IS NOT NULL;
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.
+
+**Nodi catalogo (2026-11).** I bersagli fuori corpus che esistono nel catalogo
+Normattiva hanno un nodo `source='catalogo'` (11.473 nodi da `atti_index`, solo
+identità: nessun testo). Su 32.780 atti citati fuori corpus, 17.764 vengono
+agganciati (+72.101 edge). Restano fuori 5.143 direttive UE (non sono nel
+catalogo italiano) e ~9.900 URN ambigui o assenti dal catalogo.
 
 Limiti dichiarati:
 
@@ -75,7 +81,7 @@ Copertura per legislatura (edge / coppie distinte, stessa base del totale): **19
 ## Evidenza formulaica (`is_formulaic`)
 
 `edges.is_formulaic` marca le citazioni in cui lo **stesso** snippet è usato da
-più di 50 atti distinti: **3.140 edge** (3,1% dei `riferimento`), di cui 2.727
+più di 50 atti distinti: **3.502 edge** (1,9% dei `riferimento`), di cui 2.727
 al D.P.R. 1092/1985 (la clausola di pubblicazione che ogni preambolo ripete).
 Il match è **esatto**: normalizzare lo snippet (lower, primi N caratteri)
 porterebbe a 14.178 edge su 1.790 target e catturerebbe citazioni AKN legittime
