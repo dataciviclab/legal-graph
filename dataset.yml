@@ -47,6 +47,16 @@ support:
     slug: riferimenti
     layer: clean
     years: [2026]
+  # Contratto URN-based (fonte_urn, bersaglio_urn, rel_type, peso, ...):
+  # edges_riferimenti e edges_abro fanno join esatto sui nodi, senza
+  # normalizzazione URN nel compose.
+  - name: riferimenti_urn
+    type: external
+    repo: italia-corpus
+    slug: riferimenti
+    layer: mart
+    table: mart_riferimenti_urn
+    years: [2026]
   - name: citazioni_costituzionali
     type: external
     repo: italia-corpus

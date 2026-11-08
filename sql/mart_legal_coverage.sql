@@ -38,7 +38,8 @@ WITH rif AS (
             COALESCE(NULLIF(bersaglio_filename, ''), bersaglio_urn)
         )) AS natural_pairs
     FROM read_parquet('{support.riferimenti.path}')
-    WHERE (risolto OR COALESCE(bersaglio_urn, '') <> '')
+    WHERE rel_type = 'citation'
+      AND (risolto OR COALESCE(bersaglio_urn, '') <> '')
       AND NULLIF(regexp_extract(fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
 ),
 
