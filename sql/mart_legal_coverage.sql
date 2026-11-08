@@ -27,27 +27,27 @@
 -- edge): per loro upstream_rows e natural_pairs restano NULL invece di
 -- inventare un denominatore.
 
+-- Denominatore e numeratore nello **stesso spazio di chiavi**: il mart
+-- `mart_riferimenti_urn` è già al grain (fonte_urn, bersaglio_urn, rel_type),
+-- lo stesso che usa `edges_riferimenti`. Prima del 2026-11 il denominatore
+-- contava coppie su filename: rapportarlo agli edge URN non misurava la
+-- stessa cosa (i due spazi divergevano con la canonicalizzazione).
 WITH rif AS (
     SELECT
         count(*) AS upstream_rows,
-        -- Identità del bersaglio: filename quando è nel corpus, URN quando è
-        -- fuori (dal 2026-11 le citation fuori corpus arrivano con
-        -- `bersaglio_urn` e `risolto=false`, non vengono più scartate a monte).
-        count(DISTINCT (
-            regexp_extract(fonte_filename, '/([^/]+)$', 1),
-            COALESCE(NULLIF(bersaglio_filename, ''), bersaglio_urn)
-        )) AS natural_pairs
-    FROM read_parquet('{support.riferimenti.path}')
+        count(DISTINCT (fonte_urn, bersaglio_urn)) AS natural_pairs
+    FROM read_parquet('{support.riferimenti_urn.path}')
     WHERE rel_type = 'citation'
-      AND (risolto OR COALESCE(bersaglio_urn, '') <> '')
-      AND NULLIF(regexp_extract(fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
 ),
 
+-- Abroga regex: coppie URN dal mart (`rel_type='abroga'`); la risoluzione
+-- anno+numero→URN e la guardia temporale vivono in italia-corpus.
 abro_raw AS (
     SELECT
         count(*) AS upstream_rows,
-        count(DISTINCT (abrogating_file, abrogated_year, abrogated_number)) AS natural_pairs
-    FROM read_parquet('{support.abrogations_raw.path}')
+        count(DISTINCT (fonte_urn, bersaglio_urn)) AS natural_pairs
+    FROM read_parquet('{support.riferimenti_urn.path}')
+    WHERE rel_type = 'abroga'
 ),
 
 abro_akn AS (
@@ -117,17 +117,17 @@ funnel AS (
     SELECT * FROM (VALUES
         (
             'riferimento',
-            'italia-corpus.riferimenti',
+            'italia-corpus.riferimenti__mart_riferimenti_urn',
             (SELECT upstream_rows FROM rif),
             (SELECT natural_pairs FROM rif),
-            'Copertura del compose, non della fonte: dal 2026-11 le citation AKN con bersaglio fuori corpus arrivano con `bersaglio_urn` (risolto=false) e il denominatore le include; entrano nel grafo solo se l''URN aggancia un nodo. Prima venivano scartate a monte (IC #86). Coppie naturali su filename/URN, prima della mappatura ai nodi e della guardia temporale.'
+            'Denominatore = coppie URN del mart (`rel_type=citation`): stesso spazio di chiavi degli edge. Si perde per guardia temporale e per target senza nodo (direttive UE, URN ambigui/malformati). Il clean filename-based resta solo per i mart analitici.'
         ),
         (
             'abroga',
-            'italia-corpus.abrogations_raw + akn_relations(repeal)',
+            'italia-corpus.riferimenti(mart, rel_type=abroga) + akn_relations(repeal)',
             (SELECT upstream_rows FROM abro_raw) + (SELECT upstream_rows FROM abro_akn),
             (SELECT natural_pairs FROM abro_raw) + (SELECT natural_pairs FROM abro_akn),
-            'Target per anno+numero (regex) e per URN (AKN): si perde dove l''atto abrogante/abrogato non è nel corpus o il contesto è ambiguo. Nessun evento AKN estratto (akn_n_repeal_events = 0 upstream).'
+            'Abroga regex: coppie URN dal mart (risoluzione e guardia in IC). AKN repeal: URN→URN dal corpus. Si perde per target senza nodo e guardia temporale.'
         ),
         (
             'diventa_legge',
