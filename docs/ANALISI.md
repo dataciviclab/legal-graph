@@ -45,7 +45,7 @@ Se il grafo non copre, dichiararlo e passare a un dataset Lab o a una fonte este
 | C1 | Il whistleblowing UE è nel grafo? | search `whistleblowing` / `2019/1937` → D.Lgs 24/2023 | Ranking tema debole |
 | C2 | La legge anticorruzione 190/2012 è cercabile? | search `190/2012` → `urn:nir:stato:legge:2012-11-06;190` (node `atti_api`) | Testo integrale non in mart texts |
 | C3 | FOIA / accesso civico? | search `FOIA` → D.Lgs **33/2013** (hub: 166 citazioni in ingresso al build 2026-11) | Materia IC = "cultura": usare numero/URN, non materia |
-| C4 | L. 241/1990 accesso documenti? | search `241/1990` → nodo `atti_api`, **1.180 citazioni in ingresso** | Testo non nel corpus: `legal_text` dà il link Normattiva |
+| C4 | L. 241/1990 accesso documenti? | search `241/1990` → nodo `atti_api`, **1.156 citazioni in ingresso** | Testo non nel corpus: `legal_text` dà il link Normattiva |
 | C5 | PNRR nel grafo? | search `PNRR` | ~20 nodi, non dataset milestones |
 | C6 | Appalti: D.Lgs 50/2016 e successori? | search `50/2016`, `36/2023` → chain | |
 | C7 | Atti fisco di alta qualità? | search tema + filtri `materia='fisco'`, `min_score=70` | Qualità = marker IC, non validazione giuridica |
