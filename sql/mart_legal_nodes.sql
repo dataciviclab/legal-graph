@@ -175,6 +175,31 @@ nodes_articoli AS (
     WHERE articolo IS NOT NULL
 ),
 
+-- Nodo dell'atto **Costituzione nel suo insieme** (`costituzione`): serve alle
+-- 4.971 citation che puntano a `urn:nir:stato:costituzione:1947-12-27;const`,
+-- cioè alla Costituzione senza articolo. Gli articoli restano
+-- `costituzione:art:N`: l'atto intero non è un articolo e non va mappato su uno.
+nodes_costituzione AS (
+    SELECT
+        'costituzione:atto' AS id,
+        'COSTITUZIONE' AS tipo,
+        '1947-12-27' AS data,
+        NULL::VARCHAR AS numero,
+        'Costituzione della Repubblica italiana' AS title,
+        'Costituzione' AS collezione,
+        NULL::VARCHAR AS source_filename,
+        'costituzione' AS source,
+        1947 AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        'vigente' AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+),
+
 nodes_revisioni AS (
     SELECT
         'revisione:' || urn AS id,
@@ -971,6 +996,8 @@ all_nodes AS (
       AND id NOT IN (SELECT id FROM nodes_atti_api)
     UNION ALL
     SELECT * FROM nodes_articoli WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_costituzione WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_revisioni WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL

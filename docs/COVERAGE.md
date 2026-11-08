@@ -32,7 +32,7 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 390.830 | 317.343 | 187.743 | 59,2% | snapshot dello stesso atto (righe→coppie), bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
+| `riferimento` | 390.830 | 317.343 | 192.705 | 60,7% | snapshot dello stesso atto (righe→coppie), bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
 | `emendamento` | 763.690 | 561.270 | 487.538 | 86,9% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
@@ -45,8 +45,11 @@ elenca con `upstream` NULL invece di inventare un denominatore.
 Normattiva hanno un nodo `source='catalogo'` (11.473 nodi da `atti_index`, solo
 identità: nessun testo, ma con `materia` dal classificatore IC: 63% specifica).
 Su 32.780 atti citati fuori corpus, 17.764 vengono agganciati (+72.101 edge).
-Restano fuori 5.143 direttive UE (non sono nel catalogo italiano) e ~9.900 URN
-ambigui o assenti dal catalogo.
+Le citation all'atto-Costituzione (`...;const`, 4.962 edge) hanno un nodo
+proprio `costituzione:atto`, non un articolo: sono citazioni all'atto intero.
+Restano fuori 5.143 direttive UE (non sono nel catalogo italiano), ~9.900 URN
+ambigui o assenti dal catalogo e ~4.200 URN malformati (`urn:nir::…`, senza
+emittente): non identificano un atto e restano **esclusi per scelta**.
 
 Limiti dichiarati:
 

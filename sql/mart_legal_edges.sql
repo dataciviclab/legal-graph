@@ -91,13 +91,25 @@ nodi_urn_key AS (
     ) WHERE n_chiave = 1
 ),
 
+-- Alias URN che non sono atti NIR citabili per numero: la Costituzione è
+-- citata come **atto intero** (`...;const`, 4.971 righe) e ha un nodo suo
+-- (`costituzione`), non un articolo. Regola esplicita, in un punto solo:
+-- mapparla su `costituzione:art:N` sarebbe sbagliato (la citazione non
+-- individua un articolo).
+urn_aliases AS (
+    SELECT * FROM (VALUES
+        ('urn:nir:stato:costituzione:1947-12-27;const', 'costituzione:atto')
+    ) AS t(urn, node_id)
+),
+
 edges_riferimenti AS (
     SELECT
         COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
         'riferimento' AS relation,
-        -- Priorità: nodo agganciato via URN (solo per i bersagli fuori corpus),
-        -- altrimenti risoluzione filename→URN come prima.
+        -- Priorità: alias esplicito → nodo agganciato via URN (bersagli fuori
+        -- corpus) → risoluzione filename→URN come prima.
         CASE
+            WHEN ua.node_id IS NOT NULL THEN ua.node_id
             WHEN nk.id IS NOT NULL THEN nk.id
             ELSE lu2.urn
         END AS target_id,
@@ -112,15 +124,18 @@ edges_riferimenti AS (
       ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
     LEFT JOIN urn_lookup lu2
       ON r.bersaglio_filename = lu2.filename
+    LEFT JOIN urn_aliases ua
+      ON ua.urn = r.bersaglio_urn
     LEFT JOIN nodi_urn_key nk
       ON NOT r.risolto
+     AND ua.node_id IS NULL
      AND nk.emittente = r.t_emittente
      AND nk.tipo_slug = r.t_tipo_slug
      AND nk.anno = r.t_anno
      AND nk.numero = r.t_numero
     WHERE (r.risolto OR COALESCE(r.bersaglio_urn, '') <> '')
       -- Bersaglio agganciato: senza nodo l'edge sarebbe dangling e va scartato.
-      AND (nk.id IS NOT NULL OR lu2.urn IS NOT NULL)
+      AND (ua.node_id IS NOT NULL OR nk.id IS NOT NULL OR lu2.urn IS NOT NULL)
       -- Guard: fonte_filename vuoto/malformato → source_id 'file:' dangling
       -- (drift upstream IC 2026-10; zero nodi file: nel grafo)
       AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL

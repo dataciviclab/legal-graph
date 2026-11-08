@@ -52,6 +52,23 @@ class TestCitazioniFuoriCorpus:
         """).fetchone()[0]
         assert n == 0, f"{n} riferimenti con target dangling"
 
+    def test_citazioni_alla_costituzione(self, con):
+        """Le citation all'atto-Costituzione (`...;const`) hanno un nodo loro.
+
+        Non sono article-level: 4.971 righe puntavano a un URN senza numero e
+        venivano scartate. Il nodo `costituzione` (atto intero) le raccoglie,
+        senza mapparle su `costituzione:art:N`.
+        """
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'riferimento' AND target_id = 'costituzione:atto'
+        """).fetchone()[0]
+        assert n > 4_000, f"citazioni alla Costituzione: {n}"
+        nodo = con.execute(
+            "SELECT COUNT(*) FROM nodes WHERE id = 'costituzione:atto'"
+        ).fetchone()[0]
+        assert nodo == 1, f"nodo 'costituzione' presente {nodo} volte"
+
 
 class TestNodiCatalogo:
     """Nodi `source='catalogo'` per gli atti citati assenti dal corpus.
