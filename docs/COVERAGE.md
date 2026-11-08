@@ -32,11 +32,11 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 390.830 | 317.343 | 192.705 | 60,7% | snapshot dello stesso atto (righe→coppie), bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
+| `riferimento` | 267.447 | 267.447 | 193.035 | 72,2% | bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
 | `emendamento` | 763.690 | 561.270 | 487.538 | 86,9% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
-| `abroga` | 8.374 | 8.374 | 3.732 | 44,6% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
+| `abroga` | 4.198 | 4.198 | 3.732 | 88,9% | target senza nodo, guardia temporale |
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.

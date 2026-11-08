@@ -65,11 +65,8 @@ support:
     type: external
     repo: italia-corpus
     path: data/derived/pnrr_references.parquet
-  - name: abrogations_raw
-    type: external
-    repo: italia-corpus
-    path: data/derived/abrogations_raw.parquet
-  # repeal/substitution AKN (URN→URN) — più preciso di abrogations_raw (regex)
+  # repeal/substitution AKN (URN→URN); le abroga regex arrivano dal mart
+  # riferimenti_urn, non più da un parquet derivato (2026-11)
   - name: akn_relations
     type: external
     repo: italia-corpus
@@ -135,7 +132,9 @@ support:
   - name: atti_api
     type: external
     repo: italia-corpus
-    path: data/derived/atti_api.parquet
+    slug: atti_api
+    layer: clean
+    years: [2026]
   # Catalogo ufficiale Normattiva (~205k atti): serve ai nodi "catalogo" per
   # gli atti citati che non sono nelle collezioni. Solo metadati, nessun testo.
   - name: atti_index

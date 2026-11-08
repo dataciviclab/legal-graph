@@ -153,7 +153,7 @@ class TestFunnel:
         # nel grafo solo quelle il cui URN aggancia un nodo, quindi la quota
         # fisiologica scende (36,4% al primo build, era ~51% sul denominatore
         # dei soli risolti). La soglia protegge dal collasso, non dal cambio.
-        assert pct >= 30, f"copertura citazioni al {pct}% (atteso >=30%)"
+        assert pct >= 60, f"copertura citazioni al {pct}% (atteso >=60%)"
 
     def test_only_declared_funnels_have_denominator(self, con):
         """Nessun denominatore inventato sulle relazioni 1:1."""
@@ -177,8 +177,10 @@ class TestFunnel:
         [
             # 2026-11: il denominatore include le citation AKN fuori corpus
             # (prima scartate a monte: 200.080 righe risolte soltanto).
-            ("riferimento", 390_830),
-            ("abroga", 8_374),
+            # 2026-11: denominatore = coppie URN del mart (stesso spazio degli
+            # edge), non più righe del clean filename-based.
+            ("riferimento", 267_447),
+            ("abroga", 4_198),
             ("diventa_legge", 7_478),
             ("emendamento", 763_690),
         ],
