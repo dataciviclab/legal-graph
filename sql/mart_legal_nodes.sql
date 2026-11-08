@@ -132,7 +132,9 @@ nodes_catalogo AS (
                 WHEN CAST(i.classe AS VARCHAR) IN ('1', '2') THEN 'vigente'
                 ELSE 'abrogato'
             END AS stato,
-            NULL::VARCHAR AS materia,
+            -- materia dal catalogo (classificatore IC): senza, i nodi catalogo
+            -- sarebbero invisibili a `legal_search(materia=...)`.
+            NULLIF(i.materia, '') AS materia,
             NULL::INTEGER AS qualita_score,
             NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY i.urn ORDER BY i.data_gu) AS _rn

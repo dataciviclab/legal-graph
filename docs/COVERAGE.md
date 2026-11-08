@@ -43,9 +43,10 @@ elenca con `upstream` NULL invece di inventare un denominatore.
 
 **Nodi catalogo (2026-11).** I bersagli fuori corpus che esistono nel catalogo
 Normattiva hanno un nodo `source='catalogo'` (11.473 nodi da `atti_index`, solo
-identità: nessun testo). Su 32.780 atti citati fuori corpus, 17.764 vengono
-agganciati (+72.101 edge). Restano fuori 5.143 direttive UE (non sono nel
-catalogo italiano) e ~9.900 URN ambigui o assenti dal catalogo.
+identità: nessun testo, ma con `materia` dal classificatore IC: 63% specifica).
+Su 32.780 atti citati fuori corpus, 17.764 vengono agganciati (+72.101 edge).
+Restano fuori 5.143 direttive UE (non sono nel catalogo italiano) e ~9.900 URN
+ambigui o assenti dal catalogo.
 
 Limiti dichiarati:
 

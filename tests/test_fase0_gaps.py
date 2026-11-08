@@ -93,6 +93,21 @@ class TestNodiCatalogo:
         """).fetchone()
         assert senza / tot < 0.10, f"{senza}/{tot} nodi catalogo senza edge"
 
+    def test_materia_dal_catalogo(self, con):
+        """`materia` arriva da atti_index: senza, i nodi sono invisibili ai
+        filtri tematici di `legal_search`."""
+        tot, senza, non_altro = con.execute("""
+            SELECT
+                COUNT(*),
+                COUNT(*) FILTER (WHERE materia IS NULL OR materia = ''),
+                COUNT(*) FILTER (WHERE materia <> 'altro')
+            FROM nodes WHERE source = 'catalogo'
+        """).fetchone()
+        assert senza == 0, f"{senza} nodi catalogo senza materia"
+        assert non_altro / tot > 0.50, (
+            f"solo {non_altro}/{tot} nodi catalogo con materia specifica"
+        )
+
 
 class TestDeputati:
     def test_anagrafica_coperta(self, con):
