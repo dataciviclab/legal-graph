@@ -21,8 +21,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 ## Mart (ordine compose)
 
 ```text
-1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta,
-                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori,
+1 mart_legal_nodes          ← support esterni (+ nodi Camera/Senato da
+                              open-politica `atti`; eiv da akn_act_meta,
+                              nodi dl:* da atti.mart_dl, camera:atto:* da camera_relatori,
                               **nodi catalogo** da atti_index per gli atti citati
                               fuori corpus: solo identità, nessun testo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate

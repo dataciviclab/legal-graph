@@ -246,7 +246,7 @@ edges_senato AS (
 
 edges_camera_leggi AS (
     SELECT
-        'camera:' || CAST(l.ddl_numero AS VARCHAR) AS source_id,
+        'camera:' || CAST(l.legislatura AS VARCHAR) || ':' || CAST(l.ddl_numero AS VARCHAR) AS source_id,
         'diventa_legge' AS relation,
         l.urn_normattiva AS target_id,
         1 AS weight,
@@ -258,7 +258,7 @@ edges_camera_leggi AS (
       AND l.ddl_numero IS NOT NULL
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:' || CAST(l.ddl_numero AS VARCHAR)
+          WHERE n.id = 'camera:' || CAST(l.legislatura AS VARCHAR) || ':' || CAST(l.ddl_numero AS VARCHAR)
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
@@ -603,7 +603,7 @@ edges_firmatario AS (
     SELECT
         'deputato:' || CAST(f.persona_id AS VARCHAR) AS source_id,
         'firmatario' AS relation,
-        'camera:' || CAST(f.atto_id AS VARCHAR) AS target_id,
+        'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR) AS target_id,
         1 AS weight,
         f.legislatura AS source_year,
         NULL::INTEGER AS target_year,
@@ -617,7 +617,7 @@ edges_firmatario AS (
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
+          WHERE n.id = 'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR)
       )
 ),
 
@@ -647,14 +647,20 @@ edges_relatore_camera AS (
       )
 ),
 
--- DL conversione (open-politica decreti_legge #63): nodo dl:* → DDL di
--- conversione Senato. ddl_id representative (ramo S, data recente) —
--- non univoco se più iter; esito + giorni in evidence.
+-- DL conversione (open-politica `atti`): nodo del DL → atto di conversione.
 -- La fonte identifica il DL con anno+numero; il nodo canonico è l'URN del
--- corpus quando esiste (in quel caso `nodes_dl` non crea più `dl:*`).
-decreti_legge_urn AS (
+-- corpus quando esiste (in quel caso `nodes_dl` non crea `dl:*`).
+-- Un DL può avere più atti di conversione (Camera + Senato): si emette un
+-- edge per ciascuno — prima si usava solo l'atto rappresentativo di
+-- `compose/decreti-legge`, assorbito in `atti.mart_dl` (2026-11).
+conversione_dl AS (
     SELECT
-        d.*,
+        a.atto_id,
+        a.dl_numero,
+        a.dl_anno,
+        a.data_legge,
+        d.esito,
+        d.giorni_conversione,
         COALESCE(
             (
                 -- numero/anno dall'id URN, non dalle colonne: i nodi `gu`
@@ -663,33 +669,38 @@ decreti_legge_urn AS (
                 WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'
                   AND TRY_CAST(regexp_extract(
                           n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
-                      ) AS INTEGER) = d.dl_anno
+                      ) AS INTEGER) = a.dl_anno
                   AND TRY_CAST(regexp_extract(
                           n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
-                      ) AS BIGINT) = d.dl_numero
+                      ) AS BIGINT) = a.dl_numero
             ),
-            'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+            'dl:' || CAST(a.dl_anno AS VARCHAR) || '-' || CAST(a.dl_numero AS VARCHAR)
         ) AS source_id
-    FROM read_parquet('{support.decreti_legge.path}') d
-    WHERE d.ddl_id IS NOT NULL
+    FROM read_parquet('{support.atti.path}') a
+    JOIN read_parquet('{support.dl.path}') d
+      ON d.dl_numero = a.dl_numero
+     AND d.dl_anno = a.dl_anno
+    WHERE a.dl_numero IS NOT NULL
+      AND a.dl_anno IS NOT NULL
 ),
 
 edges_converte_dl AS (
     SELECT
         d.source_id,
         'converte_decreto_legge' AS relation,
-        'senato:' || CAST(d.ddl_id AS VARCHAR) AS target_id,
+        d.atto_id AS target_id,
         1 AS weight,
         d.dl_anno AS source_year,
-        YEAR(d.data_conversione) AS target_year,
-        d.esito || ' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)' AS evidence
-    FROM decreti_legge_urn d
+        YEAR(d.data_legge) AS target_year,
+        d.esito
+          || COALESCE(' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)', '')
+          AS evidence
+    FROM conversione_dl d
     WHERE EXISTS (
           SELECT 1 FROM mart_legal_nodes n WHERE n.id = d.source_id
       )
       AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'senato:' || CAST(d.ddl_id AS VARCHAR)
+          SELECT 1 FROM mart_legal_nodes n WHERE n.id = d.atto_id
       )
 ),
 

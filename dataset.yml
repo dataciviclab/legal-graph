@@ -164,6 +164,31 @@ support:
     layer: clean
     years: [2026]
 
+  # -- open-politica: dimensione atto conformata (Camera + Senato) ------
+  # Chiave canonica `atto_id`: senato:{id_ddl} · camera:{legislatura}:{id_ddl}.
+  # L'id_ddl Camera si ripete tra legislature (6.328 valori su 7.614): senza
+  # la legislatura 34.315 atti collassano su 7.614 nodi.
+  # Due support puntano allo stesso dataset `atti` (3 mart): la forma
+  # repo+slug+layer=mart richiede `table:` quando i mart sono più di uno.
+  # ⚠️ Con `table:` esplicito il toolkit NON valida lo slug nel registry del
+  # produttore: se `atti` non è ancora registrato costruisce in silenzio
+  # https://…/mart/atti/{year}/… (senza il prefisso `open-politica/`).
+  # Per questo il merge va dopo open-politica (che aggiorna il registry).
+  - name: atti
+    type: external
+    repo: open-politica
+    slug: atti
+    layer: mart
+    table: mart_atti
+    years: [2026]
+  # decreti-legge: esito + tempi di conversione (assorbe compose/decreti-legge)
+  - name: dl
+    type: external
+    repo: open-politica
+    slug: atti
+    layer: mart
+    table: mart_dl
+    years: [2026]
   # -- open-politica multi-anno (legislature 13-19) ----------------
   # SQL usa {support.NAME.outputs} (lista URL) + union_by_name
   - name: senato_ddl
@@ -172,12 +197,9 @@ support:
     slug: senato_ddl
     layer: clean
     years: [13, 14, 15, 16, 17, 18, 19]
-  - name: camera_ddl
-    type: external
-    repo: open-politica
-    slug: camera_ddl
-    layer: clean
-    years: [13, 14, 15, 16, 17, 18, 19]
+  # camera_ddl non è più un support: i nodi Camera arrivano da `atti`
+  # (chiave `camera:{legislatura}:{id_ddl}`). Il label pubblicato
+  # `source = 'camera_ddl'` resta invariato per i consumer.
   - name: camera_leggi
     type: external
     repo: open-politica
@@ -238,13 +260,8 @@ support:
     slug: camera_relatori
     layer: clean
     years: [16, 17, 18, 19]
-  # -- open-politica: DL conversioni + ddl_id (OP #63) ------------
-  - name: decreti_legge
-    type: external
-    repo: open-politica
-    slug: decreti_legge
-    layer: clean
-    years: [2026]
+  # -- open-politica: DL identificati da `atti` (dl_numero/dl_anno) -----
+  # (compose/decreti-legge assorbito in open-politica `atti`, 2026-11)
 
   # -- costituzione-italiana: iter revisioni Cost. (PR #21) -------
   - name: iter_costituzionale
