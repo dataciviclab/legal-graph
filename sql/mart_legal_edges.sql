@@ -38,62 +38,9 @@ normativa_types AS (
       )
 ),
 
--- Chiave URN tollerante per le citation AKN: l'upstream scrive il tipo in
--- forma concatenata (`decretolegislativo`) e a volte omette giorno/mese
--- (`legge:1990;241`). Stessa regola di
--- `italia-corpus/lab_tools/urn.py::annual_key` (slug del tipo + anno +
--- numero), replicata qui perché il compose non importa codice dell'upstream.
--- Serve alle citation con `risolto=false` (atto fuori corpus): prima venivano
--- scartate a monte, ora arrivano con `bersaglio_urn`.
-riferimenti_citazioni AS (
-    SELECT
-        *,
-        regexp_extract(bersaglio_urn, '^urn:nir:([^:]+):', 1) AS t_emittente,
-        regexp_replace(
-            regexp_replace(
-                regexp_extract(bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
-                '[.\-]', '', 'g'
-            ),
-            'della|delle|dello|degli|dei|del', '', 'g'
-        ) AS t_tipo_slug,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS t_anno,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS t_numero
-    FROM read_parquet('{support.riferimenti.path}')
-),
-
-nodi_urn_key_raw AS (
-    SELECT
-        id,
-        regexp_extract(id, '^urn:nir:([^:]+):', 1) AS emittente,
-        regexp_replace(
-            regexp_replace(
-                regexp_extract(id, '^urn:nir:[^:]+:([^:]+):', 1),
-                '[.\-]', '', 'g'
-            ),
-            'della|delle|dello|degli|dei|del', '', 'g'
-        ) AS tipo_slug,
-        regexp_extract(id, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
-        regexp_extract(id, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
-    FROM mart_legal_nodes
-    WHERE id LIKE 'urn:nir:%'
-),
-
--- Solo chiavi univoche: se due nodi collassano sulla stessa
--- (emittente, tipo, anno, numero) l'aggancio sarebbe ambiguo e produrrebbe
--- edge spuri (stessa guardia di `urn.expand_index`).
-nodi_urn_key AS (
-    SELECT * FROM (
-        SELECT
-            *,
-            count(*) OVER (PARTITION BY emittente, tipo_slug, anno, numero) AS n_chiave
-        FROM nodi_urn_key_raw
-        WHERE anno <> '' AND numero <> ''
-    ) WHERE n_chiave = 1
-),
-
 -- Alias URN che non sono atti NIR citabili per numero: la Costituzione è
 -- citata come **atto intero** (`...;const`, 4.971 righe) e ha un nodo suo
--- (`costituzione`), non un articolo. Regola esplicita, in un punto solo:
+-- (`costituzione:atto`), non un articolo. Regola esplicita, in un punto solo:
 -- mapparla su `costituzione:art:N` sarebbe sbagliato (la citazione non
 -- individua un articolo).
 urn_aliases AS (
@@ -102,53 +49,32 @@ urn_aliases AS (
     ) AS t(urn, node_id)
 ),
 
+-- Citation: `mart_riferimenti_urn` porta già la URN canonica su entrambi i
+-- lati (normalizzazione in italia-corpus). Qui join esatto sui nodi: nessuna
+-- chiave annuale duplicata nel compose.
 edges_riferimenti AS (
     SELECT
-        COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
+        r.fonte_urn AS source_id,
         'riferimento' AS relation,
-        -- Priorità: alias esplicito → nodo agganciato via URN (bersagli fuori
-        -- corpus) → risoluzione filename→URN come prima.
-        CASE
-            WHEN ua.node_id IS NOT NULL THEN ua.node_id
-            WHEN nk.id IS NOT NULL THEN nk.id
-            ELSE lu2.urn
-        END AS target_id,
+        n.id AS target_id,
         r.peso AS weight,
         r.fonte_anno AS source_year,
         r.bersaglio_anno AS target_year,
-        -- Evidence: contesto del link capturato da grafo_riferimenti.py
-        -- (colonna 'contesto' nel parquet; NULL se upstream non la produce ancora)
         LEFT(r.contesto, 200) AS evidence
-    FROM riferimenti_citazioni r
-    LEFT JOIN urn_lookup lu
-      ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
-    LEFT JOIN urn_lookup lu2
-      ON r.bersaglio_filename = lu2.filename
+    FROM read_parquet('{support.riferimenti_urn.path}') r
     LEFT JOIN urn_aliases ua
       ON ua.urn = r.bersaglio_urn
-    LEFT JOIN nodi_urn_key nk
-      ON NOT r.risolto
-     AND ua.node_id IS NULL
-     AND nk.emittente = r.t_emittente
-     AND nk.tipo_slug = r.t_tipo_slug
-     AND nk.anno = r.t_anno
-     AND nk.numero = r.t_numero
-    WHERE (r.risolto OR COALESCE(r.bersaglio_urn, '') <> '')
-      -- Bersaglio agganciato: senza nodo l'edge sarebbe dangling e va scartato.
-      AND (ua.node_id IS NOT NULL OR nk.id IS NOT NULL OR lu2.urn IS NOT NULL)
-      -- Guard: fonte_filename vuoto/malformato → source_id 'file:' dangling
-      -- (drift upstream IC 2026-10; zero nodi file: nel grafo)
-      AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
-      -- Temporal guard: un atto non può riferire un atto pubblicato dopo di esso.
-      -- Tolleranza 1y su anno (date imprecise nei metadati upstream).
-      -- Applicata solo ad edge con peso ≥5: edge deboli (citazioni isolate)
-      -- con anno anomalo possono essere falsi positivi dei metadati, non del link.
-      -- (cross-check LcnT 2026-10: 852 edge con source_year < target_year - 5)
+    JOIN mart_legal_nodes n
+      ON n.id = COALESCE(ua.node_id, r.bersaglio_urn)
+    WHERE r.rel_type = 'citation'
+      -- Temporal guard: un atto non può riferire un atto pubblicato dopo di
+      -- esso (tolleranza 1 anno). L'eccezione per gli edge regex deboli
+      -- (peso < 5) resta: anni anomali lì sono rumore di metadati.
       AND (
           r.fonte_anno IS NULL
           OR r.bersaglio_anno IS NULL
           OR r.fonte_anno >= r.bersaglio_anno - 1
-          OR (r.origine = 'regex' AND r.peso < 5)
+          OR (r.da_regex AND r.peso < 5)
       )
 ),
 
@@ -517,44 +443,20 @@ edges_pnrr AS (
     WHERE r.missione IS NOT NULL
 ),
 
-abro_source AS (
-    SELECT
-        lu.urn AS source_id,
-        a.abrogated_year,
-        a.abrogated_number,
-        a.context
-    FROM read_parquet('{support.abrogations_raw.path}') a
-    JOIN urn_lookup lu ON a.abrogating_file = lu.filename
-),
-
+-- Abrogazioni: `rel_type='abroga'` dal mart URN-based di italia-corpus.
+-- La risoluzione (fonte→URN, target anno+numero→URN, guardia temporale) vive
+-- in IC (`grafo_riferimenti._archi_da_abrogazioni`): qui nessun join normativa.
 edges_abro AS (
     SELECT
-        s.source_id,
+        r.fonte_urn AS source_id,
         'abroga' AS relation,
-        n.urn AS target_id,
-        1 AS weight,
-        ns.src_anno AS source_year,
-        n.anno_atto AS target_year,
-        LEFT(s.context, 200) AS evidence
-    FROM abro_source s
-    JOIN (
-        SELECT urn, anno_atto, numero
-        FROM read_parquet('{support.normativa.path}')
-        WHERE NULLIF(urn, '') IS NOT NULL
-    ) n ON s.abrogated_year = n.anno_atto
-       AND s.abrogated_number = TRY_CAST(n.numero AS INTEGER)
-    LEFT JOIN (
-        SELECT urn, MIN(anno_atto) AS src_anno
-        FROM read_parquet('{support.normativa.path}')
-        WHERE NULLIF(urn, '') IS NOT NULL
-        GROUP BY urn
-    ) ns ON ns.urn = s.source_id
-    -- Guard anno: regex IC a volte risolve la fonte su un atto anteriore
-    -- al target (contesto menziona atti multipli) — scarta i temporalmente
-    -- impossibili. source_year era prima valorizzato con l'anno del target.
-    WHERE ns.src_anno IS NULL
-       OR n.anno_atto IS NULL
-       OR ns.src_anno >= n.anno_atto
+        r.bersaglio_urn AS target_id,
+        r.peso AS weight,
+        r.fonte_anno AS source_year,
+        r.bersaglio_anno AS target_year,
+        LEFT(r.contesto, 200) AS evidence
+    FROM read_parquet('{support.riferimenti_urn.path}') r
+    WHERE r.rel_type = 'abroga'
 ),
 
 -- Repeal AKN (italia-corpus akn_relations): URN→URN, più preciso di
@@ -1017,16 +919,15 @@ grouped AS (
 -- restare allineati, il test `test_reading_clause_solo_riferimento` lo verifica.
 reading_clause_edges AS (
     SELECT DISTINCT
-        COALESCE(lu.urn, 'file:' || regexp_extract(r.fonte_filename, '/([^/]+)$', 1)) AS source_id,
-        COALESCE(lu2.urn, 'file:' || r.bersaglio_filename) AS target_id
-    FROM riferimenti_citazioni r
-    LEFT JOIN urn_lookup lu
-      ON regexp_extract(r.fonte_filename, '/([^/]+)$', 1) = lu.filename
-    LEFT JOIN urn_lookup lu2
-      ON r.bersaglio_filename = lu2.filename
-    WHERE r.clausola_lettura
-      AND r.risolto
-      AND NULLIF(regexp_extract(r.fonte_filename, '/([^/]+)$', 1), '') IS NOT NULL
+        r.fonte_urn AS source_id,
+        n.id AS target_id
+    FROM read_parquet('{support.riferimenti_urn.path}') r
+    LEFT JOIN urn_aliases ua
+      ON ua.urn = r.bersaglio_urn
+    JOIN mart_legal_nodes n
+      ON n.id = COALESCE(ua.node_id, r.bersaglio_urn)
+    WHERE r.rel_type = 'citation'
+      AND r.clausola_lettura
 ),
 
 formulaic_evidence AS (

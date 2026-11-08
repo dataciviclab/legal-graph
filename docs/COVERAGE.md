@@ -36,7 +36,7 @@ WHERE upstream IS NOT NULL;
 | `emendamento` | 763.690 | 561.270 | 487.538 | 86,9% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
 | `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
-| `abroga` | 8.374 | 8.374 | 3.633 | 43,4% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
+| `abroga` | 8.374 | 8.374 | 3.732 | 44,6% | atto abrogante/abrogato fuori corpus, contesto regex ambiguo |
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.

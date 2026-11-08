@@ -28,6 +28,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
+                              + abroga dal mart URN di italia-corpus
 2b mart_legal_edges_in      ← FROM mart_legal_edges, stesse righe ordinate per
                               target_id (query in entrata con row-group pruning)
 3 mart_legal_coverage       ← FROM mart_legal_edges + support: righe upstream
