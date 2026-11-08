@@ -22,7 +22,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 
 ```text
 1 mart_legal_nodes          ← support esterni (+ eiv da akn_act_meta,
-                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori)
+                              nodi dl:* da decreti_legge, camera:atto:* da camera_relatori,
+                              **nodi catalogo** da atti_index per gli atti citati
+                              fuori corpus: solo identità, nessun testo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
@@ -96,7 +98,7 @@ Locale == CI: stessi target Makefile.
 | Copertura onesta | ✅ [docs/COVERAGE.md](docs/COVERAGE.md) |
 | Bank analisi / Discussion | ✅ [docs/ANALISI.md](docs/ANALISI.md) |
 | Repo pubblico / MCP template org | ⏳ non ancora |
-| Hub FOIA 33/2011, 241/1990 | ⚠️ parziale — L. 241/1990 in grafo via Normattiva API (2026-10); L. 33/2011 ancora assente |
+| Hub FOIA 33/2011, 241/1990 | ⚠️ parziale — L. 241/1990 è nodo `atti_api` e dal 2026-11 riceve le citazioni (bersagli fuori corpus agganciati per URN); L. 33/2011 ancora assente |
 | Codici c.c./c.p. navigabili | ❌ gap |
 | FTS / giurisprudenza ordinaria / PNRR dataset | ❌ fuori grafo |
 

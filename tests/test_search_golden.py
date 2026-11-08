@@ -394,6 +394,12 @@ def test_search_alias_culturali(search_ready):
         r["id"] for r in rows
     ]
     rows2 = m.legal_search("legge 180 follicelli", limit=5)
-    assert any("180:1978" in r["id"] for r in rows2), [r["id"] for r in rows2]
+    # Dal 2026-11 l'atto ha il nodo catalogo (`source='catalogo'`): l'alias
+    # risolve sull'URN reale, non più sul fallback `norma:*`.
+    assert any(
+        "180:1978" in r["id"] or "1978-05-13;180" in r["id"] for r in rows2
+    ), [r["id"] for r in rows2]
     rows3 = m.legal_search("basaglia", limit=5)
-    assert any("180:1978" in r["id"] for r in rows3), [r["id"] for r in rows3]
+    assert any(
+        "180:1978" in r["id"] or "1978-05-13;180" in r["id"] for r in rows3
+    ), [r["id"] for r in rows3]

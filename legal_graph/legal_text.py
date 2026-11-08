@@ -215,10 +215,10 @@ def fetch_normativa_text(
     if not filename:
         return {"error": "source_filename mancante sul nodo normativa"}
 
-    # Atti fuori collezione (`support atti_api`): `source_filename` è l'URN, non
-    # un file markdown di italia-corpus. Il testo non è nel corpus e non c'è
-    # niente da scaricare: dirlo con il link Normattiva invece di lasciare un
-    # 404 su un path interno (171 nodi, incluse leggi note come la 194/1978).
+    # Atti fuori collezione (`support atti_api`) e nodi catalogo
+    # (`source='catalogo'`): `source_filename` è l'URN, non un file markdown di
+    # italia-corpus. Il testo non è nel corpus e non c'è niente da scaricare:
+    # dirlo con il link Normattiva invece di lasciare un 404 su un path interno.
     if filename.startswith("urn:"):
         return {
             "error": (

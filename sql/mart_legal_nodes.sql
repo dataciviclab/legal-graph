@@ -82,6 +82,76 @@ normativa AS (
     FROM nodes_normativa n
 ),
 
+-- Nodi "catalogo": atti del catalogo Normattiva (`atti_index`) che **non**
+-- sono nel corpus ma sono citati da un atto che lo è. Senza questi nodi le
+-- citation fuori corpus (188.613 righe, ~32.800 atti) restano dangling e il
+-- compose le scarta. Solo i citati: l'intero catalogo sarebbe 205k nodi senza
+-- testo né relazioni. Le direttive UE sono escluse (non sono nel catalogo).
+cited AS (
+    SELECT DISTINCT
+        regexp_replace(
+            regexp_replace(
+                regexp_extract(bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
+                '[.\-]', '', 'g'
+            ),
+            'della|delle|dello|degli|dei|del', '', 'g'
+        ) AS tipo_slug,
+        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
+        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
+    FROM read_parquet('{support.riferimenti.path}')
+    WHERE NOT risolto
+      AND bersaglio_urn LIKE 'urn:nir:%'
+),
+
+nodes_catalogo AS (
+    SELECT
+        id, tipo, data, numero, title, collezione, source_filename,
+        source, anno, length_chars, length_words, celex, codice_redazionale,
+        stato, materia, qualita_score, sunsetting_score
+    FROM (
+        SELECT
+            i.urn AS id,
+            i.denominazione AS tipo,
+            regexp_extract(i.urn, ':(\d{4}-\d{2}-\d{2});', 1) AS data,
+            CAST(i.numero AS VARCHAR) AS numero,
+            COALESCE(NULLIF(i.titolo, ''), i.descrizione) AS title,
+            'Catalogo Normattiva' AS collezione,
+            -- source dedicato: sono nodi di **identità** senza testo, qualità o
+            -- materia. Tenerli fuori da `source='normativa'` preserva gli
+            -- invarianti dei nodi di corpus (materia/vigenza_fonte/cardinalità).
+            'catalogo' AS source,
+            -- source_filename = URN: il testo non è nel corpus (legal_text
+            -- restituisce il link Normattiva invece di un 404 interno).
+            i.urn AS source_filename,
+            i.anno AS anno,
+            NULL::BIGINT AS length_chars,
+            NULL::BIGINT AS length_words,
+            NULL::VARCHAR AS celex,
+            NULLIF(i.codice_redazionale, '') AS codice_redazionale,
+            CASE
+                WHEN CAST(i.classe AS VARCHAR) IN ('1', '2') THEN 'vigente'
+                ELSE 'abrogato'
+            END AS stato,
+            -- materia dal catalogo (classificatore IC): senza, i nodi catalogo
+            -- sarebbero invisibili a `legal_search(materia=...)`.
+            NULLIF(i.materia, '') AS materia,
+            NULL::INTEGER AS qualita_score,
+            NULL::INTEGER AS sunsetting_score,
+            ROW_NUMBER() OVER (PARTITION BY i.urn ORDER BY i.data_gu) AS _rn
+        FROM read_parquet('{support.atti_index.path}') i
+        JOIN cited c
+          ON  c.anno = CAST(i.anno AS VARCHAR)
+          AND c.numero = CAST(i.numero AS VARCHAR)
+          -- stessa normalizzazione del tipo usata in mart_legal_edges.sql
+          AND c.tipo_slug = regexp_replace(
+                  regexp_replace(lower(i.denominazione), '[^a-z]', '', 'g'),
+                  'della|delle|dello|degli|dei|del', '', 'g'
+              )
+        WHERE NULLIF(i.urn, '') IS NOT NULL
+          AND NOT i.in_corpus
+    ) WHERE _rn = 1
+),
+
 nodes_articoli AS (
     SELECT
         'costituzione:art:' || CAST(articolo AS VARCHAR) AS id,
@@ -103,6 +173,31 @@ nodes_articoli AS (
         NULL::INTEGER AS sunsetting_score
     FROM read_parquet('{support.articoli_costituzione.path}')
     WHERE articolo IS NOT NULL
+),
+
+-- Nodo dell'atto **Costituzione nel suo insieme** (`costituzione`): serve alle
+-- 4.971 citation che puntano a `urn:nir:stato:costituzione:1947-12-27;const`,
+-- cioè alla Costituzione senza articolo. Gli articoli restano
+-- `costituzione:art:N`: l'atto intero non è un articolo e non va mappato su uno.
+nodes_costituzione AS (
+    SELECT
+        'costituzione:atto' AS id,
+        'COSTITUZIONE' AS tipo,
+        '1947-12-27' AS data,
+        NULL::VARCHAR AS numero,
+        'Costituzione della Repubblica italiana' AS title,
+        'Costituzione' AS collezione,
+        NULL::VARCHAR AS source_filename,
+        'costituzione' AS source,
+        1947 AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        'vigente' AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
 ),
 
 nodes_revisioni AS (
@@ -667,6 +762,7 @@ nodes_norme AS (
                   SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
                   UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
                   UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+                  UNION ALL SELECT id FROM nodes_catalogo
               ) n
               WHERE n.id LIKE 'urn:nir:stato:%'
                 AND TRY_CAST(regexp_extract(
@@ -874,6 +970,7 @@ nodes_dl AS (
               SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
               UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
               UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+              UNION ALL SELECT id FROM nodes_catalogo
           ) n
           WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'
             AND TRY_CAST(regexp_extract(
@@ -891,14 +988,23 @@ all_nodes AS (
     -- collezione IC); vince la riga del corpus, che porta stato e materia.
     UNION ALL
     SELECT * FROM nodes_atti_api WHERE id NOT IN (SELECT id FROM normativa)
+    -- catalogo dopo atti_api: un atto citato che ha già il nodo `atti_api`
+    -- non deve produrre un secondo nodo.
+    UNION ALL
+    SELECT * FROM nodes_catalogo
+    WHERE id NOT IN (SELECT id FROM normativa)
+      AND id NOT IN (SELECT id FROM nodes_atti_api)
     UNION ALL
     SELECT * FROM nodes_articoli WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_costituzione WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_revisioni WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_gu
     WHERE id NOT IN (SELECT id FROM normativa)
       AND id NOT IN (SELECT id FROM nodes_atti_api)
+      AND id NOT IN (SELECT id FROM nodes_catalogo)
     UNION ALL
     SELECT * FROM nodes_senato WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
