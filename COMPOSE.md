@@ -13,7 +13,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
 | SQL derivate | coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/` (8 tabelle grafo online; texts/massime/edges_in dal primo run dopo il merge) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 10 tabelle online (build 2026-11-09) |
 | Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
@@ -78,6 +78,22 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
 Se manca `search_keys`/`metrics`: errore + hint `make run`.
 
+## Sorgente dei dati e runtime
+
+MCP e test risolvono i mart in quest'ordine: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
+
+| Variabile | Default | Effetto |
+|---|---|---|
+| `LEGAL_GRAPH_SOURCE` | `auto` | `auto`: locale se esiste, altrimenti GCS · `local`: solo build locale, nessun fallback · `gcs`: solo GCS, anche con build locale (evita di servire dati vecchi) |
+| `LEGAL_GRAPH_MART_DIR` | — | path esplicito dei mart (sostituisce l'autodetect di `out/`) |
+| `LEGAL_GRAPH_THREADS` | `min(4, cpu)` | thread per query; `legal_search` è uno scan completo di `search_keys` (~2,4s a 1 thread, ~0,9s a 4) |
+| `LEGAL_GRAPH_MEMORY_LIMIT` | `1GB` | tetto di memoria per connessione (non prenotata: RSS reale ~350MB); da alzare se materializzi i mart nella stessa connessione |
+| `LEGAL_GRAPH_REQUIRE_MART` | assente | `1` → mart mancante è un errore, non uno skip (CI) |
+
+Con i mart come VIEW sui parquet, 1GB è un tetto comodo, non una prenotazione. Con 256MB la memoria si esaurisce dopo qualche query pesante: in OOM la search risponde con un errore esplicito, non con una lista vuota.
+
+Le view sui mart sono create al bootstrap della connessione: dopo un `make run` che aggiunge tabelle nuove serve **riavviare** l'MCP (il refresh per chiamata è stato tolto: costava ~50ms di query di catalogo su ogni tool).
+
 ## CI
 
 | Workflow | Trigger | Cosa fa |
@@ -85,7 +101,7 @@ Se manca `search_keys`/`metrics`: errore + hint `make run`.
 | `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
 | `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + **test** + sync GCS + registry PR |
 
-I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Dal 2026-11 il publish GCS include anche texts/massime (attivi dal primo run dopo il merge): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
+I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Il publish GCS include tutte e 10 le tabelle, texts e massime comprese (dal build 2026-11-09): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
 Locale == CI: stessi target Makefile.
 
@@ -96,17 +112,17 @@ Locale == CI: stessi target Makefile.
 | Compose mart + MCP thin | ✅ 10 tabelle (nodes, edges, edges_in, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
-| CI org | ✅ Actions + pipeline commit mart |
+| CI org | ✅ Actions + pipeline → GCS + registry PR |
 | Copertura onesta | ✅ [docs/COVERAGE.md](docs/COVERAGE.md) |
 | Bank analisi / Discussion | ✅ [docs/ANALISI.md](docs/ANALISI.md) |
-| Repo pubblico / MCP template org | ⏳ non ancora |
-| Hub FOIA 33/2011, 241/1990 | ⚠️ parziale — L. 241/1990 è nodo `atti_api` e dal 2026-11 riceve le citazioni (bersagli fuori corpus agganciati per URN); L. 33/2011 ancora assente |
+| Repo pubblico | ✅ · MCP nel template org ⏳ |
+| Hub FOIA 33/2013 e 241/1990 | ✅ nodi nel grafo, con citazioni in ingresso (bersagli fuori corpus agganciati per URN); 33/2013: 157, 241/1990: 1.156 |
 | Codici c.c./c.p. navigabili | ❌ gap |
 | FTS / giurisprudenza ordinaria / PNRR dataset | ❌ fuori grafo |
 
 ## Prossimi passi
 
 1. Discussion attive su questo repo come strumento di analisi (bank ANALISI.md)
-2. Repo pubblico + scheda projects + MCP nel template org
+2. MCP nel template org
 3. Hub Lab: 33/2013, 241/1990, 190/2012 cercabili
 4. Dopo: explorer `normativa`, dataset PNRR dedicato, non “Normattiva in grafo”

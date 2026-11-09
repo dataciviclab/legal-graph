@@ -1,185 +1,112 @@
-# Legal Knowledge Graph — il diritto italiano come sistema interrogabile
+# Legal Knowledge Graph — il diritto italiano come sistema
 
-**858.126 nodi, 1.318.479 relazioni tra leggi, decreti, DDL, sentenze e Costituzione (build 2026-11-09). Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**858.126 nodi e 1.318.479 relazioni tra leggi, decreti, disegni di legge, sentenze e Costituzione (build 2026-11-09).**
 
-> Aggiornato 2026-11: **persone da `open-politica/persone`** (identità unica Camera+Senato; −8.445 nodi: deputati del Regno e della Costituente; restano i 100 che il ponte `collega` usa come bersaglio),
-> **`proposta_cost` +1.276** (l'iter Costituzionale Camera puntava
-> a `camera:{num}`, chiave senza legislatura: 0 edge Camera su 1.276 atti),
-> **624 nodi catalogo fantoccio rimossi** (citazioni lette dal clean senza
-> edge nel mart: ora i citati vengono dal mart URN), **nodi Camera +26.701** (la chiave dell'atto Camera ora include la legislatura: `id_ddl` riparte ogni legislatura — l'atto n. 1 esiste in tutte e 7 — e i 34.315 atti Camera collassavano su 7.614 nodi; ✅ 0 dangling, 316.406 archi `firmatario` ora coerenti con la legislatura del firmatario), **citation fuori corpus recuperate** (188.613 righe da 32.780 atti che non avevano un nodo: ora 17.764 hanno un nodo `catalogo` da `atti_index`, +77.063 edge `riferimento`; la Costituzione come atto intero ha il nodo `costituzione:atto`, L. 241/1990 passa da 0 a 1.156 citazioni in ingresso), **emendamenti collegati all'atto +54%** (il target è il nodo atto, non solo `senato_ddl`: 103.829 orfani → 22.377, +238.363 archi), **`legal_search` ordina per vigenza prima dell'impatto** (la norma in vigore batte l'abrogata più citata), **`invoca_parametro` solo su parametri costituzionali** (`parametro_codice=25`, −13.649 edge che mappavano statuti regionali/codici/CEDU sulla Costituzione), 0 target dangling, un solo nodo per atto Senato (i 2.990 documenti AKN senza omologo open-politica diventano il nodo canonico). Precedente 2026-10: evidence sugli edge `riferimento`, +3.666 `impugna` collegati a URN reali, +396 bridge senatore↔deputato, +35.911 `riferimento` dagli AKN, −1.013 autoanelli, nuovo mart **`coverage`**.
+Una legge non nasce da sola. Un disegno di legge diventa legge, un decreto legislativo attua una delega, una sentenza della Corte costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Il Legal Graph mette in un unico grafo interrogabile queste relazioni, raccolte da cinque fonti del Lab: italia-corpus, costituzione-italiana, senato-akn, open-politica e gu-monitor.
 
-Le leggi non vivono isolate: una DDL diventa legge, un D.Lgs attua una delega, una sentenza della Corte Costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Qui quelle relazioni sono **dati**, non opinioni.
-
-Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera, GU) in un unico grafo interrogabile, per rispondere a domande come:
-
-- *Da dove viene il Codice del Terzo Settore?*
-- *Questa legge è stata impugnata dalla Corte?*
-- *Chi cita l’art. 3 Cost. nelle leggi ordinarie?*
-- *Questa DDL è diventata legge?*
+Non è un'enciclopedia del diritto né un motore di ricerca normativo. È una **mappa delle relazioni**: serve a ricostruire percorsi e a vedere chi cita cosa, con i limiti dichiarati in basso.
 
 ## Cosa contiene
 
 | | |
 |---|---|
-| **Nodi** | 858.126 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | 1.318.479 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
-| **Mart** | nodes · edges · **coverage** · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
-| **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
-| **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |
+| **Nodi** | 858.126 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
+| **Relazioni** | 1.318.479 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
+| **Bersagli fuori corpus** | 10.852 atti citati che non sono nel corpus testuale, ricostruiti dal catalogo Normattiva (10.629 collegati al grafo) |
+| **Tabelle pubblicate** | 10 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, relazioni pre-aggregate, emendamenti, testi, massime |
+| **Fonti** | 5 repo del Lab, lette da rete |
 
-## Esempi di domande
+## Domande a cui risponde
 
-| Domanda | Tool / query |
-|---|---|
-| Trova un atto per nome o tema | `legal_search` |
-| Da dove viene questa legge? (delega, DDL, recepimento UE) | `legal_node(view="chain")` |
-| La Corte ha impugnato questa norma? | `legal_node(view="jurisprudence")` |
-| Emendamenti e iter di una DDL | `legal_node(view="parliament")` |
-| Quali atti citano un articolo della Costituzione? | SQL su `cita_costituzione` |
-| Quali norme sono più critiche o obsolette? | `legal_insights` |
-| Testo integrale di un atto | `legal_text(URN)` |
-| Un articolo specifico (anche dentro un codice lungo) | `legal_text(URN, articolo=45)` |
+- *Da dove viene il Codice del Terzo settore?* — la catena delega → decreto legislativo.
+- *Questa legge è stata impugnata dalla Corte costituzionale?* — sentenze e parametri invocati.
+- *Chi cita l'art. 3 della Costituzione nelle leggi ordinarie?* — citazioni costituzionali in ingresso.
+- *Questa proposta di legge è diventata legge?* — il ponte tra atti parlamentari e norme.
+- *Quali norme sono più citate, critiche o vicine all'obsolescenza?* — metriche e report.
 
-## Come accedere
+## Come accedervi
 
-### 1. MCP del Lab (per agenti e chi lavora in chat)
+### MCP del Lab
+
+Per agenti e per chi lavora in chat:
 
 ```text
 legal_search("responsabilita amministrativa")
-  → legal_node(id)                  # overview del nodo
-  → legal_node(id, view="chain")    # se serve la catena legislativa
-  → legal_text(id)                  # testo (atti normativi)
+  → legal_node(id)                  # contesto del nodo
+  → legal_node(id, view="chain")    # catena legislativa
+  → legal_text(id)                  # testo, quando disponibile
 ```
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | Trova atti (parole, tipo, anno, fonte, stato, vigenza_fonte, materia, min_score, collezione) |
+| `legal_search` | Trova atti per parole, tipo, anno, fonte, stato, materia, collezione |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
-| `legal_text` | Testo di un atto da URN; `articolo=N` estrae il singolo articolo dagli heading AKN |
-| `legal_query` | SQL (SELECT) su nodi e archi |
-| `legal_insights` | Report: atti critici, obsoleti, complessi |
+| `legal_text` | Testo di un atto; con `articolo=N` estrae il singolo articolo |
+| `legal_query` | SQL in sola lettura su nodi e archi |
+| `legal_insights` | Report su atti critici, obsoleti e complessi |
 
-### 2. Build locale (compose toolkit)
+### SQL diretto
 
-```bash
-make run          # compose: mart da rete → out/data/mart/ (gitignored)
-make download-gcs # senza build: scarica da GCS (8 tabelle grafo; texts/massime/edges_in se online)
-make test         # integrità + golden search + bilancio copertura
-make lint
-```
-
-Output locale: `out/data/mart/legal_graph/2026/` (**non committato**).
-
-**Pubblicazione** (source of truth per i consumatori):
-
-| Tabella | GCS |
-|---|---|
-| `nodes` · `edges` · `edges_in` · `coverage` · `metrics` · `search_keys` · `node_rel` · `emend_leg` | `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` (online) |
-| `texts` · `massime` | stesso path, **dal primo run di pipeline dopo il merge** (fino ad allora restano locali). Cambio di policy rispetto al «primo rilascio senza testi lunghi»: +16MB pubblicati, in cambio `legal_text` su Costituzione/pronunce non dipende dalla rete |
-
-MCP e test risolvono: **locale `out/` → env `LEGAL_GRAPH_MART_DIR` → GCS HTTPS**.
-
-Le view sui mart sono create al bootstrap della connessione: dopo un `make run`
-che aggiunge tabelle nuove serve **riavviare** l'MCP (il refresh per chiamata è
-stato tolto: costava ~50ms di query di catalogo su ogni tool).
-
-`LEGAL_GRAPH_SOURCE` rende la scelta esplicita:
-
-| Valore | Comportamento |
-|---|---|
-| `auto` (default) | locale se esiste, altrimenti GCS |
-| `local` | solo build locale (nessun fallback remoto) |
-| `gcs` | solo GCS, anche con build locale presente — evita di servire dati vecchi |
-
-Runtime DuckDB (default pensati per l'MCP locale):
-
-| Variabile | Default | Effetto |
-|---|---|---|
-| `LEGAL_GRAPH_THREADS` | `min(4, cpu)` | thread per query; `legal_search` è uno scan completo di `search_keys` (~2,4s a 1 thread, ~0,9s a 4) |
-| `LEGAL_GRAPH_MEMORY_LIMIT` | `1GB` | tetto di memoria per connessione (non prenotata: RSS reale ~350MB); da alzare se materializzi i mart nella stessa connessione |
-| `LEGAL_GRAPH_REQUIRE_MART` | assente | `1` → mart mancante è un errore, non uno skip (CI) |
-
-Con i mart come VIEW sui parquet 1GB è un tetto comodo, non una prenotazione.
-Con 256MB la memoria si esaurisce dopo qualche query pesante: in OOM la search
-risponde con un errore esplicito, non con una lista vuota.
-
-| Tabella | Ruolo |
-|---|---|
-| `mart_legal_nodes` / `mart_legal_edges` | grafo canonicо (archi ordinati per `source_id`) |
-| `mart_legal_edges_in` | stessa tabella degli archi ordinata per `target_id`: query "in entrata" con row-group pruning |
-| `mart_legal_coverage` | bilancio righe upstream → coppie → edge, per relazione |
-| `mart_legal_node_metrics` | intelligence (referenced_by, impact, età) |
-| `mart_legal_search_keys` | ranking search (id_num, title_folded) |
-| `mart_legal_node_rel` | pre-aggregato relazioni per view MCP |
-| `mart_legal_emend_leg` | emendamenti per DDL/legislatura |
-
-Ordine obbligato nel compose: nodes → edges → coverage → derivate (stessa sessione DuckDB).
-`coverage` legge `mart_legal_edges`, quindi non può divergere dal grafo pubblicato.  
-I mart **non** sono più committati in git: CI → GCS + registry. Le fonti upstream si leggono da rete.
-
-MCP senza search mart → errore con hint `make run` o `make download-gcs`.
-
-### 3. SQL diretto (DuckDB)
+I mart sono parquet pubblici su Google Cloud Storage: si interrogano con DuckDB senza scaricare altro.
 
 ```sql
--- Atti che citano l'articolo 3 della Costituzione
 SELECT e.source_id, n.title
-FROM read_parquet('out/data/mart/legal_graph/2026/mart_legal_edges.parquet') e
-JOIN read_parquet('out/data/mart/legal_graph/2026/mart_legal_nodes.parquet') n
+FROM read_parquet('https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/2026/mart_legal_edges.parquet') e
+JOIN read_parquet('https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/2026/mart_legal_nodes.parquet') n
   ON n.id = e.source_id
 WHERE e.relation = 'cita_costituzione'
   AND e.target_id = 'costituzione:art:3'
 LIMIT 10;
 ```
 
-## Architettura (in breve)
+### Build locale
 
-Compose **mart-only toolkit**: legge i clean/derived di altri repo Lab da rete, produce nodi/archi + tabelle derivate (metrics, search keys, pre-aggregati), li espone via MCP. Non clona i repo dati e non duplica i testi — per il testo si usa `legal_text`.
-
-```text
-upstream (GitHub raw / GCS)
-  → make run (dataset.yml + sql/mart_legal_*.sql)
-  → out/data/mart/legal_graph/2026/  (gitignored)
-  → MCP thin: legal_search (intent → SQL) · legal_node(view) · legal_text · query · insights
+```bash
+make run           # compone i mart da rete in out/ (non versionato)
+make download-gcs  # oppure scarica i mart pubblicati
+make test          # integrità del grafo, ricerca, bilancio di copertura
 ```
 
-`legal_search` è **thin**: parse intent (numero/anno, ECLI, Cost., data, frase) → **1 query** su `search_keys` + `metrics`.  
-`attua_delega` è un **edge tipizzato** nel mart (delega→attuazione), non solo un euristica runtime.
+Dettagli su compose, variabili d'ambiente e CI in [COMPOSE.md](COMPOSE.md).
 
-Documenti di dettaglio:
+## Come è fatto
 
-- [COMPOSE.md](COMPOSE.md) — come è costruito, mart, CI, limiti
-- [KEYS.md](KEYS.md) — chiavi cross-repo (URN, id_ddl, atto_num)
-- [docs/COVERAGE.md](docs/COVERAGE.md) — mappa onesta di cosa copre / non copre
-- [docs/ANALISI.md](docs/ANALISI.md) — bank di domande per Discussion e agenti
+```text
+fonti del Lab (GitHub / GCS)
+  → compose toolkit (dataset.yml + SQL)
+  → 10 mart su GCS
+  → MCP thin: search · node · text · query · insights
+```
 
-## Limiti (sintesi)
+Il grafo è **ricomposto ogni settimana** dalle fonti e pubblicato su GCS. Non vengono clonati i repo dati né duplicati i testi: il testo si legge da `legal_text`, che dichiara sempre la provenienza.
 
-Legal Graph è un **motore di contesto relazionale** (processo Senato + Costituzione +
-normativa di sistema recente), **non** un’enciclopedia del diritto italiano.
+## Limiti
 
-- Coperto bene: catene legislative, `attua_delega`, modifiche AKN (`abroga`/`sostituisce`), Corte Cost. (+ relatore), firmatari Camera/Senato, D.Lgs "di sistema"
-- Scoperto: corpus normativo full (~21k vs ~288k IC), codici art. per art., giurisprudenza ordinaria, GU/EUR-Lex, PNRR come dataset
-- `legal_text`: normativa (IC) + articoli Cost. + pronunce Corte (mart texts); senza `articolo` restituisce la testa del documento (max 50k caratteri), non l'atto intero
-- `legal_text` dichiara da dove viene il testo (`via`): `mart_legal_texts` (Costituzione/pronunce), `github_raw` (fetch da italia-corpus), `cache` (già in `data/text_cache/`, non è una fetch fresca), `locale` (repo IC clonato)
-- atti fuori collezione IC (`atti_api`, 171 nodi: es. L. 241/1990, L. 194/1978): il testo **non esiste** nel corpus, `legal_text` risponde con `error` + `normattiva_url` (link al testo vigente) invece di un errore di fetch
-- id parziali: `legal_node`/`legal_text` risolvono un id parziale **solo se unico**, altrimenti rispondono `id ambiguo` con i candidati (mai un atto scelto a caso)
-- Ranking: vigenza → impatto → anno per i temi; per atti precisi usare **numero/URN/direttiva**
-- `evidence`: contesto upstream quando la fonte lo espone, altrimenti tag di provenienza (`akn:ref` sul 78% dei `riferimento`) — non è una citazione verificata
-- citazioni formulaiche o non informative (`is_formulaic` 3.140 + `is_reading_clause` 4.221): escluse da `impact_score` (lordi in `formulaic_by`/`formulaic_out`), vedi [COVERAGE.md](docs/COVERAGE.md)
-- `evidence_kind` sui `riferimento`: `missing` 56,1% (segnaposto `akn:ref`), `locator` 5,1%, `quote` 38,8% — vedi italia-corpus#109
-- Sempre: *dal mart legal-graph, non da Normattiva live*
+Legal Graph è un **motore di contesto relazionale** sul processo legislativo, sulla Costituzione e sulla normativa di sistema recente. Non è "tutto il diritto italiano".
+
+- **Coperto bene**: catene legislative, attuazione delle deleghe, modifiche e abrogazioni, Corte costituzionale, firmatari e relatori, decreti legislativi di sistema.
+- **Scoperto**: corpus normativo completo (20.790 atti contro i 205.117 del catalogo), codici articolo per articolo, giurisprudenza ordinaria, EUR-Lex, PNRR come dataset.
+- **Citazioni**: derivano dai riferimenti Akoma Ntoso di Normattiva, non sono rinvii verificati. Sui titoli generici la fonte può sbagliare bersaglio; le relazioni tipizzate (`abroga`, `sostituisce`, `attua_delega`) sono più affidabili del `riferimento` generico.
+- **Copertura dichiarata**: 193.217 riferimenti su 267.636 coppie (72,2%) e 3.733 abrogazioni su 4.199 (88,9%). Le direttive UE citate restano fuori perché non sono nel catalogo italiano ([issue #124](https://github.com/dataciviclab/italia-corpus/issues/124)).
+- **Vigenza**: `stato` è lo status formale di Normattiva, a livello di atto; non cattura abrogazioni implicite o parziali.
+- **Testo**: `legal_text` restituisce il documento o il singolo articolo, non l'atto consolidato. Per gli atti fuori dal corpus risponde con il link a Normattiva.
+- **Sempre**: i dati vengono dal mart legal-graph, non da Normattiva in tempo reale.
+
+La mappa completa di cosa è coperto e cosa no è in [docs/COVERAGE.md](docs/COVERAGE.md).
 
 ## Partecipa
 
-- **Analisi e confronto**: [Discussions di questo repo](../../discussions) — bank in [docs/ANALISI.md](docs/ANALISI.md)
-- Intake pubblico Lab: [Discussions del Lab](https://github.com/orgs/dataciviclab/discussions)
-- Issue cross-repo: [dataciviclab/dataciviclab](https://github.com/dataciviclab/dataciviclab/issues)
-- Contributi codice: [CONTRIBUTING del Lab](https://github.com/dataciviclab/dataciviclab/blob/main/COME-CONTRIBUIRE.md)
+- **Analisi e confronto**: [Discussions di questo repo](../../discussions), con il bank di domande in [docs/ANALISI.md](docs/ANALISI.md).
+- **Intake pubblico del Lab**: [Discussions DataCivicLab](https://github.com/orgs/dataciviclab/discussions).
+- **Issue cross-repo**: [dataciviclab/dataciviclab](https://github.com/dataciviclab/dataciviclab/issues).
+- **Contributi**: [come contribuire al Lab](https://github.com/dataciviclab/dataciviclab/blob/main/COME-CONTRIBUIRE.md).
 
-## Licenza e CI
+## Licenza e stato
 
 [![CI](https://github.com/dataciviclab/legal-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/dataciviclab/legal-graph/actions/workflows/ci.yml)
 
-Dati: pubblico dominio dalle fonti ufficiali (Normattiva, Corte Costituzionale, Parlamento).  
+Dati: pubblico dominio dalle fonti ufficiali (Normattiva, Corte costituzionale, Parlamento).
 Codice: [MIT](LICENSE) — DataCivicLab.
+
+Storia delle modifiche e numeri dei build precedenti: [CHANGELOG.md](CHANGELOG.md).
+Chiavi condivise tra i repo: [KEYS.md](KEYS.md).
