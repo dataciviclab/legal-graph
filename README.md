@@ -34,6 +34,7 @@ Per agenti e per chi lavora in chat:
 legal_search("responsabilita amministrativa")
   → legal_node(id)                  # contesto del nodo
   → legal_node(id, view="chain")    # catena legislativa
+  → legal_neighbors(id)             # vicini (in/out, relazione o canonica)
   → legal_text(id)                  # testo, quando disponibile
 ```
 
@@ -42,6 +43,8 @@ legal_search("responsabilita amministrativa")
 | `legal_search` | Trova atti per parole, tipo, anno, fonte, stato, materia, collezione |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
 | `legal_text` | Testo di un atto; con `articolo=N` estrae il singolo articolo |
+| `legal_neighbors` | Vicini per direzione, relazione esatta o canonica (25→15) |
+| `legal_coverage` | Copertura per relazione e livelli L1-L2 |
 | `legal_query` | SQL in sola lettura su nodi e archi |
 | `legal_insights` | Report su atti critici, obsoleti e complessi |
 

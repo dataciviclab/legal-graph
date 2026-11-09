@@ -9,9 +9,178 @@ import duckdb
 from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.mcp import db
-from legal_graph.mcp.db import _view_exists, db_lock, locked
+from legal_graph.mcp.db import _has_col, _view_exists, db_lock, locked
+from legal_graph.mcp.node_views import _find_node
 
 _MAX_ROWS = 100
+
+# --- Guardia read-only per legal_query -------------------------------------
+# Non basta il primo token: DuckDB esegue più statement separati da ';' e
+# funzioni come read_csv_auto/read_text leggono file locali. La guardia:
+# 1) usa extract_statements (se disponibile) per rifiutare più statement e
+#    i tipi non-SELECT/EXPLAIN;
+# 2) rifiuta keyword di scrittura e funzioni di lettura file;
+# 3) rifiuta FROM/JOIN con un path tra apici (DuckDB legge il file);
+# 4) consente PRAGMA solo per metadati (table_info/table_xinfo/tables/database_list).
+_READONLY_FIRST = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
+_READONLY_TYPES = {"SELECT", "EXPLAIN"}
+_FORBIDDEN_WORDS = (
+    "insert", "update", "delete", "merge", "drop", "create", "alter", "copy",
+    "attach", "detach", "install", "export", "import", "call", "vacuum",
+    "checkpoint",
+)
+_FORBIDDEN_FUNC_RE = re.compile(
+    r"\b(read_[a-z0-9_]+|[a-z0-9_]+_scan|glob|sniff_[a-z0-9_]+|load_extension|st_read|query|query_table)\s*\(",
+    re.IGNORECASE,
+)
+_PRAGMA_META = re.compile(
+    r"^PRAGMA\s+(table_info|table_xinfo|database_list|tables)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_comments(sql: str) -> str:
+    """Rimuove -- e /* */ fuori dalle stringhe, preservando il testo."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    quote: str | None = None
+    while i < n:
+        ch = sql[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                if i + 1 < n and sql[i + 1] == quote:
+                    out.append(sql[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            i += 2
+            while i < n and sql[i] not in "\r\n":
+                i += 1
+            out.append(" ")
+            continue
+        if ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
+                i += 1
+            i = i + 2 if i + 1 < n else n
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _strip_literals(sql: str) -> str:
+    """Blanka le stringhe single-quote; toglie i doppi apici (identificatori).
+
+    In SQL i doppi apici sono **codice**: `"read_text"` è la stessa funzione
+    di `read_text`. Se li trattassimo come stringhe, un identificatore quotato
+    nasconderebbe la funzione alla scansione della guardia. Le stringhe
+    single-quote restano invece opache (sono dati, non codice).
+    """
+    out: list[str] = []
+    i, n = 0, len(sql)
+    in_string = False
+    while i < n:
+        ch = sql[i]
+        if in_string:
+            if ch == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    out.append("  ")
+                    i += 2
+                    continue
+                in_string = False
+                out.append(ch)
+                i += 1
+                continue
+            out.append(" ")
+            i += 1
+            continue
+        if ch == "'":
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            # identificatore quotato: elimina solo i delimitatori, conserva il
+            # contenuto (gestendo l'escape "" dentro l'identificatore)
+            if i + 1 < n and sql[i + 1] == '"':
+                i += 2
+                continue
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _has_semicolon_outside(sql: str) -> bool:
+    return ";" in _strip_literals(_strip_comments(sql))
+
+
+def _statement_types(sql: str) -> list[str] | None:
+    """Tipi degli statement via DuckDB; None se l'API non è disponibile."""
+    extract = getattr(duckdb, "extract_statements", None)
+    if extract is None:
+        return None
+    out: list[str] = []
+    for stmt in extract(sql):
+        typ = getattr(stmt, "type", None)
+        name = getattr(typ, "name", None) or str(typ).rsplit(".", 1)[-1]
+        out.append(str(name).upper())
+    return out
+
+
+def _readonly_error(sql: str) -> str | None:
+    """None se la query è read-only consentita; altrimenti messaggio d'errore."""
+    clean = _strip_comments(sql).strip()
+    if not clean:
+        return "Query vuota."
+    first = clean.split(None, 1)[0].upper()
+    if first not in _READONLY_FIRST:
+        return (
+            f"Comando non consentito: {first!r}. "
+            "Usa SELECT/WITH/PRAGMA/DESCRIBE/SHOW/EXPLAIN."
+        )
+    if first == "PRAGMA" and not _PRAGMA_META.match(clean):
+        return (
+            "PRAGMA non consentito: usa solo "
+            "table_info, table_xinfo, database_list, tables."
+        )
+    try:
+        types = _statement_types(sql)
+    except duckdb.Error as exc:
+        return f"SQL non valido: {str(exc)[:160]}"
+    if types is not None:
+        if len(types) != 1:
+            return "Una sola istruzione per query."
+        if types[0] not in _READONLY_TYPES:
+            return f"Comando non consentito: {types[0]}. legal_query è read-only."
+    elif _has_semicolon_outside(sql):
+        return "Una sola istruzione per query."
+
+    bare = _strip_literals(clean).lower()
+    if first != "PRAGMA" and re.search(r"\bpragma\b", bare):
+        return "PRAGMA non consentito in una query."
+    for word in _FORBIDDEN_WORDS:
+        if re.search(rf"\b{re.escape(word)}\b", bare):
+            return f"Comando non consentito: {word!r}."
+    func = _FORBIDDEN_FUNC_RE.search(bare)
+    if func:
+        return f"Accesso a file non consentito: {func.group(1)}."
+    if re.search(r"(?is)\b(from|join)\s+'[^']*(?:/|\\|\.(?:parquet|csv|json|ndjson|duckdb|db|txt|gz))[^']*'", clean):
+        return "Accesso a file non consentito: FROM/JOIN con path tra apici."
+    return None
+
 
 def _impl_legal_text(
     node_id: str, max_chars: int = 8000, articolo: int | str | None = None
@@ -135,13 +304,13 @@ def _impl_legal_text(
 def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     con = db._get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
-    sql_clean = (sql or "").strip()
-    first = sql_clean.upper().split(None, 1)[0] if sql_clean else ""
-    allowed = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
-    if first not in allowed:
-        return [{"error": f"Comando non consentito: {first!r}. Usa SELECT/WITH/PRAGMA/DESCRIBE/SHOW/EXPLAIN."}]
-    if first in {"SELECT", "WITH"} and "LIMIT" not in sql_clean.upper():
-        sql_clean = f"{sql_clean.rstrip()} LIMIT {limit}"
+    sql_clean = (sql or "").strip().rstrip(";").strip()
+    if not sql_clean:
+        return [{"error": "Query vuota."}]
+    invalid = _readonly_error(sql_clean)
+    if invalid:
+        return [{"error": invalid}]
+    first = sql_clean.upper().split(None, 1)[0]
     try:
         # alias comuni: PRAGMA table_info(nodes) / SHOW TABLES / DESCRIBE nodes
         if first == "PRAGMA":
@@ -157,11 +326,14 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
                 else:
                     sql_clean = f"PRAGMA {pragma_fn}"
         if first in {"DESCRIBE", "SHOW"}:
-            sql_clean = re.sub(r"\s+LIMIT\s+\d+\s*$", "", sql_clean, flags=re.IGNORECASE)
             # DESCRIBE nodes → DESCRIBE SELECT * FROM nodes (compatibile DuckDB)
             m = re.match(r"DESCRIBE\s+(?:TABLE\s+)?(\w+)\s*$", sql_clean, re.IGNORECASE)
             if m and m.group(1).upper() not in {"SELECT", "FROM"}:
                 sql_clean = f"DESCRIBE (SELECT * FROM {m.group(1)} LIMIT {limit})"
+        if first in {"SELECT", "WITH"}:
+            # Wrap invece di appendere LIMIT: un LIMIT dentro una stringa/commento
+            # non deve bypassare il cap, e un UNION/CTE non deve perdere il limite.
+            sql_clean = f"SELECT * FROM ({sql_clean}) AS _lg_q LIMIT {limit}"
         result = con.execute(sql_clean)
         if first in {"DESCRIBE", "SHOW", "PRAGMA"}:
             columns = [desc[0] for desc in (result.description or [])]
@@ -356,3 +528,236 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
         ],
     }
 
+
+
+# ── legal_neighbors / legal_coverage (M1) ───────────────────────────────────
+_DIRECTIONS = ("out", "in", "both")
+
+
+def _rt_columns(con: duckdb.DuckDBPyConnection) -> tuple[str, str, str]:
+    """(join, canonical_expr, family_expr) del vocabolario, se disponibile."""
+    if _view_exists(con, "relation_type") and _has_col(
+        con, "relation_type", "canonical_relation"
+    ):
+        return (
+            "LEFT JOIN relation_type rt ON rt.relation = e.relation",
+            "rt.canonical_relation",
+            "rt.family",
+        )
+    return "", "NULL::VARCHAR", "NULL::VARCHAR"
+
+
+def _impl_neighbors(
+    node_id: str,
+    direction: str = "both",
+    relation: str = "",
+    canonical_relation: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Vicini di un nodo, con relazione originale e canonica.
+
+    `direction`: out (source_id), in (target_id), both. `relation` filtra il
+    nome esatto; `canonical_relation` filtra il gruppo 25→15. Nessun alias
+    inventato: il nodo si risolve con lo stesso resolver di legal_node.
+    """
+    direction = (direction or "both").lower().strip()
+    if direction not in _DIRECTIONS:
+        return {"error": f"direction non valida: {direction!r} (out|in|both)"}
+    limit = max(1, min(int(limit or 50), _MAX_ROWS))
+
+    with db_lock():
+        con = db._get_con()
+        found = _find_node(con, node_id)
+        if found.row is None:
+            if found.candidates:
+                return {
+                    "error": f"id ambiguo: {node_id!r} corrisponde a più nodi.",
+                    "ambiguous": True,
+                    "candidates": found.candidates,
+                }
+            return {"error": f"Nodo non trovato: {node_id}"}
+
+        actual_id = found.row[0]
+        join_rt, canon_expr, family_expr = _rt_columns(con)
+
+        def fetch(tabella: str, anchor: str, other: str, verso: str):
+            where = [f"e.{anchor} = ?"]
+            params: list[Any] = [actual_id]
+            if relation:
+                where.append("e.relation = ?")
+                params.append(relation)
+            if canonical_relation:
+                if not join_rt:
+                    return []  # vocabolario assente: nessun match possibile
+                where.append(f"{canon_expr} = ?")
+                params.append(canonical_relation)
+            sql = f"""
+                SELECT e.relation, {canon_expr} AS canonical_relation,
+                       {family_expr} AS family, e.{other} AS neighbor_id,
+                       e.weight, e.source_year, e.target_year,
+                       n.tipo, n.anno, LEFT(n.title, 120) AS title
+                FROM {tabella} e
+                LEFT JOIN nodes n ON n.id = e.{other}
+                {join_rt}
+                WHERE {' AND '.join(where)}
+                ORDER BY e.weight DESC, e.{other}, e.relation
+                LIMIT ?
+            """
+            params.append(limit)
+            try:
+                rows = con.execute(sql, params).fetchall()
+            except duckdb.Error as exc:
+                return [{"error": str(exc)[:200]}]
+            return [
+                {
+                    "direction": verso,
+                    "relation": r[0],
+                    "canonical_relation": r[1],
+                    "family": r[2],
+                    "neighbor_id": r[3],
+                    "weight": r[4],
+                    "source_year": r[5],
+                    "target_year": r[6],
+                    "tipo": r[7],
+                    "anno": r[8],
+                    "title": r[9],
+                }
+                for r in rows
+            ]
+
+        neighbors: list[dict[str, Any]] = []
+        if direction in ("out", "both"):
+            neighbors += fetch("edges", "source_id", "target_id", "out")
+        if direction in ("in", "both"):
+            neighbors += fetch(
+                "edges_in" if _view_exists(con, "edges_in") else "edges",
+                "target_id",
+                "source_id",
+                "in",
+            )
+
+    errors = [n["error"] for n in neighbors if "error" in n]
+    if errors:
+        return {"error": errors[0]}
+
+    payload: dict[str, Any] = {
+        "node_id": actual_id,
+        "direction": direction,
+        "returned": len(neighbors),
+        "limit": limit,
+        "neighbors": neighbors,
+    }
+    if found.match != "exact":
+        payload["matched_by"] = found.match
+    if relation:
+        payload["relation"] = relation
+    if canonical_relation:
+        payload["canonical_relation"] = canonical_relation
+    return payload
+
+
+def _impl_coverage(
+    relation: str = "",
+    level: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Copertura del grafo: funnel per relazione + livelli L1-L2.
+
+    `relation` filtra una relazione esatta; `level` filtra L1/L2 (o `all`).
+    I numeri arrivano da `mart_legal_coverage` e dalla view `coverage_level`:
+    nessun conteggio ricalcolato qui.
+    """
+    limit = max(1, min(int(limit or 50), _MAX_ROWS))
+    with db_lock():
+        con = db._get_con()
+        out: dict[str, Any] = {"relations": [], "levels": [], "families": []}
+        if not _view_exists(con, "coverage"):
+            out["error"] = (
+                "mart_legal_coverage non presente: esegui `make run`."
+            )
+            return out
+
+        join_rt, _canon, _family = _rt_columns(con)
+        join_c = (
+            "LEFT JOIN relation_type rt ON rt.relation = c.relation"
+            if join_rt
+            else ""
+        )
+        where = []
+        params: list[Any] = []
+        if relation:
+            where.append("c.relation = ?")
+            params.append(relation)
+        sql = f"""
+            SELECT c.relation, {_canon if join_rt else 'NULL::VARCHAR'} AS canonical_relation,
+                   {_family if join_rt else 'NULL::VARCHAR'} AS family,
+                   c.upstream_rows, c.natural_pairs, c.edges, c.edge_pct,
+                   c.formulaic_pct, c.missing_evidence_pct, c.note
+            FROM coverage c
+            {join_c}
+            {('WHERE ' + ' AND '.join(where)) if where else ''}
+            ORDER BY c.edges DESC, c.relation
+            LIMIT ?
+        """
+        params.append(limit)
+        try:
+            rows = con.execute(sql, params).fetchall()
+        except duckdb.Error as exc:
+            out["error"] = f"copertura non leggibile: {str(exc)[:200]}"
+            return out
+        out["relations"] = [
+            {
+                "relation": r[0],
+                "canonical_relation": r[1],
+                "family": r[2],
+                "upstream_rows": r[3],
+                "natural_pairs": r[4],
+                "edges": r[5],
+                "edge_pct": r[6],
+                "formulaic_pct": r[7],
+                "missing_evidence_pct": r[8],
+                "note": r[9],
+            }
+            for r in rows
+        ]
+
+        if _view_exists(con, "coverage_level"):
+            livelli = [level] if level and level.lower() != "all" else []
+            where_l = ["level = ?"] if livelli else []
+            params_l: list[Any] = list(livelli)
+            sql_l = f"""
+                SELECT level, COUNT(*) AS groups,
+                       SUM(n_units) AS n_units, SUM(n_with_data) AS n_with_data,
+                       ROUND(100.0 * SUM(n_with_data) / NULLIF(SUM(n_units), 0), 1) AS pct
+                FROM coverage_level
+                {('WHERE ' + ' AND '.join(where_l)) if where_l else ''}
+                GROUP BY level ORDER BY level
+            """
+            out["levels"] = [
+                {
+                    "level": r[0],
+                    "groups": r[1],
+                    "n_units": r[2],
+                    "n_with_data": r[3],
+                    "pct": r[4],
+                }
+                for r in con.execute(sql_l, params_l).fetchall()
+            ]
+
+        if join_rt:
+            out["families"] = [
+                {"family": r[0], "edges": r[1]}
+                for r in con.execute(
+                    """
+                    SELECT rt.family, COUNT(*) AS edges
+                    FROM edges e JOIN relation_type rt ON rt.relation = e.relation
+                    GROUP BY rt.family ORDER BY edges DESC
+                    """
+                ).fetchall()
+            ]
+
+        out["totals"] = {
+            "edges": con.execute("SELECT COUNT(*) FROM edges").fetchone()[0],
+            "nodes": con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0],
+        }
+    return out

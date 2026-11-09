@@ -22,9 +22,7 @@ WITH incoming AS (
         COUNT(DISTINCT relation) AS relation_types
     FROM mart_legal_edges
     WHERE relation IN (
-        'riferimento', 'cita_costituzione', 'impugna', 'invoca_parametro',
-        'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
-        'evoca_parametro', 'abroga', 'attua_delega'
+        SELECT relation FROM mart_legal_relation_type WHERE in_impact
     )
       AND NOT is_formulaic
       AND NOT is_reading_clause
@@ -60,9 +58,7 @@ outgoing AS (
         MIN(target_year) AS oldest_reference
     FROM mart_legal_edges
     WHERE relation IN (
-        'riferimento', 'cita_costituzione', 'impugna', 'invoca_parametro',
-        'diventa_legge', 'recepisce_direttiva', 'attua_regolamento',
-        'evoca_parametro', 'abroga', 'attua_delega'
+        SELECT relation FROM mart_legal_relation_type WHERE in_impact
     )
       AND NOT is_formulaic
       AND NOT is_reading_clause

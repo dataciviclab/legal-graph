@@ -12,12 +12,11 @@ from legal_graph.mcp.textfold import _fold
 from legal_graph.resolve import Resolved, resolve_row
 
 _NODE_VIEWS = ("overview", "chain", "jurisprudence", "parliament")
-_CHAIN_RELS = (
+# Fallback per mart legacy: la sorgente primaria è `relation_type.in_chain_view`
+# (mart_legal_relation_type). Questa lista non va estesa.
+_CHAIN_RELS_FALLBACK = (
     "diventa_legge",
     "attua_delega",
-    "recepisce_direttiva",
-    "attua_regolamento",
-    "collega_ue",
     "cita_costituzione",
     "converte_decreto_legge",
     # modifiche tipizzate AKN (2026-10): parte della catena normativa
@@ -28,6 +27,28 @@ _CHAIN_RELS = (
     "renumbering",
 )
 _TITLE_NODE = 500
+
+
+def _chain_rels(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
+    """Relazioni attraversate da `view=chain`, lette dal vocabolario.
+
+    `in_chain_view` esclude `riferimento` (221k edge: la vista chain mostra
+    la catena legislativa, le citazioni hanno il fallback dedicato) e le
+    relazioni con una vista propria (`modifica`, `impugna`).
+    """
+    if _view_exists(con, "relation_type") and _has_col(
+        con, "relation_type", "in_chain_view"
+    ):
+        try:
+            rows = con.execute(
+                "SELECT relation FROM relation_type WHERE in_chain_view "
+                "ORDER BY relation"
+            ).fetchall()
+            if rows:
+                return tuple(str(r[0]) for r in rows)
+        except duckdb.Error:
+            pass
+    return _CHAIN_RELS_FALLBACK
 
 def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> Resolved:
     """Risolvi l'id su `nodes`: exact → alias → parziale solo se unico.
@@ -51,8 +72,20 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> Resolved:
     cols += (
         ", eiv" if _has_col(con, "nodes", "eiv") else ", NULL::VARCHAR AS eiv"
     )
+    # Alias di identità (M1): `camera:atto:17_100` → `camera:17:100`,
+    # `dl:*`/`norma:*` → URN. Il resolver interroga `entity_alias` solo se
+    # l'id esatto non esiste: gli id canonici non pagano il lookup (che su
+    # GCS è un read remoto in più).
+    alias_source = (
+        "entity_alias" if _view_exists(con, "entity_alias") else None
+    )
     return resolve_row(
-        con, source="nodes", cols=cols, node_id=node_id, ecli_alias=True
+        con,
+        source="nodes",
+        cols=cols,
+        node_id=node_id,
+        ecli_alias=True,
+        alias_source=alias_source,
     )
 
 
@@ -347,7 +380,8 @@ def _bfs(
     """
     a, b = ("source_id", "target_id") if outbound else ("target_id", "source_id")
     tabella = "edges" if outbound else _tabella_in(con)
-    in_rel = ",".join("?" * len(_CHAIN_RELS))
+    rels = _chain_rels(con)
+    in_rel = ",".join("?" * len(rels))
     visited = {start}
     frontier = [start]
     trovate: list[tuple[str, str, str, int, str, int | None]] = []
@@ -371,7 +405,7 @@ def _bfs(
             FROM cand c LEFT JOIN nodes n ON n.id = c.nid
             WHERE c.rn <= 8
             """,
-            [*frontier, *_CHAIN_RELS],
+            [*frontier, *rels],
         ).fetchall()
         posizione = {nodo: i for i, nodo in enumerate(frontier)}
         # `relation` chiude l'ordinamento: due relazioni diverse verso lo stesso

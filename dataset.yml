@@ -291,6 +291,12 @@ mart:
       sql: "sql/mart_legal_nodes.sql"
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+    # alias di identità (camera:atto, dl, norma) e vocabolario relazioni:
+    # contratti letti dalle view MCP, non liste hardcoded nei consumer
+    - name: "mart_legal_entity_alias"
+      sql: "sql/mart_legal_entity_alias.sql"
+    - name: "mart_legal_relation_type"
+      sql: "sql/mart_legal_relation_type.sql"
     # stessa tabella degli archi ordinata per target_id: query "in entrata"
     - name: "mart_legal_edges_in"
       sql: "sql/mart_legal_edges_in.sql"
@@ -311,6 +317,8 @@ mart:
   required_tables:
     - "mart_legal_nodes"
     - "mart_legal_edges"
+    - "mart_legal_entity_alias"
+    - "mart_legal_relation_type"
     - "mart_legal_node_metrics"
     - "mart_legal_search_keys"
     - "mart_legal_texts"
@@ -326,6 +334,14 @@ mart:
       mart_legal_edges_in:
         required_columns: [source_id, relation, target_id, weight]
         min_rows: 10000
+      mart_legal_entity_alias:
+        required_columns: [alias_id, entity_id, alias_type]
+        primary_key: [alias_id]
+        min_rows: 1000
+      mart_legal_relation_type:
+        required_columns: [relation, family, in_impact, canonical_relation]
+        primary_key: [relation]
+        min_rows: 20
       mart_legal_coverage:
         required_columns: [relation, upstream_rows, natural_pairs, edges, edge_pct]
         primary_key: [relation]

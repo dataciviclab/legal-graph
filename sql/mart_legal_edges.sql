@@ -632,28 +632,32 @@ edges_firmatario AS (
 ),
 
 -- Relatori Camera (open-politica camera_relatori #62): deputato → atto
--- Chiave atto dedicata camera:atto:{leg}_{id} — l'atto Camera non è un DDL
--- (evita la collisione numerica di camera:{ddl}). Copertura parziale per
--- design (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
+-- L'atto Camera è `camera:{legislatura}:{id_ddl}` (stessa identità dei nodi
+-- `camera_ddl`): il vecchio namespace `camera:atto:{leg}_{id}` era un
+-- duplicato dello stesso atto ed è rimosso (M1). Il vecchio id resta come
+-- alias in `mart_legal_entity_alias`. Copertura parziale per design
+-- (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
 edges_relatore_camera AS (
     SELECT
         'deputato:' || CAST(r.deputato_id AS VARCHAR) AS source_id,
         'relatore' AS relation,
-        'camera:atto:' || r.atto_id_leg AS target_id,
+        'camera:' || split_part(r.atto_id_leg, '_', 1)
+            || ':' || split_part(r.atto_id_leg, '_', 2) AS target_id,
         1 AS weight,
         YEAR(r.data) AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(r.tipo, ''), 120) AS evidence
     FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true) r
     WHERE r.deputato_id IS NOT NULL
-      AND NULLIF(r.atto_id_leg, '') IS NOT NULL
+      AND regexp_matches(r.atto_id_leg, '^[0-9]+_[0-9]+$')
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'deputato:' || CAST(r.deputato_id AS VARCHAR)
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:atto:' || r.atto_id_leg
+          WHERE n.id = 'camera:' || split_part(r.atto_id_leg, '_', 1)
+              || ':' || split_part(r.atto_id_leg, '_', 2)
       )
 ),
 
@@ -999,11 +1003,7 @@ SELECT
             WHERE rc.source_id = g.source_id AND rc.target_id = g.target_id
         )
     ) AS is_reading_clause,
-    -- Tipo di evidenza (solo per `riferimento`; NULL altrove):
-    --   missing → segnaposto `akn:ref`: sappiamo che A cita B, non dove
-    --             (italia-corpus#109 deve far sparire questo stato)
-    --   locator → frammento di URL/URN, nessun testo
-    --   quote   → testo attorno alla citazione
+    -- Tipo di evidenza legacy (solo per `riferimento`; NULL altrove).
     CASE
         WHEN g.relation <> 'riferimento' THEN NULL
         WHEN g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref'
@@ -1013,7 +1013,88 @@ SELECT
           OR g.evidence LIKE '%:costituzione:%'
             THEN 'locator'
         ELSE 'quote'
-    END AS evidence_kind
+    END AS evidence_kind,
+    -- Provenance evidence per tutte le relazioni (non rompe `evidence_kind`).
+    CASE
+        WHEN g.evidence IS NULL OR g.evidence = '' THEN 'none'
+        WHEN g.relation = 'riferimento' THEN
+            CASE
+                WHEN g.evidence = 'akn:ref' THEN 'none'
+                WHEN g.evidence LIKE '%urn:nir:%'
+                  OR g.evidence LIKE '%i-res/N2Ls%'
+                  OR g.evidence LIKE '%:costituzione:%'
+                    THEN 'locator'
+                ELSE 'quote'
+            END
+        WHEN g.evidence LIKE 'akn:%' THEN 'label'
+        ELSE 'quote'
+    END AS prov_evidence_kind,
+    -- Provenance/assertion: additiva, conservativa, mai `verified` in automatico.
+    CASE
+        WHEN g.relation = 'riferimento'
+          AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
+            THEN 'unverifiable'
+        WHEN g.relation = 'attua_delega' THEN 'inferred'
+        WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
+            THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'extracted' ELSE 'inferred' END
+        ELSE 'extracted'
+    END AS assertion_type,
+    CASE
+        WHEN g.relation = 'riferimento' THEN 'akn_ref'
+        WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
+            THEN 'akn_lifecycle'
+        WHEN g.relation = 'attua_delega'
+            THEN CASE WHEN g.weight >= 5 THEN 'title' ELSE 'regex' END
+        WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'massima'
+        WHEN g.relation = 'cita_costituzione' THEN 'regex'
+        WHEN g.relation = 'converte_decreto_legge' THEN 'join'
+        WHEN g.relation IN (
+            'diventa_legge', 'firmatario', 'relatore', 'vota', 'emendamento',
+            'intervento', 'testo_atto', 'collega', 'relatore_sentenza',
+            'proposta_cost', 'diventa_revisione', 'referenzia_pnrr'
+        ) THEN 'join'
+        ELSE 'unknown'
+    END AS method,
+    NULL::VARCHAR AS evidence_locator,
+    CASE
+        WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
+          OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
+        ELSE 'strong'
+    END AS conf_identity,
+    CASE
+        WHEN g.relation = 'riferimento'
+          AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
+            THEN 'unknown'
+        WHEN g.relation = 'attua_delega'
+            THEN CASE WHEN g.weight >= 5 THEN 'strong' ELSE 'weak' END
+        WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'weak'
+        ELSE 'strong'
+    END AS conf_extraction,
+    CASE
+        WHEN g.relation = 'riferimento'
+          AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
+            THEN 'unknown'
+        WHEN g.relation IN (
+            'riferimento', 'attua_delega', 'converte_decreto_legge',
+            'abroga', 'impugna'
+        ) THEN 'weak'
+        ELSE 'strong'
+    END AS conf_semantic,
+    CASE
+        WHEN g.source_year BETWEEN 1 AND 30 THEN 'weak'
+        WHEN g.relation = 'riferimento'
+          AND g.source_year IS NOT NULL AND g.target_year IS NOT NULL
+          AND g.source_year < g.target_year - 1 THEN 'weak'
+        WHEN g.relation = 'diventa_legge'
+          AND g.source_id LIKE 'camera:%'
+          AND g.source_year = g.target_year THEN 'weak'
+        WHEN g.source_year IS NULL AND g.target_year IS NULL THEN 'unknown'
+        WHEN g.relation IN ('firmatario', 'emendamento', 'vota')
+          AND g.target_year IS NULL THEN 'weak'
+        ELSE 'strong'
+    END AS conf_temporal,
+    'unreviewed' AS review_status,
+    NULL::VARCHAR AS snapshot_id
 FROM grouped g
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):

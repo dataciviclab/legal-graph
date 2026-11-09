@@ -1,7 +1,7 @@
 """Legal Graph — package del compose + MCP.
 
 Percorso critico (MCP + test):
-  - mcp_server.py   5 tool: search, node, text, query, insights
+  - mcp_server.py   7 tool: search, node, text, neighbors, coverage, query, insights
   - paths.py
   - legal_text.py
 

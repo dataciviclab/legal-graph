@@ -53,12 +53,18 @@ def resolve_row(
     cols: str,
     node_id: str,
     ecli_alias: bool = False,
+    alias_source: str | None = None,
 ) -> Resolved:
     """Risolvi `node_id` su `source`, con `cols` proiettate.
 
     Ordine: exact → alias sentenza (zero-pad) → alias ECLI nel titolo (solo se
-    `ecli_alias`, richiede le colonne `source` e `title`) → match parziale se
-    **unico**. In caso di ambiguità restituisce i candidati e nessuna riga.
+    `ecli_alias`, richiede le colonne `source` e `title`) → alias di identità
+    (`alias_source`, se passato) → match parziale se **unico**. In caso di
+    ambiguità restituisce i candidati e nessuna riga.
+
+    `alias_source` è un frammento SQL interno (es. `entity_alias`), mai input
+    utente. L'alias si interroga **solo dopo** il fallimento dell'exact match:
+    gli id canonici non pagano un lookup in più.
     """
     nid = (node_id or "").strip()
     if not nid:
@@ -89,6 +95,18 @@ def resolve_row(
             return Resolved(rows[0], match="alias")
         if len(rows) > 1:
             return Resolved(None, [str(r[0]) for r in rows], match="ambiguous")
+
+    if alias_source:
+        alias = con.execute(
+            f"SELECT entity_id FROM {alias_source} WHERE alias_id = ? LIMIT 1",
+            [nid],
+        ).fetchone()
+        if alias and alias[0] and alias[0] != nid:
+            row = con.execute(
+                f"SELECT {cols} FROM {source} WHERE id = ? LIMIT 1", [alias[0]]
+            ).fetchone()
+            if row is not None:
+                return Resolved(row, match="alias")
 
     ids = [
         str(r[0])

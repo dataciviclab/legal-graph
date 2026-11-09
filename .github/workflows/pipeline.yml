@@ -1,6 +1,6 @@
 # Pipeline — legal-graph
 #
-# Compose mart-only: build da rete → test → sync GCS (10 tabelle mart) → registry.
+# Compose mart-only: build da rete → test → sync GCS (12 tabelle mart) → registry.
 # I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
 # texts/massime/edges_in sono nel publish: attivi per i client dal primo run
 # di pipeline che li carica (prima l'MCP degrada su GitHub raw / `edges`).
@@ -65,7 +65,7 @@ jobs:
       - name: Verify test di rete (testo da GitHub raw)
         run: python3 -m pytest tests/ -m network -q
 
-      # ── GCS: tutte le 10 tabelle mart (grafo + edges_in + texts/massime) ─
+      # ── GCS: tutte le 12 tabelle mart (grafo + alias/vocabolario + texts) ─
       - name: GCP Auth (WIF)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         uses: google-github-actions/auth@v3
@@ -80,12 +80,12 @@ jobs:
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Sync mart to GCS (10 tabelle)
+      - name: Sync mart to GCS (12 tabelle)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         run: |
           SRC="out/data/mart/legal_graph/2026"
           DEST="gs://dataciviclab-mart/legal-graph/legal_graph/2026"
-          TABLES="mart_legal_nodes mart_legal_edges mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg mart_legal_texts mart_legal_massime"
+          TABLES="mart_legal_nodes mart_legal_edges mart_legal_entity_alias mart_legal_relation_type mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg mart_legal_texts mart_legal_massime"
           for t in $TABLES; do
             f="$SRC/${t}.parquet"
             if [ ! -f "$f" ]; then

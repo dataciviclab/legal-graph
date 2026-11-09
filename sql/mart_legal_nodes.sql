@@ -876,41 +876,6 @@ nodes_pnrr AS (
     WHERE missione IS NOT NULL AND componente IS NOT NULL AND tipo != 'missione'
 ),
 
--- Atti Camera da relatori (OP camera_relatori #62): namespace dedicato
--- camera:atto:{leg}_{id} — l'atto Camera NON è un DDL (numerazioni diverse),
--- niente collisione con camera:{ddl}. Titolo assente in fonte: URI in
--- source_filename.
-nodes_camera_atti AS (
-    SELECT
-        'camera:atto:' || c.atto_id_leg AS id,
-        'ATTO CAMERA' AS tipo,
-        CAST(c.data AS VARCHAR) AS data,
-        CAST(c.atto_id AS VARCHAR) AS numero,
-        NULL::VARCHAR AS title,
-        'Camera atto' AS collezione,
-        c.atto_camera AS source_filename,
-        'camera_relatori' AS source,
-        NULL::INTEGER AS anno,
-        NULL::BIGINT AS length_chars,
-        NULL::BIGINT AS length_words,
-        NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale,
-        NULL::VARCHAR AS stato,
-        NULL::VARCHAR AS materia,
-        NULL::INTEGER AS qualita_score,
-        NULL::INTEGER AS sunsetting_score
-    FROM (
-        SELECT
-            atto_id_leg,
-            MAX(atto_id) AS atto_id,
-            MAX(atto_camera) AS atto_camera,
-            MIN(data) AS data
-        FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true)
-        WHERE NULLIF(atto_id_leg, '') IS NOT NULL
-        GROUP BY atto_id_leg
-    ) c
-),
-
 -- DL emanati (open-politica `atti`): nodo dl:* per i DL senza URN nel
 -- corpus; l'esito di conversione sta sull'edge `converte_decreto_legge`
 -- (stato resta NULL: esito non è vigenza).
@@ -1036,8 +1001,6 @@ all_nodes AS (
     UNION ALL
     SELECT * FROM nodes_pnrr WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
-    SELECT * FROM nodes_camera_atti WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
     SELECT * FROM nodes_dl WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_ue WHERE id NOT IN (SELECT id FROM normativa)
@@ -1059,7 +1022,6 @@ SELECT
         WHEN tipo IN ('VOTAZIONE', 'Votazione') THEN 'VOTAZIONE'
         WHEN tipo IN ('GIUDICE', 'Giudice') THEN 'GIUDICE'
         WHEN tipo IN ('PROMOVIMENTO', 'Atto di promovimento') THEN 'ATTO DI PROMOVIMENTO'
-        WHEN tipo = 'ATTO CAMERA' THEN 'ATTO CAMERA'
         -- Atti parlamentari: open-politica mette la `natura` nel campo tipo
         -- (a volte una data, per drift upstream). Sono DDL, non leggi.
         WHEN source IN ('senato', 'senato_corpus', 'camera_ddl', 'iter_costituzionale')
@@ -1132,7 +1094,55 @@ SELECT
             -- vigenza italiana (source='normativa').
             WHEN n.source = 'ue' THEN 'cellar'
         END
-    ) AS vigenza_fonte
+    ) AS vigenza_fonte,
+    -- Provenance/assertion: additiva, conservativa, mai `verified` in automatico.
+    CASE
+        WHEN n.source IN (
+            'normativa', 'senato', 'camera_ddl', 'senato_corpus', 'costituzione',
+            'revisioni', 'gu', 'camera_deputati_legislature', 'senato_anag',
+            'senato_dib', 'senato_votazioni_oggetto', 'camera_relatori',
+            'iter_costituzionale', 'senato_emend'
+        ) THEN 'extracted'
+        WHEN n.source IN ('catalogo', 'ue', 'decreti_legge') THEN 'resolved'
+        WHEN n.source = 'pnrr' THEN 'inferred'
+        ELSE 'unknown'
+    END AS assertion_type,
+    CASE
+        WHEN n.collezione = 'Normattiva API' THEN 'api'
+        WHEN n.source IN ('senato_corpus', 'costituzione', 'revisioni', 'normativa') THEN 'akn'
+        WHEN n.source = 'ue' THEN 'api'
+        ELSE 'join'
+    END AS method,
+    CASE WHEN n.source_filename IS NULL THEN 'none' ELSE 'locator' END AS evidence_kind,
+    n.source_filename AS evidence_locator,
+    CASE
+        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%' OR n.source = 'pnrr' THEN 'weak'
+        ELSE 'strong'
+    END AS conf_identity,
+    CASE
+        WHEN n.source IN ('catalogo', 'ue', 'pnrr', 'decreti_legge') THEN 'weak'
+        WHEN n.source_filename IS NULL AND n.source NOT IN ('costituzione') THEN 'weak'
+        ELSE 'strong'
+    END AS conf_extraction,
+    CASE
+        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%'
+          OR n.source IN ('catalogo', 'pnrr', 'decreti_legge') THEN 'weak'
+        ELSE 'strong'
+    END AS conf_semantic,
+    CASE
+        WHEN n.source IN (
+            'senato', 'camera_ddl', 'normativa', 'senato_corpus', 'gu',
+            'revisioni', 'ue', 'catalogo', 'decreti_legge', 'costituzione',
+            'senato_emend'
+        ) AND n.anno IS NOT NULL THEN 'strong'
+        WHEN n.source IN (
+            'camera_deputati_legislature', 'senato_anag', 'senato_dib',
+            'senato_votazioni_oggetto'
+        ) AND n.anno IS NOT NULL THEN 'weak'
+        ELSE 'unknown'
+    END AS conf_temporal,
+    'unreviewed' AS review_status,
+    NULL::VARCHAR AS snapshot_id
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn
 LEFT JOIN normativa_fonte nf ON n.id = nf.urn
