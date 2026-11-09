@@ -53,6 +53,14 @@ support:
     layer: mart
     table: mart_riferimenti_urn
     years: [2026]
+  # Direttive UE citate: identità CELEX + misure nazionali (italia-corpus).
+  # Nodi `celex:*`; le due grafie URN di Normattiva collassano sullo stesso nodo.
+  - name: direttive_ue
+    type: external
+    repo: italia-corpus
+    slug: direttive_ue
+    layer: clean
+    years: [2026]
   - name: citazioni_costituzionali
     type: external
     repo: italia-corpus

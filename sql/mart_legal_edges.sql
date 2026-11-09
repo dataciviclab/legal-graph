@@ -47,6 +47,16 @@ urn_aliases AS (
     SELECT * FROM (VALUES
         ('urn:nir:stato:costituzione:1947-12-27;const', 'costituzione:atto')
     ) AS t(urn, node_id)
+    -- Direttive UE: le due grafie URN di Normattiva (`direttivaue` e
+    -- `direttiva.ue`) puntano allo stesso nodo CELEX. La lista arriva dal
+    -- dataset italia-corpus `direttive_ue` (una riga per direttiva).
+    UNION ALL
+    SELECT trim(u) AS urn, 'celex:' || d.celex AS node_id
+    FROM read_parquet('{support.direttive_ue.path}') d,
+         -- `urn_varianti` è separato da `|`: gli URN contengono `;`.
+         UNNEST(string_split(d.urn_varianti, '|')) AS t(u)
+    WHERE NULLIF(trim(u), '') IS NOT NULL
+      AND d.stato = 'risolto'
 ),
 
 -- Citation: `mart_riferimenti_urn` porta già la URN canonica su entrambi i

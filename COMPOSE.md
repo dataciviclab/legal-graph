@@ -25,11 +25,14 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
                               open-politica `atti` e `persone`; eiv da akn_act_meta,
                               nodi dl:* da atti.mart_dl, camera:atto:* da camera_relatori,
                               **nodi catalogo** da atti_index per gli atti citati
-                              fuori corpus: solo identità, nessun testo)
+                              fuori corpus: solo identità, nessun testo;
+                              **nodi UE** `celex:*` da `direttive_ue`: una riga per
+                              CELEX, le due grafie URN collassano sullo stesso nodo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
                               + abroga dal mart URN di italia-corpus
+                              + `riferimento` verso le direttive UE (alias URN→CELEX)
 2b mart_legal_edges_in      ← FROM mart_legal_edges, stesse righe ordinate per
                               target_id (query in entrata con row-group pruning)
 3 mart_legal_coverage       ← FROM mart_legal_edges + support: righe upstream
@@ -55,6 +58,11 @@ e `node_rel`, che leggono gli edge già materializzati.
 quante righe upstream entrano, quante diventano coppie distinte, quanti edge
 arrivano nel mart. Gli `edges` sono letti da `mart_legal_edges` (non
 ricalcolati), quindi il bilancio non può divergere dal grafo pubblicato.
+
+**Semantica `source='ue'`**: `stato` è `vigente`/`abrogato` da `in_vigore` di
+Cellar e `vigenza_fonte='cellar'`; non è la vigenza italiana del corpus
+(`source='normativa'`). `legal_text` restituisce `note` + `eurlex_url`/`eli_url`
+(nessun `error`): il testo resta su EUR-Lex.
 
 ## Come si usa
 
@@ -115,6 +123,7 @@ Locale == CI: stessi target Makefile.
 | CI org | ✅ Actions + pipeline → GCS + registry PR |
 | Copertura onesta | ✅ [docs/COVERAGE.md](docs/COVERAGE.md) |
 | Bank analisi / Discussion | ✅ [docs/ANALISI.md](docs/ANALISI.md) |
+| Direttive UE | ✅ 2.343 nodi `celex:*`, 28.128 edge `riferimento`; testo su EUR-Lex |
 | Repo pubblico | ✅ · MCP nel template org ⏳ |
 | Hub FOIA 33/2013 e 241/1990 | ✅ nodi nel grafo, con citazioni in ingresso (bersagli fuori corpus agganciati per URN); 33/2013: 157, 241/1990: 1.156 |
 | Codici c.c./c.p. navigabili | ❌ gap |
