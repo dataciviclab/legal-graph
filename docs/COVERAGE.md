@@ -29,9 +29,9 @@ WHERE upstream IS NOT NULL;
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
 | `riferimento` | 267.636 | 267.636 | 193.217 | 72,2% | bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
-| `emendamento` | 763.690 | 561.270 | 487.538 | 86,9% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
-| `invoca_parametro` | 256.827 | 52.719 | 52.719 | 100% | 65.611 righe con parametro di un altro atto + 10 fuori 1..139; il resto è duplicazione snapshot (191.206 righe → 52.719 coppie) |
-| `diventa_legge` | 7.478 | 4.479 | 2.960 | 66,1% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
+| `emendamento` | 763.690 | 561.270 | 494.259 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
+| `invoca_parametro` | 256.934 | 52.738 | 52.738 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (256.934 righe → 52.738 coppie) |
+| `diventa_legge` | 7.520 | 4.496 | 3.574 | 79,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 4.199 | 4.199 | 3.733 | 88,9% | target senza nodo, guardia temporale |
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
@@ -66,9 +66,9 @@ Limiti dichiarati:
   hanno un arco in ingresso. `akn_n_repeal_events` è 0 su tutti gli atti IC:
   il lifecycle AKN non viene estratto, quindi non c'è nulla da comporre.
 - **Fallback rimossi (2026-11)**: i nodi `norma:*` (atti citati dalla Corte assenti dal corpus) ora esistono **solo** se sono target di un edge `impugna`: prima ogni norma citata da una massima creava un nodo, e 5.000 su 8.439 restavano senza relazioni. I 213 DL presenti anche come URN non creano più un nodo `dl:*` (edge `converte_decreto_legge` spostato sull'URN). Effetto: −5.213 nodi, 0 orfani tra i `norma:*`, 0 duplicati `dl:`.
-- **Emendamenti**: l'edge `emendamento` si risolve sulla **`fase`** (S.NNN) → `senato_ddl.id_ddl` → nodo `senato:{id_ddl}`; solo in fallback, per le fasi fuori da open-politica con directory unica (`n_atti_fase = 1`), usa `atto_num`. `atto_num` è la directory di archiviazione e può essere replicata (fino a 57 copie per fase; dedup upstream 2026-11): usarla come chiave attribuiva lo stesso emendamento a più atti. Ora **487.538 edge su 561.270 coppie distinte (86,9%)**: il denominatore del funnel è `(legislatura, fase, numero)`, la stessa chiave dell'edge — con `atto_num` erano 568.252 e la copertura veniva sottostimata (85,8%). Il nodo emendamento è `senato:emend:{leg}:{fase}:{numero}`: l'atto entra nell'id, quindi non esistono più nodi che aggregano emendamenti di atti diversi (erano 439 con >100 atti, max 427); i nodi passano da 248.184 a **561.270**.
+- **Emendamenti**: l'edge `emendamento` si risolve sulla **`fase`** (S.NNN) → `senato_ddl.id_ddl` → nodo `senato:{id_ddl}`; solo in fallback, per le fasi fuori da open-politica con directory unica (`n_atti_fase = 1`), usa `atto_num`. `atto_num` è la directory di archiviazione e può essere replicata (fino a 57 copie per fase; dedup upstream 2026-11): usarla come chiave attribuiva lo stesso emendamento a più atti. Ora **494.259 edge su 561.270 coppie distinte (88,1%)**: il denominatore del funnel è `(legislatura, fase, numero)`, la stessa chiave dell'edge — con `atto_num` erano 568.252 e la copertura veniva sottostimata (85,8%). Il nodo emendamento è `senato:emend:{leg}:{fase}:{numero}`: l'atto entra nell'id, quindi non esistono più nodi che aggregano emendamenti di atti diversi (erano 439 con >100 atti, max 427); i nodi passano da 248.184 a **561.270**.
 
-Copertura per legislatura (edge / coppie distinte, stessa base del totale): **19 100%**, 18 98,1%, 17 89,0%, 16 77,1%, 15 98,5%, 14 59,4%. I mancanti sono fasi senza DDL con directory replicata (ambigue, non si indovina) e atti fuori corpus.
+Copertura per legislatura (snapshot 2026-11-01, quando il totale era 487.538/561.270): **19 100%**, 18 98,1%, 17 89,0%, 16 77,1%, 15 98,5%, 14 59,4%. I mancanti sono fasi senza DDL con directory replicata (ambigue, non si indovina) e atti fuori corpus.
 - **Identità Senato**: un atto del corpus con nodo open-politica esiste come
   documento (`senato:atto:X`) **e** come atto (`senato:X`), collegati da
   `testo_atto`. Gli atti senza nodo open-politica (2.990) non creano più un

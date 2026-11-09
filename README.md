@@ -85,7 +85,7 @@ Il grafo è **ricomposto ogni settimana** dalle fonti e pubblicato su GCS. Non v
 Legal Graph è un **motore di contesto relazionale** sul processo legislativo, sulla Costituzione e sulla normativa di sistema recente. Non è "tutto il diritto italiano".
 
 - **Coperto bene**: catene legislative, attuazione delle deleghe, modifiche e abrogazioni, Corte costituzionale, firmatari e relatori, decreti legislativi di sistema.
-- **Scoperto**: corpus normativo completo (circa 21.000 atti contro i 205.115 del catalogo), codici articolo per articolo, giurisprudenza ordinaria, EUR-Lex, PNRR come dataset.
+- **Scoperto**: corpus normativo completo (20.790 atti contro i 205.117 del catalogo), codici articolo per articolo, giurisprudenza ordinaria, EUR-Lex, PNRR come dataset.
 - **Citazioni**: derivano dai riferimenti Akoma Ntoso di Normattiva, non sono rinvii verificati. Sui titoli generici la fonte può sbagliare bersaglio; le relazioni tipizzate (`abroga`, `sostituisce`, `attua_delega`) sono più affidabili del `riferimento` generico.
 - **Copertura dichiarata**: 193.217 riferimenti su 267.636 coppie (72,2%) e 3.733 abrogazioni su 4.199 (88,9%). Le direttive UE citate restano fuori perché non sono nel catalogo italiano ([issue #124](https://github.com/dataciviclab/italia-corpus/issues/124)).
 - **Vigenza**: `stato` è lo status formale di Normattiva, a livello di atto; non cattura abrogazioni implicite o parziali.
