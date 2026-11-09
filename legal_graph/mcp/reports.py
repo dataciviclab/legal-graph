@@ -23,7 +23,18 @@ _MAX_ROWS = 100
 # 3) rifiuta FROM/JOIN con un path tra apici (DuckDB legge il file);
 # 4) consente PRAGMA solo per metadati (table_info/table_xinfo/tables/database_list).
 _READONLY_FIRST = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
-_READONLY_TYPES = {"SELECT", "EXPLAIN"}
+# DuckDB mappa gli stessi comandi a tipi diversi tra versioni: in 1.5.x
+# `PRAGMA table_info(...)` risulta SELECT, in 1.6+ risulta PRAGMA. Il tipo
+# ammesso dipende dal primo token, non da una lista unica: così la guardia
+# non si rompe quando il resolver cambia nome al tipo.
+_READONLY_TYPES_BY_FIRST = {
+    "SELECT": {"SELECT"},
+    "WITH": {"SELECT"},
+    "EXPLAIN": {"EXPLAIN", "SELECT"},
+    "PRAGMA": {"PRAGMA", "SELECT"},
+    "DESCRIBE": {"DESCRIBE", "SELECT"},
+    "SHOW": {"SHOW", "SELECT"},
+}
 _FORBIDDEN_WORDS = (
     "insert", "update", "delete", "merge", "drop", "create", "alter", "copy",
     "attach", "detach", "install", "export", "import", "call", "vacuum",
@@ -163,7 +174,8 @@ def _readonly_error(sql: str) -> str | None:
     if types is not None:
         if len(types) != 1:
             return "Una sola istruzione per query."
-        if types[0] not in _READONLY_TYPES:
+        allowed = _READONLY_TYPES_BY_FIRST.get(first, set())
+        if types[0] not in allowed:
             return f"Comando non consentito: {types[0]}. legal_query è read-only."
     elif _has_semicolon_outside(sql):
         return "Una sola istruzione per query."
