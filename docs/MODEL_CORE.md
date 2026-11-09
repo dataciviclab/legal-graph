@@ -214,10 +214,14 @@ For every important node/edge:
 - **Parità metriche.** Su 857.879 nodi condivisi col build precedente: 0 differenze in `referenced_by`, `impact_score`, `references`. `sostituisce` resta `in_impact=false` (era già escluso dalla lista storica).
 - **Vista `conversione`.** Unione canonica di `converte_decreto_legge` (933, `dl_to_law`) e `diventa_legge` (3.574, `ddl_to_law`).
 - **Tool MCP.** `legal_neighbors` (out/in/both, relazione esatta o canonica) e `legal_coverage` (funnel per relazione, livelli L1-L2, famiglie).
-- **Mart ricostruito:** 12 tabelle, 6.381.747 righe; 295 test, ruff pulito.
+- **Mart ricostruito:** 12 tabelle, 6.381.747 righe; 302 test, ruff pulito.
 
 **Canonical 25→15**
 `cita` (riferimento, cita_costituzione, referenzia_pnrr) · `modifica` (modifica, sostituisce) · `abroga` · `riordino` (split, join, renumbering) · `attua` · `conversione` (converte_decreto_legge, diventa_legge) · `iter_costituzionale` (proposta_cost, diventa_revisione) · `impugna` · `parametro` (invoca/evoca) · `relatore` (relatore, relatore_sentenza) · `firmatario` · `emendamento` · `voto` · `documento` (testo_atto, intervento) · `identita` (collega).
+
+**Compatibilità (M1)**
+- Gli id storici `camera:atto:*` risolvono via `entity_alias`, ma la riga risolta è il nodo canonico: `tipo='DDL'`, `source='camera_ddl'`, `anno` valorizzato. Chi filtra `tipo='ATTO CAMERA'` non trova più quei 2.590 atti: il filtro corretto è sull'id canonico o via alias.
+- `evidence_locator` è popolato **solo sui nodi** (da `source_filename`) in M1. Sugli edge resta NULL: l'evidenza grezza è in `evidence` e la sua forma in `prov_evidence_kind`; non viene duplicata in un locator. Nessuna sospensione silenziosa: è una scelta di contratto.
 
 **Limiti noti (non finti)**
 - `impugna` copre solo gli esiti `illegittimo|misto`: mancano `infondato`/`inammissibile` e `id_massima`. È lavoro dati/modello di M2 (C3.5), non di vocabolario.
