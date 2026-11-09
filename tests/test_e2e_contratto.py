@@ -117,9 +117,13 @@ def test_chain_colonne_obbligatorie_normativa(grafo, colonna):
         "SELECT relation, edges FROM coverage ORDER BY edges DESC LIMIT 3",
         "SELECT COUNT(*) AS n FROM nodes n JOIN metrics m ON m.id = n.id",
         "SELECT COUNT(*) AS n FROM nodes WHERE id IN ('urn:nir:stato:legge:1978-05-22;194')",
+        "SELECT 1 AS limit",
+        "SELECT ';' AS x",
+        "EXPLAIN SELECT 1",
         "DESCRIBE nodes",
         "SHOW TABLES",
         "PRAGMA table_info('nodes')",
+        "PRAGMA database_list",
     ],
 )
 def test_query_comandi_consentiti(grafo, sql):
@@ -135,6 +139,16 @@ def test_query_comandi_consentiti(grafo, sql):
         "SELECT FROM WHERE",
         "SELECT pippo FROM nodes",
         "SELECT COUNT(*) FROM tabella_finta",
+        # read-only guard: multi-statement, file access, scritture
+        "SELECT 1 AS limit; DROP VIEW nodes",
+        "SELECT 1; CREATE TEMP TABLE _pwn AS SELECT 1",
+        "SELECT * FROM read_csv_auto('/etc/passwd')",
+        "SELECT * FROM read_text('/etc/passwd')",
+        "SELECT * FROM glob('/etc/*')",
+        "SELECT * FROM 'out/data/mart/legal_graph/2026/mart_legal_nodes.parquet'",
+        "PRAGMA threads=1",
+        "ATTACH 'x.db'",
+        "COPY (SELECT 1) TO '/tmp/x.csv'",
     ],
 )
 def test_query_comandi_rifiutati(grafo, sql):

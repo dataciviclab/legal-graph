@@ -13,6 +13,160 @@ from legal_graph.mcp.db import _view_exists, db_lock, locked
 
 _MAX_ROWS = 100
 
+# --- Guardia read-only per legal_query -------------------------------------
+# Non basta il primo token: DuckDB esegue più statement separati da ';' e
+# funzioni come read_csv_auto/read_text leggono file locali. La guardia:
+# 1) usa extract_statements (se disponibile) per rifiutare più statement e
+#    i tipi non-SELECT/EXPLAIN;
+# 2) rifiuta keyword di scrittura e funzioni di lettura file;
+# 3) rifiuta FROM/JOIN con un path tra apici (DuckDB legge il file);
+# 4) consente PRAGMA solo per metadati (table_info/table_xinfo/tables/database_list).
+_READONLY_FIRST = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
+_READONLY_TYPES = {"SELECT", "EXPLAIN"}
+_FORBIDDEN_WORDS = (
+    "insert", "update", "delete", "merge", "drop", "create", "alter", "copy",
+    "attach", "detach", "install", "export", "import", "call", "vacuum",
+    "checkpoint",
+)
+_FORBIDDEN_FUNC_RE = re.compile(
+    r"\b(read_[a-z0-9_]+|[a-z0-9_]+_scan|glob|sniff_[a-z0-9_]+|load_extension|st_read)\s*\(",
+    re.IGNORECASE,
+)
+_PRAGMA_META = re.compile(
+    r"^PRAGMA\s+(table_info|table_xinfo|database_list|tables)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_comments(sql: str) -> str:
+    """Rimuove -- e /* */ fuori dalle stringhe, preservando il testo."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    quote: str | None = None
+    while i < n:
+        ch = sql[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                if i + 1 < n and sql[i + 1] == quote:
+                    out.append(sql[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            i += 2
+            while i < n and sql[i] not in "\r\n":
+                i += 1
+            out.append(" ")
+            continue
+        if ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
+                i += 1
+            i = i + 2 if i + 1 < n else n
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _strip_literals(sql: str) -> str:
+    """Sostituisce il contenuto delle stringhe con spazi (per lo scan keyword)."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    quote: str | None = None
+    while i < n:
+        ch = sql[i]
+        if quote:
+            if ch == quote:
+                if i + 1 < n and sql[i + 1] == quote:
+                    out.append("  ")
+                    i += 2
+                    continue
+                quote = None
+                out.append(ch)
+                i += 1
+                continue
+            out.append(" ")
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _has_semicolon_outside(sql: str) -> bool:
+    return ";" in _strip_literals(_strip_comments(sql))
+
+
+def _statement_types(sql: str) -> list[str] | None:
+    """Tipi degli statement via DuckDB; None se l'API non è disponibile."""
+    extract = getattr(duckdb, "extract_statements", None)
+    if extract is None:
+        return None
+    out: list[str] = []
+    for stmt in extract(sql):
+        typ = getattr(stmt, "type", None)
+        name = getattr(typ, "name", None) or str(typ).rsplit(".", 1)[-1]
+        out.append(str(name).upper())
+    return out
+
+
+def _readonly_error(sql: str) -> str | None:
+    """None se la query è read-only consentita; altrimenti messaggio d'errore."""
+    clean = _strip_comments(sql).strip()
+    if not clean:
+        return "Query vuota."
+    first = clean.split(None, 1)[0].upper()
+    if first not in _READONLY_FIRST:
+        return (
+            f"Comando non consentito: {first!r}. "
+            "Usa SELECT/WITH/PRAGMA/DESCRIBE/SHOW/EXPLAIN."
+        )
+    if first == "PRAGMA" and not _PRAGMA_META.match(clean):
+        return (
+            "PRAGMA non consentito: usa solo "
+            "table_info, table_xinfo, database_list, tables."
+        )
+    try:
+        types = _statement_types(sql)
+    except duckdb.Error as exc:
+        return f"SQL non valido: {str(exc)[:160]}"
+    if types is not None:
+        if len(types) != 1:
+            return "Una sola istruzione per query."
+        if types[0] not in _READONLY_TYPES:
+            return f"Comando non consentito: {types[0]}. legal_query è read-only."
+    elif _has_semicolon_outside(sql):
+        return "Una sola istruzione per query."
+
+    bare = _strip_literals(clean).lower()
+    if first != "PRAGMA" and re.search(r"\bpragma\b", bare):
+        return "PRAGMA non consentito in una query."
+    for word in _FORBIDDEN_WORDS:
+        if re.search(rf"\b{re.escape(word)}\b", bare):
+            return f"Comando non consentito: {word!r}."
+    func = _FORBIDDEN_FUNC_RE.search(bare)
+    if func:
+        return f"Accesso a file non consentito: {func.group(1)}."
+    if re.search(r"(?is)\b(from|join)\s+'[^']*(?:/|\\|\.(?:parquet|csv|json|ndjson|duckdb|db|txt|gz))[^']*'", clean):
+        return "Accesso a file non consentito: FROM/JOIN con path tra apici."
+    return None
+
+
 def _impl_legal_text(
     node_id: str, max_chars: int = 8000, articolo: int | str | None = None
 ) -> dict[str, Any]:
@@ -135,13 +289,13 @@ def _impl_legal_text(
 def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
     con = db._get_con()
     limit = min(max(limit, 1), _MAX_ROWS)
-    sql_clean = (sql or "").strip()
-    first = sql_clean.upper().split(None, 1)[0] if sql_clean else ""
-    allowed = {"SELECT", "WITH", "PRAGMA", "DESCRIBE", "SHOW", "EXPLAIN"}
-    if first not in allowed:
-        return [{"error": f"Comando non consentito: {first!r}. Usa SELECT/WITH/PRAGMA/DESCRIBE/SHOW/EXPLAIN."}]
-    if first in {"SELECT", "WITH"} and "LIMIT" not in sql_clean.upper():
-        sql_clean = f"{sql_clean.rstrip()} LIMIT {limit}"
+    sql_clean = (sql or "").strip().rstrip(";").strip()
+    if not sql_clean:
+        return [{"error": "Query vuota."}]
+    invalid = _readonly_error(sql_clean)
+    if invalid:
+        return [{"error": invalid}]
+    first = sql_clean.upper().split(None, 1)[0]
     try:
         # alias comuni: PRAGMA table_info(nodes) / SHOW TABLES / DESCRIBE nodes
         if first == "PRAGMA":
@@ -157,11 +311,14 @@ def _impl_query(sql: str, limit: int = 50) -> list[dict[str, Any]]:
                 else:
                     sql_clean = f"PRAGMA {pragma_fn}"
         if first in {"DESCRIBE", "SHOW"}:
-            sql_clean = re.sub(r"\s+LIMIT\s+\d+\s*$", "", sql_clean, flags=re.IGNORECASE)
             # DESCRIBE nodes → DESCRIBE SELECT * FROM nodes (compatibile DuckDB)
             m = re.match(r"DESCRIBE\s+(?:TABLE\s+)?(\w+)\s*$", sql_clean, re.IGNORECASE)
             if m and m.group(1).upper() not in {"SELECT", "FROM"}:
                 sql_clean = f"DESCRIBE (SELECT * FROM {m.group(1)} LIMIT {limit})"
+        if first in {"SELECT", "WITH"}:
+            # Wrap invece di appendere LIMIT: un LIMIT dentro una stringa/commento
+            # non deve bypassare il cap, e un UNION/CTE non deve perdere il limite.
+            sql_clean = f"SELECT * FROM ({sql_clean}) AS _lg_q LIMIT {limit}"
         result = con.execute(sql_clean)
         if first in {"DESCRIBE", "SHOW", "PRAGMA"}:
             columns = [desc[0] for desc in (result.description or [])]
