@@ -632,28 +632,32 @@ edges_firmatario AS (
 ),
 
 -- Relatori Camera (open-politica camera_relatori #62): deputato → atto
--- Chiave atto dedicata camera:atto:{leg}_{id} — l'atto Camera non è un DDL
--- (evita la collisione numerica di camera:{ddl}). Copertura parziale per
--- design (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
+-- L'atto Camera è `camera:{legislatura}:{id_ddl}` (stessa identità dei nodi
+-- `camera_ddl`): il vecchio namespace `camera:atto:{leg}_{id}` era un
+-- duplicato dello stesso atto ed è rimosso (M1). Il vecchio id resta come
+-- alias in `mart_legal_entity_alias`. Copertura parziale per design
+-- (~19% Leg19): atto_camera NULL = incarico senza atto LOD.
 edges_relatore_camera AS (
     SELECT
         'deputato:' || CAST(r.deputato_id AS VARCHAR) AS source_id,
         'relatore' AS relation,
-        'camera:atto:' || r.atto_id_leg AS target_id,
+        'camera:' || split_part(r.atto_id_leg, '_', 1)
+            || ':' || split_part(r.atto_id_leg, '_', 2) AS target_id,
         1 AS weight,
         YEAR(r.data) AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(r.tipo, ''), 120) AS evidence
     FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true) r
     WHERE r.deputato_id IS NOT NULL
-      AND NULLIF(r.atto_id_leg, '') IS NOT NULL
+      AND regexp_matches(r.atto_id_leg, '^[0-9]+_[0-9]+$')
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'deputato:' || CAST(r.deputato_id AS VARCHAR)
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:atto:' || r.atto_id_leg
+          WHERE n.id = 'camera:' || split_part(r.atto_id_leg, '_', 1)
+              || ':' || split_part(r.atto_id_leg, '_', 2)
       )
 ),
 

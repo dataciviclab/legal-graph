@@ -11,8 +11,10 @@ Priorità sorgente mart (tabelle del compose):
 - `gcs`: solo GCS, anche se un build locale è presente (evita di servire
   dati vecchi quando il publish è più fresco)
 
-Il contract di publish copre 9 tabelle: le 7 del grafo sono online, texts e
-massime lo diventano dal primo run di pipeline successivo al 2026-11.
+Il contract di publish copre 12 tabelle: le 10 del grafo (nodes, edges,
+entity_alias, relation_type, edges_in, coverage, metrics, search_keys,
+node_rel, emend_leg) sono online, texts e massime lo diventano dal primo run
+di pipeline successivo al 2026-11.
 Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations
@@ -38,6 +40,8 @@ GCS_MART_TABLES = frozenset(
         "mart_legal_nodes",
         "mart_legal_edges",
         "mart_legal_edges_in",
+        "mart_legal_entity_alias",
+        "mart_legal_relation_type",
         "mart_legal_coverage",
         "mart_legal_node_metrics",
         "mart_legal_search_keys",
@@ -144,6 +148,16 @@ def resolve_edges_file() -> PathLike | None:
 def resolve_edges_in_file() -> PathLike | None:
     """Archi ordinati per `target_id` (query in entrata); None se non pubblicato."""
     return resolve("mart_legal_edges_in")
+
+
+def resolve_entity_alias_file() -> PathLike | None:
+    """Alias di identità (contratto `entity_alias`)."""
+    return resolve("mart_legal_entity_alias")
+
+
+def resolve_relation_type_file() -> PathLike | None:
+    """Vocabolario relazioni (contratto `relation_type`)."""
+    return resolve("mart_legal_relation_type")
 
 
 def resolve_metrics_file() -> PathLike | None:

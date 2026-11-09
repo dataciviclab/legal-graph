@@ -76,6 +76,8 @@ def test_metadata_none_in_locale_senza_file(monkeypatch):
         "mart_legal_nodes",
         "mart_legal_edges",
         "mart_legal_edges_in",
+        "mart_legal_entity_alias",
+        "mart_legal_relation_type",
         "mart_legal_coverage",
         "mart_legal_node_metrics",
         "mart_legal_search_keys",

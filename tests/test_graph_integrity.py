@@ -635,10 +635,18 @@ class TestCardinality:
         assert 550 <= n_dl + n_dl_catalogo <= 2_500, (
             f"Nodi DL fuori range: dl:*={n_dl} catalogo={n_dl_catalogo}"
         )
+        # M1: l'atto Camera è `camera:{leg}:{id}` (stessa identità di
+        # camera_ddl). Il vecchio `camera:atto:{leg}_{id}` non è più un nodo:
+        # resta solo come alias in entity_alias.
         n_cam_atti = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'camera:atto:%'
         """).fetchone()[0]
-        assert n_cam_atti > 1_000, f"Nodi camera:atto: bassi: {n_cam_atti}"
+        assert n_cam_atti == 0, f"Nodi camera:atto: non rimossi: {n_cam_atti}"
+        n_cam_alias = con.execute("""
+            SELECT COUNT(*) FROM entity_alias
+            WHERE alias_id LIKE 'camera:atto:%'
+        """).fetchone()[0]
+        assert n_cam_alias > 1_000, f"Alias camera:atto: bassi: {n_cam_alias}"
         n_iter = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'itercost:%'
         """).fetchone()[0]

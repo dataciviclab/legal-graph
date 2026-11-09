@@ -1,4 +1,4 @@
-"""E2E di contratto sull'MCP — catena, 5 tool, parametri, casi limite.
+"""E2E di contratto sull'MCP — catena, tool, parametri, casi limite.
 
 Copre la superficie che i golden test non toccano: integrità della catena
 (nodes ↔ search_keys ↔ metrics, vocabolario `materia`, colonne richieste),

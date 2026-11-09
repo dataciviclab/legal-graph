@@ -177,7 +177,7 @@ For every important node/edge:
 ## 13. Next
 
 1. M0: `legal_query` read-only; `source_snapshot`/`entity_alias`/`relation_type`; provenance columns; `coverage_level` L1-L2.
-2. M1: Camera dedup, aliases, `act` view; taxonomy mapping; `legal_neighbors`/`legal_coverage`; freeze.
+2. M1: Camera dedup, aliases, `act` view; taxonomy mapping; `legal_neighbors`/`legal_coverage`; freeze. ✅ (vedi §15)
 3. M2-M3 only after C2b/C3/C4.
 
 ---
@@ -201,3 +201,26 @@ For every important node/edge:
 - `entity_alias` copre `camera:atto`, `dl:*`, `norma:decreto legge`; le varianti URN UE e gli alias regionali richiedono il code table (M1/M2).
 - `coverage_level` è una view L1-L2; L3-L6 arrivano con `provision`/temporalità/amministrazione.
 - `conf_*` sono conservative e per producer, non una verifica legale; `review_status='unreviewed'` su tutto.
+
+---
+
+## 15. M1 implementation note (2026-11-09)
+
+**Fatto**
+- **Camera dedup.** Rimossi 2.590 nodi `camera:atto:{leg}_{id}`: erano lo stesso atto di `camera:{leg}:{num}` (numero identico al 100%; 72 date diverse su 2.590). Gli edge `relatore` Camera ora puntano a `camera:{leg}:{num}` (4.028 edge, 0 dangling).
+- **Alias come mart.** `mart_legal_entity_alias` (2.593 righe) deriva gli alias Camera da `camera_relatori` — non dai nodi — quindi sopravvivono alla rimozione. `dl:*`/`norma:*` restano derivati da `mart_legal_nodes`. La view `entity_alias` legge il mart; il fallback legacy resta per i mart vecchi.
+- **Risoluzione alias.** `legal_node`/`legal_neighbors` risolvono `camera:atto:17_100` → `camera:17:100` con `matched_by="alias"`.
+- **Vocabolario come mart.** `mart_legal_relation_type` (25 righe) con `canonical_relation` (15 gruppi), `in_chain`, `in_impact`, `in_chain_view`. `mart_legal_node_metrics` e il traversal di `view=chain` leggono la tabella; niente più liste hardcoded.
+- **Parità metriche.** Su 857.879 nodi condivisi col build precedente: 0 differenze in `referenced_by`, `impact_score`, `references`. `sostituisce` resta `in_impact=false` (era già escluso dalla lista storica).
+- **Vista `conversione`.** Unione canonica di `converte_decreto_legge` (933, `dl_to_law`) e `diventa_legge` (3.574, `ddl_to_law`).
+- **Tool MCP.** `legal_neighbors` (out/in/both, relazione esatta o canonica) e `legal_coverage` (funnel per relazione, livelli L1-L2, famiglie).
+- **Mart ricostruito:** 12 tabelle, 6.381.747 righe; 295 test, ruff pulito.
+
+**Canonical 25→15**
+`cita` (riferimento, cita_costituzione, referenzia_pnrr) · `modifica` (modifica, sostituisce) · `abroga` · `riordino` (split, join, renumbering) · `attua` · `conversione` (converte_decreto_legge, diventa_legge) · `iter_costituzionale` (proposta_cost, diventa_revisione) · `impugna` · `parametro` (invoca/evoca) · `relatore` (relatore, relatore_sentenza) · `firmatario` · `emendamento` · `voto` · `documento` (testo_atto, intervento) · `identita` (collega).
+
+**Limiti noti (non finti)**
+- `impugna` copre solo gli esiti `illegittimo|misto`: mancano `infondato`/`inammissibile` e `id_massima`. È lavoro dati/modello di M2 (C3.5), non di vocabolario.
+- `conversione` è la conversione **nota**: `converte_decreto_legge` resta `conversione_tentata` (include i decaduti); il filtro per esito è M2.
+- `source_snapshot`/`snapshot_id` restano sospesi come in M0.
+- Il fallback legacy di `relation_type`/`entity_alias` è congelato a M0/M1: i mart nuovi usano le tabelle.

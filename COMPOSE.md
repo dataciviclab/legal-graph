@@ -11,10 +11,10 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 |---|---|
 | Config | `dataset.yml` (ordine tabelle obbligatorio) |
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
-| SQL derivate | coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
+| SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 10 tabelle online (build 2026-11-09) |
-| Package | `legal_graph/` — MCP 5 tool + paths + legal_text |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 12 tabelle online (build 2026-11-09) |
+| Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
 
@@ -23,7 +23,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 ```text
 1 mart_legal_nodes          ← support esterni (+ nodi Camera/Senato da
                               open-politica `atti` e `persone`; eiv da akn_act_meta,
-                              nodi dl:* da atti.mart_dl, camera:atto:* da camera_relatori,
+                              nodi dl:* da atti.mart_dl,
                               **nodi catalogo** da atti_index per gli atti citati
                               fuori corpus: solo identità, nessun testo;
                               **nodi UE** `celex:*` da `direttive_ue`: una riga per
@@ -81,6 +81,8 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 | `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; filtri: tipo, anno, source, stato, vigenza_fonte, materia, min_score, collezione |
 | `legal_node` | overview · chain (con modifiche AKN) · jurisprudence (con relatore) · parliament (con firmatari) — usano node_rel/emend_leg |
 | `legal_text` | testo normativa (fetch rete) |
+| `legal_neighbors` | vicini in/out, filtro relazione o canonica |
+| `legal_coverage` | funnel per relazione + livelli L1-L2 |
 | `legal_query` | SELECT/PRAGMA/DESCRIBE escape hatch |
 | `legal_insights` | report da metrics mart |
 
@@ -117,7 +119,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 10 tabelle (nodes, edges, edges_in, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 12 tabelle (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline → GCS + registry PR |

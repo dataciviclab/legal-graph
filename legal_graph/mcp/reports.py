@@ -9,7 +9,8 @@ import duckdb
 from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.mcp import db
-from legal_graph.mcp.db import _view_exists, db_lock, locked
+from legal_graph.mcp.db import _has_col, _view_exists, db_lock, locked
+from legal_graph.mcp.node_views import _find_node
 
 _MAX_ROWS = 100
 
@@ -513,3 +514,232 @@ def _impl_insights(report: str = "summary") -> dict[str, Any]:
         ],
     }
 
+
+
+# ── legal_neighbors / legal_coverage (M1) ───────────────────────────────────
+_DIRECTIONS = ("out", "in", "both")
+
+
+def _rt_columns(con: duckdb.DuckDBPyConnection) -> tuple[str, str, str]:
+    """(join, canonical_expr, family_expr) del vocabolario, se disponibile."""
+    if _view_exists(con, "relation_type") and _has_col(
+        con, "relation_type", "canonical_relation"
+    ):
+        return (
+            "LEFT JOIN relation_type rt ON rt.relation = e.relation",
+            "rt.canonical_relation",
+            "rt.family",
+        )
+    return "", "NULL::VARCHAR", "NULL::VARCHAR"
+
+
+def _impl_neighbors(
+    node_id: str,
+    direction: str = "both",
+    relation: str = "",
+    canonical_relation: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Vicini di un nodo, con relazione originale e canonica.
+
+    `direction`: out (source_id), in (target_id), both. `relation` filtra il
+    nome esatto; `canonical_relation` filtra il gruppo 25→15. Nessun alias
+    inventato: il nodo si risolve con lo stesso resolver di legal_node.
+    """
+    direction = (direction or "both").lower().strip()
+    if direction not in _DIRECTIONS:
+        return {"error": f"direction non valida: {direction!r} (out|in|both)"}
+    limit = max(1, min(int(limit or 50), _MAX_ROWS))
+
+    with db_lock():
+        con = db._get_con()
+        found = _find_node(con, node_id)
+        if found.row is None:
+            if found.candidates:
+                return {
+                    "error": f"id ambiguo: {node_id!r} corrisponde a più nodi.",
+                    "ambiguous": True,
+                    "candidates": found.candidates,
+                }
+            return {"error": f"Nodo non trovato: {node_id}"}
+
+        actual_id = found.row[0]
+        join_rt, canon_expr, family_expr = _rt_columns(con)
+
+        def fetch(tabella: str, anchor: str, other: str, verso: str):
+            where = [f"e.{anchor} = ?"]
+            params: list[Any] = [actual_id]
+            if relation:
+                where.append("e.relation = ?")
+                params.append(relation)
+            if canonical_relation:
+                if not join_rt:
+                    return []  # vocabolario assente: nessun match possibile
+                where.append(f"{canon_expr} = ?")
+                params.append(canonical_relation)
+            sql = f"""
+                SELECT e.relation, {canon_expr} AS canonical_relation,
+                       {family_expr} AS family, e.{other} AS neighbor_id,
+                       e.weight, e.source_year, e.target_year,
+                       n.tipo, n.anno, LEFT(n.title, 120) AS title
+                FROM {tabella} e
+                LEFT JOIN nodes n ON n.id = e.{other}
+                {join_rt}
+                WHERE {' AND '.join(where)}
+                ORDER BY e.weight DESC, e.{other}, e.relation
+                LIMIT ?
+            """
+            params.append(limit)
+            try:
+                rows = con.execute(sql, params).fetchall()
+            except duckdb.Error as exc:
+                return [{"error": str(exc)[:200]}]
+            return [
+                {
+                    "direction": verso,
+                    "relation": r[0],
+                    "canonical_relation": r[1],
+                    "family": r[2],
+                    "neighbor_id": r[3],
+                    "weight": r[4],
+                    "source_year": r[5],
+                    "target_year": r[6],
+                    "tipo": r[7],
+                    "anno": r[8],
+                    "title": r[9],
+                }
+                for r in rows
+            ]
+
+        neighbors: list[dict[str, Any]] = []
+        if direction in ("out", "both"):
+            neighbors += fetch("edges", "source_id", "target_id", "out")
+        if direction in ("in", "both"):
+            neighbors += fetch(
+                "edges_in" if _view_exists(con, "edges_in") else "edges",
+                "target_id",
+                "source_id",
+                "in",
+            )
+
+    payload: dict[str, Any] = {
+        "node_id": actual_id,
+        "direction": direction,
+        "returned": len(neighbors),
+        "limit": limit,
+        "neighbors": neighbors,
+    }
+    if found.match != "exact":
+        payload["matched_by"] = found.match
+    if relation:
+        payload["relation"] = relation
+    if canonical_relation:
+        payload["canonical_relation"] = canonical_relation
+    return payload
+
+
+def _impl_coverage(
+    relation: str = "",
+    level: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Copertura del grafo: funnel per relazione + livelli L1-L2.
+
+    `relation` filtra una relazione esatta; `level` filtra L1/L2 (o `all`).
+    I numeri arrivano da `mart_legal_coverage` e dalla view `coverage_level`:
+    nessun conteggio ricalcolato qui.
+    """
+    limit = max(1, min(int(limit or 50), _MAX_ROWS))
+    with db_lock():
+        con = db._get_con()
+        out: dict[str, Any] = {"relations": [], "levels": [], "families": []}
+        if not _view_exists(con, "coverage"):
+            out["error"] = (
+                "mart_legal_coverage non presente: esegui `make run`."
+            )
+            return out
+
+        join_rt, _canon, _family = _rt_columns(con)
+        join_c = (
+            "LEFT JOIN relation_type rt ON rt.relation = c.relation"
+            if join_rt
+            else ""
+        )
+        where = []
+        params: list[Any] = []
+        if relation:
+            where.append("c.relation = ?")
+            params.append(relation)
+        sql = f"""
+            SELECT c.relation, {_canon if join_rt else 'NULL::VARCHAR'} AS canonical_relation,
+                   {_family if join_rt else 'NULL::VARCHAR'} AS family,
+                   c.upstream_rows, c.natural_pairs, c.edges, c.edge_pct,
+                   c.formulaic_pct, c.missing_evidence_pct, c.note
+            FROM coverage c
+            {join_c}
+            {('WHERE ' + ' AND '.join(where)) if where else ''}
+            ORDER BY c.edges DESC, c.relation
+            LIMIT ?
+        """
+        params.append(limit)
+        try:
+            rows = con.execute(sql, params).fetchall()
+        except duckdb.Error as exc:
+            out["error"] = f"copertura non leggibile: {str(exc)[:200]}"
+            return out
+        out["relations"] = [
+            {
+                "relation": r[0],
+                "canonical_relation": r[1],
+                "family": r[2],
+                "upstream_rows": r[3],
+                "natural_pairs": r[4],
+                "edges": r[5],
+                "edge_pct": r[6],
+                "formulaic_pct": r[7],
+                "missing_evidence_pct": r[8],
+                "note": r[9],
+            }
+            for r in rows
+        ]
+
+        if _view_exists(con, "coverage_level"):
+            livelli = [level] if level and level.lower() != "all" else []
+            where_l = ["level = ?"] if livelli else []
+            params_l: list[Any] = list(livelli)
+            sql_l = f"""
+                SELECT level, COUNT(*) AS groups,
+                       SUM(n_units) AS n_units, SUM(n_with_data) AS n_with_data,
+                       ROUND(100.0 * SUM(n_with_data) / NULLIF(SUM(n_units), 0), 1) AS pct
+                FROM coverage_level
+                {('WHERE ' + ' AND '.join(where_l)) if where_l else ''}
+                GROUP BY level ORDER BY level
+            """
+            out["levels"] = [
+                {
+                    "level": r[0],
+                    "groups": r[1],
+                    "n_units": r[2],
+                    "n_with_data": r[3],
+                    "pct": r[4],
+                }
+                for r in con.execute(sql_l, params_l).fetchall()
+            ]
+
+        if join_rt:
+            out["families"] = [
+                {"family": r[0], "edges": r[1]}
+                for r in con.execute(
+                    """
+                    SELECT rt.family, COUNT(*) AS edges
+                    FROM edges e JOIN relation_type rt ON rt.relation = e.relation
+                    GROUP BY rt.family ORDER BY edges DESC
+                    """
+                ).fetchall()
+            ]
+
+        out["totals"] = {
+            "edges": con.execute("SELECT COUNT(*) FROM edges").fetchone()[0],
+            "nodes": con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0],
+        }
+    return out

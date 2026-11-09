@@ -1,11 +1,13 @@
 """Server MCP legal-graph — Legal Knowledge Graph per agenti AI.
 
-Flusso consigliato (5 tool):
+Flusso consigliato (7 tool):
   1. legal_search     → trova l'atto
   2. legal_node       → contesto + vista specialistica (view=)
   3. legal_text       → testo integrale (normativa)
-  4. legal_query      → SQL arbitrario (escape hatch)
-  5. legal_insights   → report di sistema (critici/obsoleti)
+  4. legal_neighbors  → vicini per direzione/relazione (con canonica)
+  5. legal_coverage   → copertura per relazione e livelli L1-L2
+  6. legal_query      → SQL arbitrario (escape hatch)
+  7. legal_insights   → report di sistema (critici/obsoleti)
 
 View di legal_node:
   overview      metadati + conteggi relazioni + top edge + intelligence
@@ -15,7 +17,7 @@ View di legal_node:
   parliament    emendamenti, interventi, firmatari, diventa_legge
 
 Implementazione: legal_graph.mcp.{search,node_views,reports,textfold,db}.
-Questa facade espone solo i 5 tool e il wiring FastMCP.
+Questa facade espone solo i tool e il wiring FastMCP.
 """
 from __future__ import annotations
 
@@ -27,7 +29,13 @@ from lab_connectors.mcp import create_mcp_server, guard_timed
 from legal_graph.mcp import db as _db
 from legal_graph.mcp.db import _view_exists  # noqa: F401 — re-export test
 from legal_graph.mcp.node_views import _impl_node
-from legal_graph.mcp.reports import _impl_insights, _impl_legal_text, _impl_query
+from legal_graph.mcp.reports import (
+    _impl_coverage,
+    _impl_insights,
+    _impl_legal_text,
+    _impl_neighbors,
+    _impl_query,
+)
 from legal_graph.mcp.search import _impl_search
 
 
@@ -45,8 +53,10 @@ mcp = create_mcp_server(
         "  2) legal_node(node_id, view) per contesto/viste:\n"
         "     overview | chain | jurisprudence | parliament\n"
         "  3) legal_text(node_id) per il testo integrale (solo source=normativa)\n"
-        "  4) legal_query per SQL (SELECT/PRAGMA/DESCRIBE) su nodes/edges\n"
-        "  5) legal_insights per report di sistema (critici/obsoleti)\n"
+        "  4) legal_neighbors(node_id, direction) per i vicini del nodo\n"
+        "  5) legal_coverage per copertura relazioni e livelli L1-L2\n"
+        "  6) legal_query per SQL (SELECT/PRAGMA/DESCRIBE) su nodes/edges\n"
+        "  7) legal_insights per report di sistema (critici/obsoleti)\n"
         "Preferisci legal_node + legal_text; usa query solo se serve analisi ad hoc."
     ),
 )
@@ -148,10 +158,65 @@ def legal_text(
 
 
 @mcp.tool(
+    name="legal_neighbors",
+    description=(
+        "Vicini di un nodo. direction: out (uscenti), in (entranti), both. "
+        "relation filtra il nome esatto; canonical_relation filtra il gruppo "
+        "25→15 (cita, modifica, abroga, riordino, attua, conversione, "
+        "iter_costituzionale, impugna, parametro, relatore, firmatario, "
+        "emendamento, voto, documento, identita). Restituisce relation, "
+        "canonical_relation, family, peso, anni e metadati del vicino."
+    ),
+    structured_output=True,
+)
+def legal_neighbors(
+    node_id: str,
+    direction: str = "both",
+    relation: str = "",
+    canonical_relation: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    return guard_timed(
+        _impl_neighbors,
+        "legal_neighbors",
+        node_id,
+        direction=direction,
+        relation=relation,
+        canonical_relation=canonical_relation,
+        limit=limit,
+    )
+
+
+@mcp.tool(
+    name="legal_coverage",
+    description=(
+        "Copertura del grafo. relations: funnel per relazione (upstream, "
+        "coppie, edge, pct, formulaic/missing evidence). levels: L1 (atti) "
+        "e L2 (collegamenti) per fonte/periodo/tipo. families: edge per "
+        "famiglia. Filtri: relation (esatta), level (L1|L2|all)."
+    ),
+    structured_output=True,
+)
+def legal_coverage(
+    relation: str = "",
+    level: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    return guard_timed(
+        _impl_coverage,
+        "legal_coverage",
+        relation=relation,
+        level=level,
+        limit=limit,
+    )
+
+
+@mcp.tool(
     name="legal_query",
     description=(
         "SQL sul grafo. Ammessi: SELECT, WITH, PRAGMA, DESCRIBE, SHOW, EXPLAIN. "
-        "Tabelle: nodes, edges, metrics, search_keys, node_rel, emend_leg, texts, massime. "
+        "Tabelle: nodes, edges, metrics, search_keys, node_rel, emend_leg, texts, massime; "
+        "view di contratto: act, relation_type, entity_alias, coverage_level, conversione. "
         "URN con ';' in IN/LIKE: stringhe single-quote. Niente scritture."
     ),
     structured_output=True,

@@ -876,41 +876,6 @@ nodes_pnrr AS (
     WHERE missione IS NOT NULL AND componente IS NOT NULL AND tipo != 'missione'
 ),
 
--- Atti Camera da relatori (OP camera_relatori #62): namespace dedicato
--- camera:atto:{leg}_{id} — l'atto Camera NON è un DDL (numerazioni diverse),
--- niente collisione con camera:{ddl}. Titolo assente in fonte: URI in
--- source_filename.
-nodes_camera_atti AS (
-    SELECT
-        'camera:atto:' || c.atto_id_leg AS id,
-        'ATTO CAMERA' AS tipo,
-        CAST(c.data AS VARCHAR) AS data,
-        CAST(c.atto_id AS VARCHAR) AS numero,
-        NULL::VARCHAR AS title,
-        'Camera atto' AS collezione,
-        c.atto_camera AS source_filename,
-        'camera_relatori' AS source,
-        NULL::INTEGER AS anno,
-        NULL::BIGINT AS length_chars,
-        NULL::BIGINT AS length_words,
-        NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale,
-        NULL::VARCHAR AS stato,
-        NULL::VARCHAR AS materia,
-        NULL::INTEGER AS qualita_score,
-        NULL::INTEGER AS sunsetting_score
-    FROM (
-        SELECT
-            atto_id_leg,
-            MAX(atto_id) AS atto_id,
-            MAX(atto_camera) AS atto_camera,
-            MIN(data) AS data
-        FROM read_parquet({support.camera_relatori.outputs}, union_by_name = true)
-        WHERE NULLIF(atto_id_leg, '') IS NOT NULL
-        GROUP BY atto_id_leg
-    ) c
-),
-
 -- DL emanati (open-politica `atti`): nodo dl:* per i DL senza URN nel
 -- corpus; l'esito di conversione sta sull'edge `converte_decreto_legge`
 -- (stato resta NULL: esito non è vigenza).
@@ -1035,8 +1000,6 @@ all_nodes AS (
     SELECT * FROM nodes_promovimento WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_pnrr WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
-    SELECT * FROM nodes_camera_atti WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_dl WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
