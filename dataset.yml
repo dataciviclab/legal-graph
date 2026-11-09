@@ -160,6 +160,16 @@ support:
     layer: clean
     years: [2026]
 
+  # -- open-politica: dimensione persona (Camera + Senato, Repubblica 13-19)
+  # Un nodo per persona: identità unica e ponte Camera↔Senato.
+  # ⚠️ richiede il registry di open-politica aggiornato (merge di #117).
+  - name: persone
+    type: external
+    repo: open-politica
+    slug: persone
+    layer: mart
+    table: mart_persone
+    years: [2026]
   # -- open-politica: dimensione atto conformata (Camera + Senato) ------
   # Chiave canonica `atto_id`: senato:{id_ddl} · camera:{legislatura}:{id_ddl}.
   # L'id_ddl Camera si ripete tra legislature (6.328 valori su 7.614): senza

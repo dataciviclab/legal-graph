@@ -96,15 +96,13 @@ class TestNodiCatalogo:
         assert n == 0, f"{n} id catalogo duplicati in un'altra fonte"
 
     def test_quasi_tutti_con_un_edge(self, con):
-        """Il nodo nasce da una citazione; restano senza edge solo i casi
-        noti (7,0% al build 2026-11-09): ~760 URN con spelling non canonico
-        (`decretodelpresidentedellarepubblica` vs `decreto.del.presidente...`)
-        — gap di canonicalizzazione di italia-corpus, non del compose — più
-        le citazioni scartate dalla guardia temporale.
+        """Il nodo nasce da una citazione: deve avere l'edge.
 
-        La sorgente è il mart URN (non il clean): prima i nodi creati da
-        `riferimenti` clean senza corrispondenza nel mart erano fantocci
-        (1.428, 10,4% di orfani).
+        Dopo la canonicalizzazione URN di italia-corpus (#121) i residui sono
+        223 su 10.852 (2,1%): citazioni ad atti che **non sono nel catalogo**
+        Normattiva (`decretolegislativo:2010-12-13;129` dove in `atti_index`
+        c'è solo `legge:2010-08-13;129`) più la guardia temporale. Prima
+        erano 763 (7,0%) per gli URN non canonici.
         """
         tot, senza = con.execute("""
             SELECT
@@ -116,7 +114,7 @@ class TestNodiCatalogo:
                 )
             FROM nodes n WHERE n.source = 'catalogo'
         """).fetchone()
-        assert senza / tot < 0.10, f"{senza}/{tot} nodi catalogo senza edge"
+        assert senza / tot < 0.05, f"{senza}/{tot} nodi catalogo senza edge"
 
     def test_materia_dal_catalogo(self, con):
         """`materia` arriva da atti_index: senza, i nodi sono invisibili ai
@@ -136,10 +134,23 @@ class TestNodiCatalogo:
 
 class TestDeputati:
     def test_anagrafica_coperta(self, con):
+        """Deputati della **Repubblica 13-19** (perimetro del grafo).
+
+        Prima erano 11.277: includevano Regno (1-30) e Costituente, tutti
+        nodi isolati (le relazioni `firmatario`/`relatore` coprono 13-19).
+        Dal 2026-11 il perimetro è quello di `open-politica/persone`: 2.732
+        deputati. Se scende sotto 2.500 è una regressione del compose.
+        """
         n = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'deputato:%'
         """).fetchone()[0]
-        assert n > 10_000, f"Deputati attesi >10k, trovati {n}"
+        assert n >= 2_500, f"Deputati attesi >=2.500 (13-19), trovati {n}"
+        # nessun deputato fuori perimetro: `anno` è la legislatura
+        antichi = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE id LIKE 'deputato:%' AND (anno IS NULL OR anno NOT BETWEEN 13 AND 19)
+        """).fetchone()[0]
+        assert antichi == 0, f"{antichi} deputati fuori da Leg13-19"
 
 
 class TestTestoAtto:

@@ -449,150 +449,65 @@ nodes_dib AS (
     ) WHERE _rn = 1
 ),
 
-nodes_senatori AS (
+-- Persone (open-politica `persone`): identità unica per Camera e Senato.
+-- Un nodo per persona (non per legislatura): dedup sulla legislatura più
+-- recente. Gli id restano quelli pubblicati — `senatore:{senatore_id}` e
+-- `deputato:{persona_id}` — così gli archi `firmatario`, `relatore`, `vota`
+-- continuano a puntare lì.
+--
+-- `anno` è il numero di legislatura (prima, per i senatori visti in aula,
+-- era l'anno della prima seduta: stessa colonna con due semantiche).
+-- `source` e `collezione` restano quelli storici, mappati da `persone.fonte`.
+nodes_persone AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
         source, anno, length_chars, length_words, celex, codice_redazionale,
         stato, materia, qualita_score, sunsetting_score
     FROM (
         SELECT
-            'senatore:' || CAST(senatore_id AS VARCHAR) AS id,
-            'SENATORE' AS tipo,
-            CAST(data_seduta AS VARCHAR) AS data,
-            nome_oratore AS numero,
-            nome_oratore AS title,
-            'Senato Dibattito' AS collezione,
-            NULL::VARCHAR AS source_filename,
-            'senato_dib' AS source,
-            YEAR(data_seduta) AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
-            ROW_NUMBER() OVER (PARTITION BY senatore_id ORDER BY data_seduta) AS _rn
-        FROM read_parquet('{support.senato_dibattito.path}')
-        WHERE senatore_id IS NOT NULL
-    ) WHERE _rn = 1
-),
-
--- Senatori da senato_anagrafica (open-politica Leg 13-19).
--- Copre i gap di senato_dibattito: molti senatori non hanno interventi
--- ma compaiono nel ponte_persona. Issue #24.
--- Dedup: 1 row per senatore_id (può apparire in più legislature),
--- solo ID non già presenti da senato_dibattito.
-nodes_senatore_anagrafica AS (
-    SELECT
-        id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale,
-        stato, materia, qualita_score, sunsetting_score
-    FROM (
-        SELECT
-            'senatore:' || CAST(senatore_id AS VARCHAR) AS id,
-            'SENATORE' AS tipo,
-            NULL::VARCHAR AS data,
-            NULL::VARCHAR AS numero,
+            CASE p.ramo
+                WHEN 'senato' THEN 'senatore:' || CAST(p.senatore_id AS VARCHAR)
+                ELSE 'deputato:' || CAST(p.persona_id AS VARCHAR)
+            END AS id,
+            CASE p.ramo WHEN 'senato' THEN 'SENATORE' ELSE 'DEPUTATO' END AS tipo,
+            CAST(NULL AS VARCHAR) AS data,
+            CAST(NULL AS VARCHAR) AS numero,
             COALESCE(
-                NULLIF(TRIM(CONCAT(COALESCE(nome, ''), ' ', COALESCE(cognome, ''))), ''),
-                'Senatore ' || CAST(senatore_id AS VARCHAR)
+                NULLIF(p.nome_completo, ''),
+                CASE p.ramo WHEN 'senato' THEN 'Senatore ' ELSE 'Deputato ' END
+                    || CAST(COALESCE(p.senatore_id, p.persona_id) AS VARCHAR)
             ) AS title,
-            'Senato Anagrafica' AS collezione,
-            NULL::VARCHAR AS source_filename,
-            'senato_anag' AS source,
-            legislatura AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score
-        FROM read_parquet({support.senato_anagrafica.outputs}, union_by_name = true)
-        WHERE senatore_id IS NOT NULL
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY senatore_id ORDER BY legislatura DESC) = 1
-    ) x
-    WHERE NOT EXISTS (
-        SELECT 1 FROM nodes_senatori d
-        WHERE d.id = x.id
-    )
-),
-
-nodes_deputato AS (
-    SELECT
-        id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale,
-        stato, materia, qualita_score, sunsetting_score
-    FROM (
-        -- Anagrafica Camera: tutte le legislature (fonte primaria).
-        -- legislatura e' stringa ('repubblica_19', 'costituente'): anno =
-        -- numero legislatura, coerente con nodes_senatore_anagrafica.
-        SELECT
-            'deputato:' || CAST(persona_id AS VARCHAR) AS id,
-            'DEPUTATO' AS tipo,
-            NULL::VARCHAR AS data,
-            NULL::VARCHAR AS numero,
-            COALESCE(
-                NULLIF(TRIM(CONCAT(COALESCE(nome, ''), ' ', COALESCE(cognome, ''))), ''),
-                'Deputato ' || CAST(persona_id AS VARCHAR)
-            ) AS title,
-            'Camera Anagrafica' AS collezione,
-            NULL::VARCHAR AS source_filename,
-            'camera_deputati_legislature' AS source,
-            TRY_CAST(regexp_extract(legislatura, '(\d+)$', 1) AS INTEGER) AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
+            CASE p.fonte
+                WHEN 'senato_anagrafica' THEN 'Senato Anagrafica'
+                WHEN 'senato_dibattito'  THEN 'Senato Dibattito'
+                WHEN 'camera_firmatari'  THEN 'Camera DDL'
+                ELSE 'Camera Anagrafica'
+            END AS collezione,
+            CAST(NULL AS VARCHAR) AS source_filename,
+            CASE p.fonte
+                WHEN 'senato_anagrafica' THEN 'senato_anag'
+                WHEN 'senato_dibattito'  THEN 'senato_dib'
+                WHEN 'camera_firmatari'  THEN 'camera_firmatari'
+                ELSE 'camera_deputati_legislature'
+            END AS source,
+            p.legislatura AS anno,
+            CAST(NULL AS BIGINT)  AS length_chars,
+            CAST(NULL AS BIGINT)  AS length_words,
+            CAST(NULL AS VARCHAR) AS celex,
+            CAST(NULL AS VARCHAR) AS codice_redazionale,
+            CAST(NULL AS VARCHAR) AS stato,
+            CAST(NULL AS VARCHAR) AS materia,
+            CAST(NULL AS INTEGER) AS qualita_score,
+            CAST(NULL AS INTEGER) AS sunsetting_score,
             ROW_NUMBER() OVER (
-                PARTITION BY persona_id
-                ORDER BY TRY_CAST(regexp_extract(legislatura, '(\d+)$', 1) AS INTEGER) DESC NULLS LAST
+                PARTITION BY p.ramo,
+                             CASE p.ramo WHEN 'senato' THEN p.senatore_id ELSE p.persona_id END
+                ORDER BY p.legislatura DESC
             ) AS _rn
-        FROM read_parquet({support.camera_deputati_legislature.outputs}, union_by_name = true)
-        WHERE persona_id IS NOT NULL
-
-        UNION ALL
-
-        -- Firmatari: persone non presenti in anagrafica (es. Renzi).
-        SELECT
-            'deputato:' || CAST(persona_id AS VARCHAR) AS id,
-            'DEPUTATO' AS tipo,
-            NULL::VARCHAR AS data,
-            NULL::VARCHAR AS numero,
-            COALESCE(
-                NULLIF(ANY_VALUE(deputato_label), ''),
-                'Deputato ' || CAST(persona_id AS VARCHAR)
-            ) AS title,
-            'Camera DDL' AS collezione,
-            NULL::VARCHAR AS source_filename,
-            'camera_firmatari' AS source,
-            ANY_VALUE(legislatura) AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
-            1 AS _rn
-        FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true)
-        WHERE persona_id IS NOT NULL
-          AND persona_id NOT IN (
-              SELECT persona_id
-              FROM read_parquet({support.camera_deputati_legislature.outputs}, union_by_name = true)
-              WHERE persona_id IS NOT NULL
-          )
-        GROUP BY persona_id
-    ) x
-    WHERE _rn = 1
+        FROM read_parquet('{support.persone.path}') p
+        WHERE p.legislatura IS NOT NULL
+          AND (p.senatore_id IS NOT NULL OR p.persona_id IS NOT NULL)
+    ) WHERE _rn = 1
 ),
 
 -- Votazioni Senato su oggetto/DDL (open-politica senato_votazioni_oggetto)
@@ -1015,11 +930,7 @@ all_nodes AS (
     UNION ALL
     SELECT * FROM nodes_dib WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
-    SELECT * FROM nodes_senatori WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
-    SELECT * FROM nodes_senatore_anagrafica WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
-    SELECT * FROM nodes_deputato WHERE id NOT IN (SELECT id FROM normativa)
+    SELECT * FROM nodes_persone WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_votazione WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL

@@ -22,7 +22,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 
 ```text
 1 mart_legal_nodes          ← support esterni (+ nodi Camera/Senato da
-                              open-politica `atti`; eiv da akn_act_meta,
+                              open-politica `atti` e `persone`; eiv da akn_act_meta,
                               nodi dl:* da atti.mart_dl, camera:atto:* da camera_relatori,
                               **nodi catalogo** da atti_index per gli atti citati
                               fuori corpus: solo identità, nessun testo)
