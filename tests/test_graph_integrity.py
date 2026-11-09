@@ -743,3 +743,37 @@ class TestDlDaAtti:
               AND target_id NOT LIKE 'senato:%' AND target_id NOT LIKE 'camera:%'
         """).fetchone()[0]
         assert n == 0, f"{n} edge converte_decreto_legge con target non-atto"
+
+
+class TestChiaveAttoNeiTarget:
+    """Nessun arco può puntare a un id Camera senza legislatura.
+
+    `camera:{num}` è ambiguo — lo stesso numero esiste in tutte e 7 le
+    legislature — quindi un target così è sempre un call-site dimenticato
+    (2026-11: `edges_itercost_atto` azzerava `proposta_cost` Camera, 1.276
+    edge persi). Il test guarda entrambi i lati dell'arco, tutte le relazioni.
+    """
+
+    def test_nessun_id_camera_senza_legislatura(self, con):
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        bad = con.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT source_id AS id FROM edges
+                UNION ALL
+                SELECT target_id FROM edges
+            ) WHERE regexp_matches(id, '^camera:[0-9]+$')
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} id camera senza legislatura negli archi"
+
+    def test_proposta_cost_copre_entrambi_i_rami(self, con):
+        """L'iter Costituzionale esiste su Camera e Senato: entrambi gli edge."""
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        rami = dict(con.execute("""
+            SELECT split_part(target_id, ':', 1) AS ramo, COUNT(*)
+            FROM edges WHERE relation = 'proposta_cost'
+            GROUP BY 1
+        """).fetchall())
+        assert rami.get("camera", 0) >= 1_200, f"proposta_cost Camera: {rami.get('camera', 0)}"
+        assert rami.get("senato", 0) >= 1_400, f"proposta_cost Senato: {rami.get('senato', 0)}"

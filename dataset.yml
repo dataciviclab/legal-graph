@@ -41,12 +41,8 @@ support:
     slug: normativa
     layer: clean
     years: [2026]
-  - name: riferimenti
-    type: external
-    repo: italia-corpus
-    slug: riferimenti
-    layer: clean
-    years: [2026]
+  # `riferimenti` clean non è più un support: i nodi catalogo usano il mart
+  # URN (stessa sorgente degli edge `riferimento`), così i due non divergono.
   # Contratto URN-based (fonte_urn, bersaglio_urn, rel_type, peso, ...):
   # edges_riferimenti e edges_abro fanno join esatto sui nodi, senza
   # normalizzazione URN nel compose.

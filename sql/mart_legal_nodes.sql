@@ -84,23 +84,36 @@ normativa AS (
 
 -- Nodi "catalogo": atti del catalogo Normattiva (`atti_index`) che **non**
 -- sono nel corpus ma sono citati da un atto che lo è. Senza questi nodi le
--- citation fuori corpus (188.613 righe, ~32.800 atti) restano dangling e il
--- compose le scarta. Solo i citati: l'intero catalogo sarebbe 205k nodi senza
--- testo né relazioni. Le direttive UE sono escluse (non sono nel catalogo).
+-- citation fuori corpus restano dangling e il compose le scarta. Solo i
+-- citati: l'intero catalogo sarebbe 205k nodi senza testo né relazioni. Le
+-- direttive UE sono escluse (non sono nel catalogo).
+--
+-- La lista dei citati viene dal **mart** URN (stessa sorgente di
+-- `edges_riferimenti`), non dal clean: clean e mart possono divergere (il
+-- clean porta citazioni che il mart filtra) e i nodi creati dal clean
+-- restavano senza edge. La guardia temporale è replicata qui perché un nodo
+-- catalogo senza edge non serve a nessun consumer.
 cited AS (
     SELECT DISTINCT
         regexp_replace(
             regexp_replace(
-                regexp_extract(bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
+                regexp_extract(r.bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
                 '[.\-]', '', 'g'
             ),
             'della|delle|dello|degli|dei|del', '', 'g'
         ) AS tipo_slug,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
-    FROM read_parquet('{support.riferimenti.path}')
-    WHERE NOT risolto
-      AND bersaglio_urn LIKE 'urn:nir:%'
+        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
+        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
+    FROM read_parquet('{support.riferimenti_urn.path}') r
+    WHERE r.rel_type = 'citation'
+      AND r.bersaglio_urn LIKE 'urn:nir:%'
+      -- stessa guardia di edges_riferimenti
+      AND (
+          r.fonte_anno IS NULL
+          OR r.bersaglio_anno IS NULL
+          OR r.fonte_anno >= r.bersaglio_anno - 1
+          OR (r.da_regex AND r.peso < 5)
+      )
 ),
 
 nodes_catalogo AS (
