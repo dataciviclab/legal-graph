@@ -73,24 +73,19 @@ def _find_node(con: duckdb.DuckDBPyConnection, node_id: str) -> Resolved:
         ", eiv" if _has_col(con, "nodes", "eiv") else ", NULL::VARCHAR AS eiv"
     )
     # Alias di identità (M1): `camera:atto:17_100` → `camera:17:100`,
-    # `dl:*`/`norma:*` → URN. La view legge `mart_legal_entity_alias`.
-    if _view_exists(con, "entity_alias"):
-        try:
-            alias = con.execute(
-                "SELECT entity_id FROM entity_alias WHERE alias_id = ? LIMIT 1",
-                [node_id],
-            ).fetchone()
-        except duckdb.Error:
-            alias = None
-        if alias and alias[0] and alias[0] != node_id:
-            resolved = resolve_row(
-                con, source="nodes", cols=cols, node_id=alias[0], ecli_alias=True
-            )
-            if resolved.row is not None:
-                resolved.match = "alias"
-                return resolved
+    # `dl:*`/`norma:*` → URN. Il resolver interroga `entity_alias` solo se
+    # l'id esatto non esiste: gli id canonici non pagano il lookup (che su
+    # GCS è un read remoto in più).
+    alias_source = (
+        "entity_alias" if _view_exists(con, "entity_alias") else None
+    )
     return resolve_row(
-        con, source="nodes", cols=cols, node_id=node_id, ecli_alias=True
+        con,
+        source="nodes",
+        cols=cols,
+        node_id=node_id,
+        ecli_alias=True,
+        alias_source=alias_source,
     )
 
 

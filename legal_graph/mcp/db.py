@@ -482,12 +482,8 @@ def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     """
     _ensure_view(con, "nodes", resolve_nodes_file())
     _ensure_view(con, "edges", resolve_edges_file())
-    _ensure_view(con, "edges_in", resolve_edges_in_file())
-    _ensure_view(con, "coverage", resolve_coverage_file())
-    _ensure_view(con, "metrics", resolve_metrics_file())
-    _ensure_view(con, "search_keys", resolve_search_keys_file())
-    _ensure_view(con, "node_rel", resolve_node_rel_file())
-    _ensure_view(con, "emend_leg", resolve_emend_leg_file())
-    _ensure_view(con, "texts", resolve_texts_file())
-    _ensure_view(con, "massime", resolve_massime_file())
+    # stesse view opzionali del bootstrap: una lista sola (`_mart_opzionali`),
+    # così una tabella nuova non resta fuori dal refresh.
+    for vista, _tabella, resolver in _mart_opzionali():
+        _ensure_view(con, vista, resolver())
     _bootstrap_meta_views(con)

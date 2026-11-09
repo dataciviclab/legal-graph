@@ -1022,7 +1022,6 @@ SELECT
         WHEN tipo IN ('VOTAZIONE', 'Votazione') THEN 'VOTAZIONE'
         WHEN tipo IN ('GIUDICE', 'Giudice') THEN 'GIUDICE'
         WHEN tipo IN ('PROMOVIMENTO', 'Atto di promovimento') THEN 'ATTO DI PROMOVIMENTO'
-        WHEN tipo = 'ATTO CAMERA' THEN 'ATTO CAMERA'
         -- Atti parlamentari: open-politica mette la `natura` nel campo tipo
         -- (a volte una data, per drift upstream). Sono DDL, non leggi.
         WHEN source IN ('senato', 'senato_corpus', 'camera_ddl', 'iter_costituzionale')

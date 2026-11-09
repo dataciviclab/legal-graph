@@ -57,7 +57,7 @@ class TestNodes:
         """All node IDs should have a recognized namespace prefix."""
         valid_prefixes = (
             "urn:nir:", "costituzione:", "revisione:", "gu:",
-            "senato:", "camera:", "camera:atto:", "sentenza:", "giudice:",
+            "senato:", "camera:", "sentenza:", "giudice:",
             "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
             "deputato:", "votazione:", "itercost:", "dl:",
         )

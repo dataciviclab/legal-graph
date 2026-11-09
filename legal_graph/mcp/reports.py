@@ -30,7 +30,7 @@ _FORBIDDEN_WORDS = (
     "checkpoint",
 )
 _FORBIDDEN_FUNC_RE = re.compile(
-    r"\b(read_[a-z0-9_]+|[a-z0-9_]+_scan|glob|sniff_[a-z0-9_]+|load_extension|st_read)\s*\(",
+    r"\b(read_[a-z0-9_]+|[a-z0-9_]+_scan|glob|sniff_[a-z0-9_]+|load_extension|st_read|query|query_table)\s*\(",
     re.IGNORECASE,
 )
 _PRAGMA_META = re.compile(
@@ -80,28 +80,42 @@ def _strip_comments(sql: str) -> str:
 
 
 def _strip_literals(sql: str) -> str:
-    """Sostituisce il contenuto delle stringhe con spazi (per lo scan keyword)."""
+    """Blanka le stringhe single-quote; toglie i doppi apici (identificatori).
+
+    In SQL i doppi apici sono **codice**: `"read_text"` è la stessa funzione
+    di `read_text`. Se li trattassimo come stringhe, un identificatore quotato
+    nasconderebbe la funzione alla scansione della guardia. Le stringhe
+    single-quote restano invece opache (sono dati, non codice).
+    """
     out: list[str] = []
     i, n = 0, len(sql)
-    quote: str | None = None
+    in_string = False
     while i < n:
         ch = sql[i]
-        if quote:
-            if ch == quote:
-                if i + 1 < n and sql[i + 1] == quote:
+        if in_string:
+            if ch == "'":
+                if i + 1 < n and sql[i + 1] == "'":
                     out.append("  ")
                     i += 2
                     continue
-                quote = None
+                in_string = False
                 out.append(ch)
                 i += 1
                 continue
             out.append(" ")
             i += 1
             continue
-        if ch in ("'", '"'):
-            quote = ch
+        if ch == "'":
+            in_string = True
             out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            # identificatore quotato: elimina solo i delimitatori, conserva il
+            # contenuto (gestendo l'escape "" dentro l'identificatore)
+            if i + 1 < n and sql[i + 1] == '"':
+                i += 2
+                continue
             i += 1
             continue
         out.append(ch)
@@ -621,6 +635,10 @@ def _impl_neighbors(
                 "source_id",
                 "in",
             )
+
+    errors = [n["error"] for n in neighbors if "error" in n]
+    if errors:
+        return {"error": errors[0]}
 
     payload: dict[str, Any] = {
         "node_id": actual_id,

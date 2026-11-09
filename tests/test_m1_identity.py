@@ -9,8 +9,10 @@ Protegge i cambi pubblici di M1:
 
 from __future__ import annotations
 
+import duckdb
 import pytest
 
+from legal_graph.mcp import db
 from legal_graph.mcp.node_views import _chain_rels, _impl_node
 from legal_graph.mcp.reports import _impl_coverage, _impl_neighbors
 
@@ -168,24 +170,52 @@ def test_conversione_view(con):
     assert rels == {"converte_decreto_legge", "diventa_legge"}
 
 
-def test_relation_type_table_matches_fallback(con):
-    """Il fallback legacy e la tabella non devono divergere sui flag M1."""
-    from legal_graph.mcp import db as _db
+def test_relation_type_fallback_matches_mart(con):
+    """Il fallback legacy e la tabella non devono divergere sui flag M1.
 
-    fallback = _db._RELATION_TYPE_FALLBACK_SQL
-    # estrae solo le righe VALUES dal fallback e le confronta con il mart
-    assert "canonical_relation" in fallback
-    rows = con.execute(
-        "SELECT relation, in_chain, in_impact, in_chain_view, canonical_relation "
-        "FROM relation_type ORDER BY relation"
-    ).fetchall()
-    assert len(rows) == 25
-    for relation, in_chain, in_impact, in_chain_view, canonical in rows:
-        assert relation
-        assert isinstance(in_chain, bool)
-        assert isinstance(in_impact, bool)
-        assert isinstance(in_chain_view, bool)
-        assert canonical in _CANONICAL
+    Esegue davvero il fallback in una connessione in-memory (non referenzia
+    tabelle) e confronta le righe con il mart: una divergenza futura tra i due
+    contratti diventa un test rosso.
+    """
+    cols = (
+        "relation, family, in_chain, in_impact, in_chain_view, "
+        "canonical_relation, description"
+    )
+    fallback_con = duckdb.connect()
+    try:
+        fallback_con.execute(db._RELATION_TYPE_FALLBACK_SQL)
+        fallback = fallback_con.execute(
+            f"SELECT {cols} FROM relation_type ORDER BY relation"
+        ).fetchall()
+    finally:
+        fallback_con.close()
+    mart = con.execute(f"SELECT {cols} FROM relation_type ORDER BY relation").fetchall()
+    assert fallback == mart
+    assert len(mart) == 25
+
+
+def test_refresh_views_recreates_alias_and_vocabulary(con):
+    """`refresh_views` deve ricreare anche le view opzionali M1.
+
+    Regressione vista in review: dopo un rebuild su una connessione già
+    avviata, `entity_alias_src` non veniva ricreata e la view ricadeva sul
+    fallback legacy (0 alias Camera sul nuovo mart).
+    """
+    fresh = db._new_con()
+    try:
+        db._bootstrap_views(fresh)
+        for vista in ("entity_alias_src", "relation_type_src"):
+            assert db._view_exists(fresh, vista)
+            fresh.execute(f"DROP VIEW {vista}")
+        db.refresh_views(fresh)
+        assert db._view_exists(fresh, "entity_alias_src")
+        assert db._view_exists(fresh, "relation_type_src")
+        n = fresh.execute(
+            "SELECT COUNT(*) FROM entity_alias WHERE alias_id LIKE 'camera:atto:%'"
+        ).fetchone()[0]
+        assert n > 1_000
+    finally:
+        fresh.close()
 
 
 @pytest.mark.parametrize("relation", sorted(_IMPACT))

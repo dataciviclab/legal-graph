@@ -124,6 +124,7 @@ def test_chain_colonne_obbligatorie_normativa(grafo, colonna):
         "SHOW TABLES",
         "PRAGMA table_info('nodes')",
         "PRAGMA database_list",
+        'SELECT "references" FROM metrics LIMIT 1',
     ],
 )
 def test_query_comandi_consentiti(grafo, sql):
@@ -146,6 +147,12 @@ def test_query_comandi_consentiti(grafo, sql):
         "SELECT * FROM read_text('/etc/passwd')",
         "SELECT * FROM glob('/etc/*')",
         "SELECT * FROM 'out/data/mart/legal_graph/2026/mart_legal_nodes.parquet'",
+        # bypass con identificatori quotati e SQL annidato (review M1)
+        "SELECT * FROM \"read_text\"('/etc/passwd')",
+        "SELECT * FROM \"glob\"('/etc/*')",
+        "SELECT * FROM query('select * from read_text(''/etc/passwd'')')",
+        "SELECT * FROM \"query\"('select 1')",
+        "SELECT * FROM query_table('nodes')",
         "PRAGMA threads=1",
         "ATTACH 'x.db'",
         "COPY (SELECT 1) TO '/tmp/x.csv'",

@@ -13,8 +13,9 @@ Priorità sorgente mart (tabelle del compose):
 
 Il contract di publish copre 12 tabelle: le 10 del grafo (nodes, edges,
 entity_alias, relation_type, edges_in, coverage, metrics, search_keys,
-node_rel, emend_leg) sono online, texts e massime lo diventano dal primo run
-di pipeline successivo al 2026-11.
+node_rel, emend_leg) sono previste dal compose M1 e diventano online col
+primo run di pipeline che le pubblica; texts e massime seguono lo stesso
+meccanismo.
 Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations

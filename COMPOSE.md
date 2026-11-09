@@ -13,7 +13,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
 | SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 12 tabelle online (build 2026-11-09) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 12 tabelle nel compose; `entity_alias` e `relation_type` online dal primo run di pipeline M1 |
 | Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |

@@ -224,3 +224,5 @@ For every important node/edge:
 - `conversione` è la conversione **nota**: `converte_decreto_legge` resta `conversione_tentata` (include i decaduti); il filtro per esito è M2.
 - `source_snapshot`/`snapshot_id` restano sospesi come in M0.
 - Il fallback legacy di `relation_type`/`entity_alias` è congelato a M0/M1: i mart nuovi usano le tabelle.
+- `dl:*` → URN produce **0 alias** nel build corrente (i 12 nodi `dl:*` non hanno URN corrispondente); `norma:decreto legge` ne produce 3. L'alias DL si popolerà quando esisterà il nodo URN canonico.
+- **C8.5 aperto:** il publish non ha un envelope di versione del modello (`schema_version` di `dataset.yml` è la versione config toolkit). Rollback = build precedente su GCS; da formalizzare in M2.
