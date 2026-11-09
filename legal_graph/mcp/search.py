@@ -528,7 +528,7 @@ def _impl_search(
 
     elif kind == "ue":
         pat = intent["pattern"]
-        where = "k.source = 'normativa' AND LOWER(k.title_folded) LIKE ?"
+        where = "k.source IN ('normativa', 'ue') AND LOWER(k.title_folded) LIKE ?"
         params = [f"%{pat}%"]
         order = _base_order()
 

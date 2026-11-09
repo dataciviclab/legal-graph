@@ -45,11 +45,17 @@ contiene nella stessa forma o che cadono nella guardia temporale. I `riferimento
 puntano a **10.594** nodi catalogo e **130** nodi `atti_api`.
 Le citazioni all'atto-Costituzione (`...;const`, **4.966 edge**) hanno un nodo
 proprio `costituzione:atto`, non un articolo: sono citazioni all'atto intero.
-Restano fuori **5.144 direttive UE** (non sono nel catalogo italiano), **1.373 URN
-malformati** (`urn:nir::…`, senza emittente) e circa **19.900** bersagli non
-risolti al file: di questi ~11.400 esistono comunque in `atti_index` e diventano
-nodi catalogo, gli altri non identificano un atto del catalogo. Gli URN
-malformati restano **esclusi per scelta**.
+Le direttive UE non sono nel catalogo italiano: hanno un nodo dedicato
+`celex:*` dal dataset `direttive_ue` (identità CELEX, non testo), con **2.343
+direttive risolte su 2.672**. Restano fuori **329 direttive non in Cellar**,
+**1.373 URN malformati** (`urn:nir::…`, senza emittente) e circa **19.900**
+bersagli non risolti al file: di questi ~11.400 esistono comunque in
+`atti_index` e diventano nodi catalogo, gli altri non identificano un atto del
+catalogo. Gli URN malformati restano **esclusi per scelta**.
+
+> Nel build locale (2026-11-09) `riferimento` passa da 193.217 a **221.345 edge
+> (82,7%)** e i nodi da 858.126 a **860.469**. I numeri di questa pagina
+> saranno riallineati al publish.
 
 Limiti dichiarati:
 

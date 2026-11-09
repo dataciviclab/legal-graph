@@ -25,11 +25,14 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
                               open-politica `atti` e `persone`; eiv da akn_act_meta,
                               nodi dl:* da atti.mart_dl, camera:atto:* da camera_relatori,
                               **nodi catalogo** da atti_index per gli atti citati
-                              fuori corpus: solo identità, nessun testo)
+                              fuori corpus: solo identità, nessun testo;
+                              **nodi UE** `celex:*` da `direttive_ue`: una riga per
+                              CELEX, le due grafie URN collassano sullo stesso nodo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
                               (attua_delega, modifiche AKN, relatore_sentenza,
                               relatore Camera, firmatario, converte_decreto_legge)
                               + abroga dal mart URN di italia-corpus
+                              + `riferimento` verso le direttive UE (alias URN→CELEX)
 2b mart_legal_edges_in      ← FROM mart_legal_edges, stesse righe ordinate per
                               target_id (query in entrata con row-group pruning)
 3 mart_legal_coverage       ← FROM mart_legal_edges + support: righe upstream

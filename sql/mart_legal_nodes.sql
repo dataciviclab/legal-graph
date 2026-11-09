@@ -86,7 +86,8 @@ normativa AS (
 -- sono nel corpus ma sono citati da un atto che lo è. Senza questi nodi le
 -- citation fuori corpus restano dangling e il compose le scarta. Solo i
 -- citati: l'intero catalogo sarebbe 205k nodi senza testo né relazioni. Le
--- direttive UE sono escluse (non sono nel catalogo).
+-- direttive UE hanno un nodo dedicato da `direttive_ue` (sotto), non dal
+-- catalogo.
 --
 -- La lista dei citati viene dal **mart** URN (stessa sorgente di
 -- `edges_riferimenti`), non dal clean: clean e mart possono divergere (il
@@ -955,6 +956,34 @@ nodes_dl AS (
       )
 ),
 
+nodes_ue AS (
+    SELECT
+        'celex:' || d.celex AS id,
+        'DIRETTIVA' AS tipo,
+        CAST(d.data AS VARCHAR) AS data,
+        CAST(TRY_CAST(regexp_extract(d.celex, 'L(\d{4})$', 1) AS INTEGER) AS VARCHAR) AS numero,
+        d.titolo AS title,
+        'Direttive UE' AS collezione,
+        NULL::VARCHAR AS source_filename,
+        'ue' AS source,
+        TRY_CAST(substr(d.celex, 2, 4) AS INTEGER) AS anno,
+        NULL::BIGINT AS length_chars,
+        NULL::BIGINT AS length_words,
+        d.celex AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        CASE
+            WHEN d.in_vigore THEN 'vigente'
+            WHEN d.in_vigore = FALSE THEN 'abrogato'
+            ELSE NULL
+        END AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM read_parquet('{support.direttive_ue.path}') d
+    WHERE d.stato = 'risolto'
+      AND NULLIF(d.celex, '') IS NOT NULL
+),
+
 all_nodes AS (
     SELECT * FROM normativa
     -- atti_api prima di gu: stesso URN può arrivare da entrambi (atto fuori
@@ -1010,6 +1039,8 @@ all_nodes AS (
     SELECT * FROM nodes_camera_atti WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_dl WHERE id NOT IN (SELECT id FROM normativa)
+    UNION ALL
+    SELECT * FROM nodes_ue WHERE id NOT IN (SELECT id FROM normativa)
 )
 
 SELECT

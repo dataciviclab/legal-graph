@@ -170,6 +170,20 @@ open-politica mette la natura nel campo `tipo` (`Legge ordinaria`, una data,
 - `dashboard/sources.py:load_edges()` — la dashboard non usa edges
 - `data/derived/senato_edges.parquet` — non più necessario
 
+### CELEX / urn:nir:eu (chiave direttive UE)
+
+```
+celex:32019L1937
+```
+
+- **italia-corpus** (`direttive_ue`): `celex` (una riga per direttiva) e
+  `urn_varianti` — le due grafie Normattiva `direttivaue` e `direttiva.ue`,
+  separate da `;`.
+- **legal-graph**: nodo `celex:{celex}`; gli edge `riferimento` con
+  `bersaglio_urn` UE vengono mappati sul nodo via `urn_aliases`.
+- Le due grafie non creano due nodi; il testo resta su EUR-Lex (`legal_text`
+  restituisce `eurlex_url` + `eli_url`).
+
 ## Prossimi passi
 
 - [x] Estendere coverage di `urn_normattiva` — ~100% sui promulgati; 845 leggi ordinarie mancanti (IC #68, dato 2026-10-17)
