@@ -1132,7 +1132,55 @@ SELECT
             -- vigenza italiana (source='normativa').
             WHEN n.source = 'ue' THEN 'cellar'
         END
-    ) AS vigenza_fonte
+    ) AS vigenza_fonte,
+    -- Provenance/assertion: additiva, conservativa, mai `verified` in automatico.
+    CASE
+        WHEN n.source IN (
+            'normativa', 'senato', 'camera_ddl', 'senato_corpus', 'costituzione',
+            'revisioni', 'gu', 'camera_deputati_legislature', 'senato_anag',
+            'senato_dib', 'senato_votazioni_oggetto', 'camera_relatori',
+            'iter_costituzionale', 'senato_emend'
+        ) THEN 'extracted'
+        WHEN n.source IN ('catalogo', 'ue', 'decreti_legge') THEN 'resolved'
+        WHEN n.source = 'pnrr' THEN 'inferred'
+        ELSE 'unknown'
+    END AS assertion_type,
+    CASE
+        WHEN n.collezione = 'Normattiva API' THEN 'api'
+        WHEN n.source IN ('senato_corpus', 'costituzione', 'revisioni', 'normativa') THEN 'akn'
+        WHEN n.source = 'ue' THEN 'api'
+        ELSE 'join'
+    END AS method,
+    CASE WHEN n.source_filename IS NULL THEN 'none' ELSE 'locator' END AS evidence_kind,
+    n.source_filename AS evidence_locator,
+    CASE
+        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%' OR n.source = 'pnrr' THEN 'weak'
+        ELSE 'strong'
+    END AS conf_identity,
+    CASE
+        WHEN n.source IN ('catalogo', 'ue', 'pnrr', 'decreti_legge') THEN 'weak'
+        WHEN n.source_filename IS NULL AND n.source NOT IN ('costituzione') THEN 'weak'
+        ELSE 'strong'
+    END AS conf_extraction,
+    CASE
+        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%'
+          OR n.source IN ('catalogo', 'pnrr', 'decreti_legge') THEN 'weak'
+        ELSE 'strong'
+    END AS conf_semantic,
+    CASE
+        WHEN n.source IN (
+            'senato', 'camera_ddl', 'normativa', 'senato_corpus', 'gu',
+            'revisioni', 'ue', 'catalogo', 'decreti_legge', 'costituzione',
+            'senato_emend'
+        ) AND n.anno IS NOT NULL THEN 'strong'
+        WHEN n.source IN (
+            'camera_deputati_legislature', 'senato_anag', 'senato_dib',
+            'senato_votazioni_oggetto'
+        ) AND n.anno IS NOT NULL THEN 'weak'
+        ELSE 'unknown'
+    END AS conf_temporal,
+    'unreviewed' AS review_status,
+    NULL::VARCHAR AS snapshot_id
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn
 LEFT JOIN normativa_fonte nf ON n.id = nf.urn

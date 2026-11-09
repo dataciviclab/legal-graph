@@ -147,6 +147,153 @@ def _new_con() -> duckdb.DuckDBPyConnection:
     return con
 
 
+_META_VIEWS_SQL = (
+    # act: view tipizzata sugli atti; le entità di processo restano in nodes.
+    """
+    CREATE OR REPLACE VIEW act AS
+    SELECT
+        id AS act_id,
+        CASE WHEN id LIKE 'urn:nir:%' THEN id END AS urn,
+        tipo AS act_type,
+        numero AS number,
+        anno AS year,
+        data AS enacted_at,
+        NULL::VARCHAR AS published_at,
+        eiv AS in_force_from,
+        CASE
+            WHEN id LIKE 'senato:%' THEN 'senato'
+            WHEN id LIKE 'camera:%' THEN 'camera'
+        END AS chamber,
+        CASE
+            WHEN id LIKE 'camera:%' THEN TRY_CAST(split_part(id, ':', 2) AS INTEGER)
+        END AS legislature,
+        title,
+        stato AS status,
+        vigenza_fonte AS status_authority,
+        CASE
+            WHEN stato IS NULL THEN 'unknown'
+            WHEN vigenza_fonte IN ('normattiva', 'atti_api') THEN 'strong'
+            ELSE 'weak'
+        END AS status_confidence,
+        NULL::VARCHAR AS status_from,
+        NULL::VARCHAR AS status_to,
+        NULL::VARCHAR AS snapshot_id
+    FROM nodes
+    WHERE tipo NOT IN (
+        'EMENDAMENTO', 'SOMMARIO', 'RISOLUZIONE', 'VOTAZIONE',
+        'DEPUTATO', 'SENATORE', 'GIUDICE', 'PNRR'
+    )
+    """,
+    # relation_type: vocabolario unico (sostituisce le liste hardcoded).
+    """
+    CREATE OR REPLACE VIEW relation_type AS
+    SELECT * FROM (VALUES
+        ('riferimento','norm','act','act','article',false,false,true,'weak',true,true,'citazione testuale'),
+        ('cita_costituzione','norm','act','provision','article',false,false,true,'strong',true,true,'citazione Costituzione'),
+        ('modifica','norm','act','act','article',true,true,true,'strong',true,false,'modifica attiva'),
+        ('abroga','norm','act','act','article',true,true,true,'strong',true,true,'abrogazione'),
+        ('sostituisce','norm','act','act','article',true,true,true,'strong',true,true,'sostituzione'),
+        ('split','norm','act','act','article',true,true,true,'strong',true,false,'split AKN'),
+        ('join','norm','act','act','article',true,true,true,'strong',true,false,'join AKN'),
+        ('renumbering','norm','act','act','article',true,true,true,'strong',true,false,'rinumerazione AKN'),
+        ('attua_delega','norm','act','act','article',true,false,true,'weak',true,true,'attuazione di delega (euristica)'),
+        ('converte_decreto_legge','proc','act','act','act',false,false,false,'strong',true,false,'conversione tentata'),
+        ('diventa_legge','proc','act','act','act',false,false,false,'strong',true,true,'DDL → legge'),
+        ('impugna','juris','act','act','article',false,false,false,'strong',true,true,'impugnazione'),
+        ('invoca_parametro','juris','act','provision','article',false,false,false,'strong',true,true,'parametro costituzionale'),
+        ('evoca_parametro','juris','act','provision','article',false,false,false,'strong',true,true,'parametro da promovimento'),
+        ('relatore_sentenza','juris','act','person','act',false,false,false,'strong',false,false,'relatore sentenza'),
+        ('emendamento','proc','document','act','act',false,false,false,'strong',false,false,'emendamento'),
+        ('firmatario','proc','person','act','act',false,false,false,'strong',false,false,'firma'),
+        ('relatore','proc','person','act','act',false,false,false,'strong',false,false,'relatore'),
+        ('vota','proc','vote','act','act',false,false,false,'strong',false,false,'voto'),
+        ('intervento','proc','document','person','act',false,false,false,'strong',false,false,'intervento'),
+        ('testo_atto','doc','document','act','act',false,false,false,'strong',false,false,'documento → atto'),
+        ('proposta_cost','proc','act','act','act',false,false,false,'strong',false,false,'proposta costituzionale'),
+        ('diventa_revisione','proc','act','act','act',false,false,false,'strong',false,false,'proposta → revisione'),
+        ('collega','identity','person','person','act',false,false,false,'strong',false,false,'ponte persona'),
+        ('referenzia_pnrr','program','act','program','act',false,false,false,'weak',false,false,'riferimento PNRR')
+    ) AS t(relation, family, domain, range, granularity, directed, temporal,
+           inferable, reliability, in_chain, in_impact, description)
+    """,
+    # entity_alias: camera:atto:* → camera:{leg}:{num}; dl/norma → URN.
+    """
+    CREATE OR REPLACE VIEW entity_alias AS
+    SELECT
+        id AS alias_id,
+        'camera:' || split_part(split_part(id, ':', 3), '_', 1)
+            || ':' || split_part(split_part(id, ':', 3), '_', 2) AS entity_id,
+        'old_id' AS alias_type,
+        NULL::VARCHAR AS valid_from,
+        NULL::VARCHAR AS valid_to
+    FROM nodes
+    WHERE regexp_matches(id, '^camera:atto:[0-9]+_[0-9]+$')
+    UNION ALL
+    SELECT d.id, u.id, 'old_id', NULL::VARCHAR, NULL::VARCHAR
+    FROM nodes d
+    JOIN nodes u
+      ON u.id LIKE 'urn:nir:stato:decreto.legge:%'
+     AND regexp_extract(d.id, 'dl:(\\d{4})-(\\d+)$', 1)
+         = regexp_extract(u.id, 'urn:nir:stato:decreto.legge:(\\d{4})-\\d{2}-\\d{2};(\\d+)$', 1)
+     AND regexp_extract(d.id, 'dl:(\\d{4})-(\\d+)$', 2)
+         = regexp_extract(u.id, 'urn:nir:stato:decreto.legge:(\\d{4})-\\d{2}-\\d{2};(\\d+)$', 2)
+    WHERE d.id LIKE 'dl:%'
+    UNION ALL
+    SELECT n.id, u.id, 'old_id', NULL::VARCHAR, NULL::VARCHAR
+    FROM nodes n
+    JOIN nodes u
+      ON u.id LIKE 'urn:nir:stato:decreto.legge:%'
+     AND regexp_extract(n.id, 'norma:decreto legge:(\\d+):(\\d{4})$', 1)
+         = regexp_extract(u.id, 'urn:nir:stato:decreto.legge:(\\d{4})-\\d{2}-\\d{2};(\\d+)$', 2)
+     AND regexp_extract(n.id, 'norma:decreto legge:(\\d+):(\\d{4})$', 2)
+         = regexp_extract(u.id, 'urn:nir:stato:decreto.legge:(\\d{4})-\\d{2}-\\d{2};(\\d+)$', 1)
+    WHERE n.id LIKE 'norma:decreto legge:%'
+    """,
+    # coverage_level: L1-L2 per fonte/periodo/tipo/granularità.
+    """
+    CREATE OR REPLACE VIEW coverage_level AS
+    WITH units AS (
+        SELECT id, source, anno AS period, tipo AS act_type, 'act' AS granularity
+        FROM nodes
+        WHERE tipo NOT IN (
+            'EMENDAMENTO', 'SOMMARIO', 'RISOLUZIONE', 'VOTAZIONE',
+            'DEPUTATO', 'SENATORE', 'GIUDICE', 'PNRR'
+        )
+    ),
+    touched AS (
+        SELECT DISTINCT source_id AS id FROM edges
+        UNION
+        SELECT DISTINCT target_id AS id FROM edges
+    )
+    SELECT 'L1' AS level, source, period, act_type, granularity,
+           COUNT(*) AS n_units, COUNT(*) AS n_with_data, 100.0 AS pct
+    FROM units
+    GROUP BY 1, 2, 3, 4, 5
+    UNION ALL
+    SELECT 'L2', u.source, u.period, u.act_type, u.granularity,
+           COUNT(*) AS n_units,
+           COUNT(t.id) AS n_with_data,
+           100.0 * COUNT(t.id) / COUNT(*) AS pct
+    FROM units u
+    LEFT JOIN touched t ON t.id = u.id
+    GROUP BY 2, 3, 4, 5
+    """,
+)
+
+
+def _bootstrap_meta_views(con: duckdb.DuckDBPyConnection) -> None:
+    """Crea le view di contratto (act, relation_type, entity_alias, coverage).
+
+    Se una view non è compatibile con un mart legacy, la si salta con un
+    warning: il resto dell'MCP deve continuare a funzionare.
+    """
+    for sql in _META_VIEWS_SQL:
+        try:
+            con.execute(sql)
+        except duckdb.Error as exc:
+            logger.warning("view di contratto non creata: %s", exc)
+
+
 def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
     """Lega le VIEW ai parquet mart (locale o GCS) risolti da `paths`.
 
@@ -171,6 +318,7 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
         if pubblicate is not None and tabella not in pubblicate:
             continue
         _ensure_view(con, vista, resolver(), remoto_verificato=pubblicate is not None)
+    _bootstrap_meta_views(con)
 
 
 def _get_con() -> duckdb.DuckDBPyConnection:
@@ -292,3 +440,4 @@ def refresh_views(con: duckdb.DuckDBPyConnection) -> None:
     _ensure_view(con, "emend_leg", resolve_emend_leg_file())
     _ensure_view(con, "texts", resolve_texts_file())
     _ensure_view(con, "massime", resolve_massime_file())
+    _bootstrap_meta_views(con)

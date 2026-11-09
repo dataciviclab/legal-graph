@@ -21,7 +21,7 @@
 
 | Object | Type | Phase | Purpose |
 |---|---|---|---|
-| `source_snapshot` | table | M0 | dataset/URI/hash/fetched_at |
+| `source_snapshot` | table | M0 (deferred) | dataset/URI/hash/fetched_at; sospesa finché il toolkit non espone `inputs` |
 | `entity_alias` | table | M0 | old/external ids → canonical |
 | `relation_type` | table | M0 | vocabulary: family, domain/range, granularity, flags |
 | `act` | view | M0 | typed act view over `nodes` |
@@ -179,3 +179,25 @@ For every important node/edge:
 1. M0: `legal_query` read-only; `source_snapshot`/`entity_alias`/`relation_type`; provenance columns; `coverage_level` L1-L2.
 2. M1: Camera dedup, aliases, `act` view; taxonomy mapping; `legal_neighbors`/`legal_coverage`; freeze.
 3. M2-M3 only after C2b/C3/C4.
+
+---
+
+## 14. M0.2 implementation note (2026-11-09)
+
+**Fatto**
+- `legal_query` read-only (M0.1): una istruzione, tipi SELECT/EXPLAIN, no scritture, no funzioni file, no `FROM 'path'`; 271 test verdi.
+- View di contratto nel bootstrap MCP: `act`, `relation_type` (25 relazioni), `entity_alias` (camera:atto, dl, norma DL), `coverage_level` L1-L2.
+- Colonne provenance additive su `nodes`/`edges`: `assertion_type`, `method`, `prov_evidence_kind` (nuovo), `evidence_locator`, 4 confidenze, `review_status`, `snapshot_id`.
+- `evidence_kind` legacy resta invariato (`riferimento`); `prov_evidence_kind` è il campo per tutte le relazioni.
+- Mart ricostruito: 10 tabelle, 6.386.899 righe; 271 test, ruff pulito.
+
+**Sospeso (non finto)**
+- `source_snapshot`: il toolkit produce `metadata.inputs=[]` per il compose mart-only. Non è stata creata una tabella con URI/hash inventati. Serve una modifica al toolkit (input manifest) o un manifest esplicito.
+- `snapshot_id`: NULL su nodi/edge finché non esiste un `source_snapshot` reale.
+- `assertion` table: rinviata; le colonne su `nodes`/`edges` coprono M0-M3.
+- `provision`/`provision_version`/`document_expression`: M2.
+
+**Limiti noti**
+- `entity_alias` copre `camera:atto`, `dl:*`, `norma:decreto legge`; le varianti URN UE e gli alias regionali richiedono il code table (M1/M2).
+- `coverage_level` è una view L1-L2; L3-L6 arrivano con `provision`/temporalità/amministrazione.
+- `conf_*` sono conservative e per producer, non una verifica legale; `review_status='unreviewed'` su tutto.
