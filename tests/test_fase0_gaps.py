@@ -145,12 +145,31 @@ class TestDeputati:
             SELECT COUNT(*) FROM nodes WHERE id LIKE 'deputato:%'
         """).fetchone()[0]
         assert n >= 2_500, f"Deputati attesi >=2.500 (13-19), trovati {n}"
-        # nessun deputato fuori perimetro: `anno` è la legislatura
+        # nessun deputato fuori perimetro **con un anno dichiarato**: `anno`
+        # è la legislatura. I nodi-ponte fuori perimetro hanno `anno` NULL.
         antichi = con.execute("""
             SELECT COUNT(*) FROM nodes
-            WHERE id LIKE 'deputato:%' AND (anno IS NULL OR anno NOT BETWEEN 13 AND 19)
+            WHERE id LIKE 'deputato:%' AND anno IS NOT NULL AND anno NOT BETWEEN 13 AND 19
         """).fetchone()[0]
         assert antichi == 0, f"{antichi} deputati fuori da Leg13-19"
+
+    def test_ponte_collega_preservato(self, con):
+        """Il ponte Camera↔Senato richiede il nodo del deputato.
+
+        I bersagli di `collega` stanno anche fuori dal perimetro 13-19
+        (Regno, Repubblica 1-12): senza quei nodi l'edge sparisce (ne
+        mancavano 101). Devono restare, con `anno` NULL.
+        """
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges WHERE relation = 'collega'
+        """).fetchone()[0]
+        assert n >= 500, f"edge collega: {n} (attesi ~504)"
+        orfani = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            WHERE e.relation = 'collega'
+              AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = e.target_id)
+        """).fetchone()[0]
+        assert orfani == 0, f"{orfani} target collega senza nodo"
 
 
 class TestTestoAtto:

@@ -449,15 +449,49 @@ nodes_dib AS (
     ) WHERE _rn = 1
 ),
 
--- Persone (open-politica `persone`): identità unica per Camera e Senato.
--- Un nodo per persona (non per legislatura): dedup sulla legislatura più
--- recente. Gli id restano quelli pubblicati — `senatore:{senatore_id}` e
--- `deputato:{persona_id}` — così gli archi `firmatario`, `relatore`, `vota`
--- continuano a puntare lì.
+-- Seduta e nome d'aula del senatore (prima seduta): conserva `data`,
+-- `numero` e la label `senato_dib` che il nodo aveva prima della migrazione.
+dibattito AS (
+    SELECT
+        senatore_id, data_seduta, nome_oratore,
+        ROW_NUMBER() OVER (PARTITION BY senatore_id ORDER BY data_seduta) AS _rn
+    FROM read_parquet('{support.senato_dibattito.path}')
+    WHERE senatore_id IS NOT NULL
+),
+
+-- Bersagli di `collega`: il ponte Camera↔Senato usa `deputato:{persona_id}`
+-- anche per persone fuori dal perimetro 13-19 (Regno, Repubblica 1-12).
+ponte_persona AS (
+    SELECT DISTINCT CAST(persona_id AS BIGINT) AS persona_id
+    FROM read_parquet('{support.ponte_persona.path}')
+    WHERE persona_id IS NOT NULL
+),
+
+-- Deputati fuori perimetro ma referenziati dal ponte: senza il nodo l'edge
+-- `collega` sparisce (ne mancavano 101).
+ponte_dep AS (
+    SELECT c.persona_id, c.nome, c.cognome
+    FROM (
+        SELECT
+            c.*,
+            ROW_NUMBER() OVER (PARTITION BY c.persona_id ORDER BY c.legislatura DESC) AS _rn
+        FROM read_parquet({support.camera_deputati_legislature.outputs}, union_by_name = true) c
+        WHERE c.persona_id IN (SELECT persona_id FROM ponte_persona)
+          AND c.persona_id NOT IN (
+              SELECT persona_id FROM read_parquet('{support.persone.path}')
+              WHERE ramo = 'camera' AND persona_id IS NOT NULL
+          )
+    ) c
+    WHERE c._rn = 1
+),
+
+-- Persona (open-politica `persone`): un nodo per persona, non per
+-- legislatura. Gli id restano `senatore:{senatore_id}` e
+-- `deputato:{persona_id}`: gli archi `firmatario`, `relatore`, `vota`,
+-- `collega` continuano a puntare lì.
 --
 -- `anno` è il numero di legislatura (prima, per i senatori visti in aula,
 -- era l'anno della prima seduta: stessa colonna con due semantiche).
--- `source` e `collezione` restano quelli storici, mappati da `persone.fonte`.
 nodes_persone AS (
     SELECT
         id, tipo, data, numero, title, collezione, source_filename,
@@ -470,24 +504,24 @@ nodes_persone AS (
                 ELSE 'deputato:' || CAST(p.persona_id AS VARCHAR)
             END AS id,
             CASE p.ramo WHEN 'senato' THEN 'SENATORE' ELSE 'DEPUTATO' END AS tipo,
-            CAST(NULL AS VARCHAR) AS data,
-            CAST(NULL AS VARCHAR) AS numero,
+            CAST(d.data_seduta AS VARCHAR) AS data,
+            d.nome_oratore AS numero,
             COALESCE(
                 NULLIF(p.nome_completo, ''),
                 CASE p.ramo WHEN 'senato' THEN 'Senatore ' ELSE 'Deputato ' END
                     || CAST(COALESCE(p.senatore_id, p.persona_id) AS VARCHAR)
             ) AS title,
-            CASE p.fonte
-                WHEN 'senato_anagrafica' THEN 'Senato Anagrafica'
-                WHEN 'senato_dibattito'  THEN 'Senato Dibattito'
-                WHEN 'camera_firmatari'  THEN 'Camera DDL'
+            CASE
+                WHEN d.senatore_id IS NOT NULL           THEN 'Senato Dibattito'
+                WHEN p.fonte = 'senato_anagrafica'       THEN 'Senato Anagrafica'
+                WHEN p.fonte = 'camera_firmatari'        THEN 'Camera DDL'
                 ELSE 'Camera Anagrafica'
             END AS collezione,
             CAST(NULL AS VARCHAR) AS source_filename,
-            CASE p.fonte
-                WHEN 'senato_anagrafica' THEN 'senato_anag'
-                WHEN 'senato_dibattito'  THEN 'senato_dib'
-                WHEN 'camera_firmatari'  THEN 'camera_firmatari'
+            CASE
+                WHEN d.senatore_id IS NOT NULL           THEN 'senato_dib'
+                WHEN p.fonte = 'senato_anagrafica'       THEN 'senato_anag'
+                WHEN p.fonte = 'camera_firmatari'        THEN 'camera_firmatari'
                 ELSE 'camera_deputati_legislature'
             END AS source,
             p.legislatura AS anno,
@@ -499,15 +533,42 @@ nodes_persone AS (
             CAST(NULL AS VARCHAR) AS materia,
             CAST(NULL AS INTEGER) AS qualita_score,
             CAST(NULL AS INTEGER) AS sunsetting_score,
-            ROW_NUMBER() OVER (
-                PARTITION BY p.ramo,
-                             CASE p.ramo WHEN 'senato' THEN p.senatore_id ELSE p.persona_id END
-                ORDER BY p.legislatura DESC
-            ) AS _rn
+            1 AS _ord
         FROM read_parquet('{support.persone.path}') p
+        LEFT JOIN (SELECT * FROM dibattito WHERE _rn = 1) d
+               ON p.ramo = 'senato' AND d.senatore_id = p.senatore_id
         WHERE p.legislatura IS NOT NULL
           AND (p.senatore_id IS NOT NULL OR p.persona_id IS NOT NULL)
-    ) WHERE _rn = 1
+
+        UNION ALL
+
+        SELECT
+            'deputato:' || CAST(c.persona_id AS VARCHAR) AS id,
+            'DEPUTATO' AS tipo,
+            CAST(NULL AS VARCHAR) AS data,
+            CAST(NULL AS VARCHAR) AS numero,
+            COALESCE(
+                NULLIF(TRIM(CONCAT(COALESCE(c.nome, ''), ' ', COALESCE(c.cognome, ''))), ''),
+                'Deputato ' || CAST(c.persona_id AS VARCHAR)
+            ) AS title,
+            'Camera Anagrafica' AS collezione,
+            CAST(NULL AS VARCHAR) AS source_filename,
+            'camera_deputati_legislature' AS source,
+            CAST(NULL AS INTEGER) AS anno,
+            CAST(NULL AS BIGINT)  AS length_chars,
+            CAST(NULL AS BIGINT)  AS length_words,
+            CAST(NULL AS VARCHAR) AS celex,
+            CAST(NULL AS VARCHAR) AS codice_redazionale,
+            CAST(NULL AS VARCHAR) AS stato,
+            CAST(NULL AS VARCHAR) AS materia,
+            CAST(NULL AS INTEGER) AS qualita_score,
+            CAST(NULL AS INTEGER) AS sunsetting_score,
+            2 AS _ord
+        FROM ponte_dep c
+    ) q
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY id ORDER BY _ord, anno DESC NULLS LAST
+    ) = 1
 ),
 
 -- Votazioni Senato su oggetto/DDL (open-politica senato_votazioni_oggetto)

@@ -1,8 +1,8 @@
 # Legal Knowledge Graph — il diritto italiano come sistema interrogabile
 
-**858.026 nodi, 1.318.378 relazioni tra leggi, decreti, DDL, sentenze e Costituzione (build 2026-11-09). Un grafo per capire come funziona il diritto — non solo leggerlo.**
+**858.126 nodi, 1.318.479 relazioni tra leggi, decreti, DDL, sentenze e Costituzione (build 2026-11-09). Un grafo per capire come funziona il diritto — non solo leggerlo.**
 
-> Aggiornato 2026-11: **persone da `open-politica/persone`** (identità unica Camera+Senato; −8.545 nodi: i deputati del Regno e della Costituente erano tutti isolati, le relazioni coprono Leg13-19),
+> Aggiornato 2026-11: **persone da `open-politica/persone`** (identità unica Camera+Senato; −8.445 nodi: deputati del Regno e della Costituente; restano i 100 che il ponte `collega` usa come bersaglio),
 > **`proposta_cost` +1.276** (l'iter Costituzionale Camera puntava
 > a `camera:{num}`, chiave senza legislatura: 0 edge Camera su 1.276 atti),
 > **624 nodi catalogo fantoccio rimossi** (citazioni lette dal clean senza
@@ -21,8 +21,8 @@ Legal Graph unifica **5 repo del Lab** (normativa, Costituzione, Senato, Camera,
 
 | | |
 |---|---|
-| **Nodi** | 858.026 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
-| **Archi** | 1.318.378 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
+| **Nodi** | 858.126 — leggi, decreti, DDL Camera/Senato, DL conversione, emendamenti, dibattiti, sentenze, articoli Cost., norme |
+| **Archi** | 1.318.479 — riferimenti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, modifiche AKN (abroga/sostituisce), bridge DDL→legge, firmatari, relatore sentenza |
 | **Mart** | nodes · edges · **coverage** · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | **Fonti** | italia-corpus, costituzione-italiana, gu-monitor, senato-akn, open-politica |
 | **Relazioni tipiche** | `diventa_legge`, `impugna`, `cita_costituzione`, `attua_delega`, `abroga`, `sostituisce`, `firmatario`, `relatore`, `relatore_sentenza`, `converte_decreto_legge`, `emendamento`, `riferimento`, `collega` (senatore↔deputato) |
