@@ -178,11 +178,14 @@ celex:32019L1937
 
 - **italia-corpus** (`direttive_ue`): `celex` (una riga per direttiva) e
   `urn_varianti` — le due grafie Normattiva `direttivaue` e `direttiva.ue`,
-  separate da `;`.
+  separate da **`|`** (gli URN contengono `;`).
 - **legal-graph**: nodo `celex:{celex}`; gli edge `riferimento` con
   `bersaglio_urn` UE vengono mappati sul nodo via `urn_aliases`.
 - Le due grafie non creano due nodi; il testo resta su EUR-Lex (`legal_text`
-  restituisce `eurlex_url` + `eli_url`).
+  restituisce `note` + `eurlex_url` + `eli_url`, senza `error`).
+- **`stato` dei nodi UE**: `vigente`/`abrogato` da `in_vigore` di Cellar,
+  `vigenza_fonte='cellar'`. Non è la vigenza italiana del corpus: chi filtra
+  `stato='vigente'` trova solo le direttive ancora in vigore (757 su 2.343).
 
 ## Prossimi passi
 

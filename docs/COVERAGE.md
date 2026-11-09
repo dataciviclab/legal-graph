@@ -1,8 +1,8 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-08 · aggiornata 2026-11-09 · Fonte: mart pubblico `gs://dataciviclab-mart/legal-graph/legal_graph/2026/` (non Normattiva live)
+Data: 2026-10-08 · aggiornata 2026-11-09 · Fonte: build locale 2026-11-09 (il mart pubblico si aggiorna al prossimo run)
 
-> 2026-11-09 — build con **858.126 nodi / 1.318.479 archi**. Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
+> 2026-11-09 — build con **860.469 nodi / 1.346.607 archi**, direttive UE incluse. Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
 
 ## Cosa è (in sintesi)
 
@@ -28,7 +28,7 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 267.636 | 267.636 | 193.217 | 72,2% | bersagli senza nodo (direttive UE, URN ambigui/malformati), guardia temporale |
+| `riferimento` | 267.636 | 267.636 | 221.345 | 82,7% | bersagli senza nodo (URN ambigui/malformati), guardia temporale; direttive UE incluse |
 | `emendamento` | 763.690 | 561.270 | 494.259 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 256.934 | 52.738 | 52.738 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (256.934 righe → 52.738 coppie) |
 | `diventa_legge` | 7.520 | 4.496 | 3.574 | 79,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
@@ -53,9 +53,9 @@ bersagli non risolti al file: di questi ~11.400 esistono comunque in
 `atti_index` e diventano nodi catalogo, gli altri non identificano un atto del
 catalogo. Gli URN malformati restano **esclusi per scelta**.
 
-> Nel build locale (2026-11-09) `riferimento` passa da 193.217 a **221.345 edge
-> (82,7%)** e i nodi da 858.126 a **860.469**. I numeri di questa pagina
-> saranno riallineati al publish.
+> Direttive UE incluse dal 2026-11-09: **2.343 nodi `celex:*`** (su 2.672) e
+> **28.128 edge** `riferimento`. Il mart pubblico si aggiorna al prossimo run
+> della pipeline.
 
 Limiti dichiarati:
 
@@ -90,7 +90,7 @@ Copertura per legislatura (snapshot 2026-11-01, quando il totale era 487.538/561
 ## Evidenza formulaica (`is_formulaic`)
 
 `edges.is_formulaic` marca le citazioni in cui lo **stesso** snippet è usato da
-più di 50 atti distinti: **4.311 edge** (2,2% dei `riferimento`), di cui 2.729
+più di 50 atti distinti: **4.311 edge** (2,0% dei `riferimento`), di cui 2.729
 al D.P.R. 1092/1985 (la clausola di pubblicazione che ogni preambolo ripete).
 Il match è **esatto**: normalizzare lo snippet (lower, primi N caratteri)
 porterebbe a 14.178 edge su 1.790 target e catturerebbe citazioni AKN legittime
@@ -114,24 +114,25 @@ il funnel conta il **lordo**, così non sembra migliorato solo perché etichetta
 
 **Limite noto, ora misurabile**: `edges.evidence_kind` classifica l'evidenza dei
 `riferimento` in tre stati — `missing` (segnaposto `akn:ref`), `locator`
-(frammento URL/URN) e `quote` (testo). Oggi `missing` è **118.300 edge (61,2%)**:
-la regola >50 giudica solo i 74.917 con testo. `coverage` espone
+(frammento URL/URN) e `quote` (testo). Oggi `missing` è **139.943 edge (63,2%)**:
+la regola >50 giudica solo gli 81.402 con testo. `coverage` espone
 `missing_evidence_edges`/`missing_evidence_pct`, così il target (0) è misurato:
 dipende da **italia-corpus#109**, non da una soglia.
 
-## Composizione nodi (~858k)
+## Composizione nodi (~860k)
 
 | Blocco | Quota | Stato |
 |---|---:|---|
-| Processo Senato (emend + dibattiti) | 79,9% | Sovrabbondante per “legge su X”, ottimo per process mining |
+| Processo Senato (emend + dibattiti) | 79,7% | Sovrabbondante per “legge su X”, ottimo per process mining |
 | Votazioni Senato | 3,4% | Coperto per DDL in senato_ddl |
-| Attributi Senato (DDL/atti) | 5,1% | Buono |
+| Attributi Senato (DDL/atti) | 5,0% | Buono |
 | Costituzione (art. + pronunce + correlati) | 2,9% | Buono |
 | Normativa statale (`source=normativa`) | 2,4% | Sottocoperta vs catalogo (~21k atti su 205k) |
 | Camera DDL | 4,0% | Sottocoperto vs Senato |
 | Iter cost. + revisioni | 0,3% | Ponte OP |
 | Deputati e relatori Camera | 0,6% | ✅ Ponte OP |
 | Catalogo Normattiva (bersagli fuori corpus) | 1,3% | Solo identità, nessun testo |
+| Direttive UE (identità) | 0,3% | Solo identità, testo su EUR-Lex |
 | PNRR / GU / DL | ~0% | Quasi assente |
 
 ## Qualità IC (stato / materia / score)
@@ -195,7 +196,7 @@ Tributario · penale (modifiche, non TU navigabile) · privacy come corpus artic
 > Nota 2026-10-08: il **D.Lgs 33/2013 (FOIA)** è un hub critical del grafo (115 incoming) — prima documentato come gap sull'errato "33/2011".
 
 ### Scoperti
-Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · EUR-Lex · GU come fonte · **vigenza live (stato IC = tombstone)** · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
+Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · **EUR-Lex (solo identità delle direttive citate)** · GU come fonte · **vigenza live (stato IC = tombstone)** · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
 
 ## Cosa significa per il Lab
 

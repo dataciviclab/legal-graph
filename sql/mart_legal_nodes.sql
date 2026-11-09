@@ -1126,7 +1126,12 @@ SELECT
         nf.vigenza_fonte,
         -- atti fuori collezione IC (fetch dettaglio-atto-urn): non passano dal
         -- clean → nessun `vigenza_fonte` upstream; valore dedicato.
-        CASE WHEN n.collezione = 'Normattiva API' THEN 'atti_api' END
+        CASE
+            WHEN n.collezione = 'Normattiva API' THEN 'atti_api'
+            -- direttive UE: `stato` da `in_vigore` di Cellar, non dalla
+            -- vigenza italiana (source='normativa').
+            WHEN n.source = 'ue' THEN 'cellar'
+        END
     ) AS vigenza_fonte
 FROM all_nodes n
 LEFT JOIN akn_meta a ON n.id = a.fonte_urn

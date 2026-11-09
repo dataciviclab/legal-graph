@@ -91,7 +91,8 @@ def _impl_legal_text(
             celex = str(nid).removeprefix("celex:")
             return {
                 **base,
-                "error": "Il testo della direttiva UE non è nel corpus: apri il link EUR-Lex.",
+                "note": "Il testo della direttiva UE non è nel corpus: apri il link EUR-Lex.",
+                "text_available": False,
                 "eurlex_url": f"https://eur-lex.europa.eu/legal-content/IT/TXT/?uri=CELEX:{celex}",
                 "eli_url": f"https://eur-lex.europa.eu/eli/dir/{celex[1:5]}/{int(celex[6:])}/oj",
                 "hint": "Nodo di identità (direttiva UE); per il testo consolidato usa EUR-Lex.",
