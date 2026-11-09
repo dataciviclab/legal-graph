@@ -96,8 +96,16 @@ class TestNodiCatalogo:
         assert n == 0, f"{n} id catalogo duplicati in un'altra fonte"
 
     def test_quasi_tutti_con_un_edge(self, con):
-        """Il nodo nasce da una citazione; pochi restano senza edge per la
-        guardia temporale o per chiavi URN ambigue (6,3% al build 2026-11)."""
+        """Il nodo nasce da una citazione; restano senza edge solo i casi
+        noti (7,0% al build 2026-11-09): ~760 URN con spelling non canonico
+        (`decretodelpresidentedellarepubblica` vs `decreto.del.presidente...`)
+        — gap di canonicalizzazione di italia-corpus, non del compose — più
+        le citazioni scartate dalla guardia temporale.
+
+        La sorgente è il mart URN (non il clean): prima i nodi creati da
+        `riferimenti` clean senza corrispondenza nel mart erano fantocci
+        (1.428, 10,4% di orfani).
+        """
         tot, senza = con.execute("""
             SELECT
                 COUNT(*),

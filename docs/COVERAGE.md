@@ -155,7 +155,7 @@ Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme
 |---|---|
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Relatore → atto Camera | ✅ edge `relatore` (`deputato:*` → `camera:atto:{leg}_{id}`) — ~19% incarichi (atto LOD parziale per design) |
-| Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:*`) |
+| Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:{legislatura}:{num}`) |
 | Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`, weight 2 se primo) |
 | DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |

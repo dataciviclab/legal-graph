@@ -246,7 +246,7 @@ edges_senato AS (
 
 edges_camera_leggi AS (
     SELECT
-        'camera:' || CAST(l.ddl_numero AS VARCHAR) AS source_id,
+        'camera:' || CAST(l.legislatura AS VARCHAR) || ':' || CAST(l.ddl_numero AS VARCHAR) AS source_id,
         'diventa_legge' AS relation,
         l.urn_normattiva AS target_id,
         1 AS weight,
@@ -258,7 +258,7 @@ edges_camera_leggi AS (
       AND l.ddl_numero IS NOT NULL
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:' || CAST(l.ddl_numero AS VARCHAR)
+          WHERE n.id = 'camera:' || CAST(l.legislatura AS VARCHAR) || ':' || CAST(l.ddl_numero AS VARCHAR)
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
@@ -603,7 +603,7 @@ edges_firmatario AS (
     SELECT
         'deputato:' || CAST(f.persona_id AS VARCHAR) AS source_id,
         'firmatario' AS relation,
-        'camera:' || CAST(f.atto_id AS VARCHAR) AS target_id,
+        'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR) AS target_id,
         1 AS weight,
         f.legislatura AS source_year,
         NULL::INTEGER AS target_year,
@@ -617,7 +617,7 @@ edges_firmatario AS (
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'camera:' || CAST(f.atto_id AS VARCHAR)
+          WHERE n.id = 'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR)
       )
 ),
 
@@ -647,14 +647,22 @@ edges_relatore_camera AS (
       )
 ),
 
--- DL conversione (open-politica decreti_legge #63): nodo dl:* → DDL di
--- conversione Senato. ddl_id representative (ramo S, data recente) —
--- non univoco se più iter; esito + giorni in evidence.
+-- DL conversione (open-politica `atti`): nodo del DL → atto di conversione.
 -- La fonte identifica il DL con anno+numero; il nodo canonico è l'URN del
--- corpus quando esiste (in quel caso `nodes_dl` non crea più `dl:*`).
-decreti_legge_urn AS (
+-- corpus quando esiste (in quel caso `nodes_dl` non crea `dl:*`).
+-- Un DL può avere più atti di conversione **nello stesso ramo** (due DDL
+-- Senato per lo stesso decreto, es. DL 91/2013 → senato:38744 + senato:38770):
+-- il mart ne emette uno per atto. La Camera non porta identità DL
+-- (`dl_numero` è 0 sul ramo Camera), quindi i doppi sono sempre Senato:
+-- per contare i DL si deduplica su `source_id`, non sulle righe.
+conversione_dl AS (
     SELECT
-        d.*,
+        a.atto_id,
+        a.dl_numero,
+        a.dl_anno,
+        a.data_legge,
+        d.esito,
+        d.giorni_conversione,
         COALESCE(
             (
                 -- numero/anno dall'id URN, non dalle colonne: i nodi `gu`
@@ -663,33 +671,38 @@ decreti_legge_urn AS (
                 WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'
                   AND TRY_CAST(regexp_extract(
                           n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
-                      ) AS INTEGER) = d.dl_anno
+                      ) AS INTEGER) = a.dl_anno
                   AND TRY_CAST(regexp_extract(
                           n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
-                      ) AS BIGINT) = d.dl_numero
+                      ) AS BIGINT) = a.dl_numero
             ),
-            'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR)
+            'dl:' || CAST(a.dl_anno AS VARCHAR) || '-' || CAST(a.dl_numero AS VARCHAR)
         ) AS source_id
-    FROM read_parquet('{support.decreti_legge.path}') d
-    WHERE d.ddl_id IS NOT NULL
+    FROM read_parquet('{support.atti.path}') a
+    JOIN read_parquet('{support.dl.path}') d
+      ON d.dl_numero = a.dl_numero
+     AND d.dl_anno = a.dl_anno
+    WHERE a.dl_numero IS NOT NULL
+      AND a.dl_anno IS NOT NULL
 ),
 
 edges_converte_dl AS (
     SELECT
         d.source_id,
         'converte_decreto_legge' AS relation,
-        'senato:' || CAST(d.ddl_id AS VARCHAR) AS target_id,
+        d.atto_id AS target_id,
         1 AS weight,
         d.dl_anno AS source_year,
-        YEAR(d.data_conversione) AS target_year,
-        d.esito || ' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)' AS evidence
-    FROM decreti_legge_urn d
+        YEAR(d.data_legge) AS target_year,
+        d.esito
+          || COALESCE(' (' || CAST(d.giorni_conversione AS VARCHAR) || 'gg)', '')
+          AS evidence
+    FROM conversione_dl d
     WHERE EXISTS (
           SELECT 1 FROM mart_legal_nodes n WHERE n.id = d.source_id
       )
       AND EXISTS (
-          SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'senato:' || CAST(d.ddl_id AS VARCHAR)
+          SELECT 1 FROM mart_legal_nodes n WHERE n.id = d.atto_id
       )
 ),
 
@@ -772,25 +785,44 @@ edges_votazione AS (
 -- Iter Cost.: proposta DDL → atto Camera/Senato
 -- Join solo se il target è davvero una proposta Cost. (atto_num Camera
 -- collide col namespace DDL ordinari — filtriamo sul titolo/tipo).
-edges_itercost_atto AS (
+-- Iter Cost.: proposta DDL → atto Camera/Senato.
+-- L'id `itercost:*` è interno a questo compose; il **target** è un atto del
+-- grafo e usa la chiave di `atti`: `camera:{legislatura}:{num}` (l'`atto_num`
+-- Camera riparte ogni legislatura) oppure `senato:{num}`.
+-- Il join è solo su proposte Cost. vere: l'atto Camera ha un DDL ordinario
+-- con lo stesso numero, quindi si filtra su titolo/tipo.
+itercost_proposta AS (
     SELECT
+        i.*,
         'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS source_id,
-        'proposta_cost' AS relation,
-        i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS target_id,
-        1 AS weight,
-        i.legislatura AS source_year,
-        NULL::INTEGER AS target_year,
-        LEFT(COALESCE(i.stato, i.proponente, ''), 200) AS evidence
+        CASE
+            WHEN i.camera_o_senato = 'camera'
+                THEN 'camera:' || CAST(i.legislatura AS VARCHAR) || ':'
+                     || CAST(i.atto_num AS VARCHAR)
+            ELSE 'senato:' || CAST(i.atto_num AS VARCHAR)
+        END AS target_id
     FROM read_parquet({support.iter_costituzionale.outputs}, union_by_name = true) i
     WHERE NULLIF(i.camera_o_senato, '') IS NOT NULL
       AND i.atto_num IS NOT NULL
-      AND EXISTS (
+),
+
+edges_itercost_atto AS (
+    SELECT
+        p.source_id,
+        'proposta_cost' AS relation,
+        p.target_id,
+        1 AS weight,
+        p.legislatura AS source_year,
+        NULL::INTEGER AS target_year,
+        LEFT(COALESCE(p.stato, p.proponente, ''), 200) AS evidence
+    FROM itercost_proposta p
+    WHERE EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+          WHERE n.id = p.source_id
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+          WHERE n.id = p.target_id
             AND (
                 LOWER(COALESCE(n.title, '')) LIKE '%costituz%'
                 OR UPPER(COALESCE(n.tipo, '')) LIKE '%COSTITUZ%'
@@ -801,25 +833,23 @@ edges_itercost_atto AS (
 -- Iter Cost.: proposta → legge di revisione (rev_urn) se ha_legge
 edges_itercost_rev AS (
     SELECT
-        'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR) AS source_id,
+        p.source_id,
         'diventa_revisione' AS relation,
-        'revisione:' || i.rev_urn AS target_id,
+        'revisione:' || p.rev_urn AS target_id,
         1 AS weight,
-        i.legislatura AS source_year,
-        YEAR(i.rev_data) AS target_year,
-        LEFT(COALESCE(i.rev_titolo, i.rev_urn, ''), 200) AS evidence
-    FROM read_parquet({support.iter_costituzionale.outputs}, union_by_name = true) i
-    WHERE NULLIF(i.camera_o_senato, '') IS NOT NULL
-      AND i.atto_num IS NOT NULL
-      AND i.ha_legge = 1
-      AND NULLIF(i.rev_urn, '') IS NOT NULL
+        p.legislatura AS source_year,
+        YEAR(p.rev_data) AS target_year,
+        LEFT(COALESCE(p.rev_titolo, p.rev_urn, ''), 200) AS evidence
+    FROM itercost_proposta p
+    WHERE p.ha_legge = 1
+      AND NULLIF(p.rev_urn, '') IS NOT NULL
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'itercost:' || i.camera_o_senato || ':' || CAST(i.atto_num AS VARCHAR)
+          WHERE n.id = p.source_id
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'revisione:' || i.rev_urn
+          WHERE n.id = 'revisione:' || p.rev_urn
       )
 ),
 

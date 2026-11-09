@@ -84,23 +84,36 @@ normativa AS (
 
 -- Nodi "catalogo": atti del catalogo Normattiva (`atti_index`) che **non**
 -- sono nel corpus ma sono citati da un atto che lo è. Senza questi nodi le
--- citation fuori corpus (188.613 righe, ~32.800 atti) restano dangling e il
--- compose le scarta. Solo i citati: l'intero catalogo sarebbe 205k nodi senza
--- testo né relazioni. Le direttive UE sono escluse (non sono nel catalogo).
+-- citation fuori corpus restano dangling e il compose le scarta. Solo i
+-- citati: l'intero catalogo sarebbe 205k nodi senza testo né relazioni. Le
+-- direttive UE sono escluse (non sono nel catalogo).
+--
+-- La lista dei citati viene dal **mart** URN (stessa sorgente di
+-- `edges_riferimenti`), non dal clean: clean e mart possono divergere (il
+-- clean porta citazioni che il mart filtra) e i nodi creati dal clean
+-- restavano senza edge. La guardia temporale è replicata qui perché un nodo
+-- catalogo senza edge non serve a nessun consumer.
 cited AS (
     SELECT DISTINCT
         regexp_replace(
             regexp_replace(
-                regexp_extract(bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
+                regexp_extract(r.bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
                 '[.\-]', '', 'g'
             ),
             'della|delle|dello|degli|dei|del', '', 'g'
         ) AS tipo_slug,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
-        regexp_extract(bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
-    FROM read_parquet('{support.riferimenti.path}')
-    WHERE NOT risolto
-      AND bersaglio_urn LIKE 'urn:nir:%'
+        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
+        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
+    FROM read_parquet('{support.riferimenti_urn.path}') r
+    WHERE r.rel_type = 'citation'
+      AND r.bersaglio_urn LIKE 'urn:nir:%'
+      -- stessa guardia di edges_riferimenti
+      AND (
+          r.fonte_anno IS NULL
+          OR r.bersaglio_anno IS NULL
+          OR r.fonte_anno >= r.bersaglio_anno - 1
+          OR (r.da_regex AND r.peso < 5)
+      )
 ),
 
 nodes_catalogo AS (
@@ -247,65 +260,48 @@ nodes_gu AS (
 
 nodes_senato AS (
     SELECT
-        id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale,
-        stato, materia, qualita_score, sunsetting_score
-    FROM (
-        SELECT
-            'senato:' || CAST(id_ddl AS VARCHAR) AS id,
-            COALESCE(natura, 'legge') AS tipo,
-            CAST(data_legge AS VARCHAR) AS data,
-            CAST(numero_legge AS VARCHAR) AS numero,
-            COALESCE(titolo_breve, titolo) AS title,
-            'Senato DDL' AS collezione,
-            ddl_url AS source_filename,
-            'senato' AS source,
-            YEAR(data_presentazione) AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
-            ROW_NUMBER() OVER (PARTITION BY id_ddl ORDER BY id_ddl) AS _rn
-        FROM read_parquet({support.senato_ddl.outputs}, union_by_name = true)
-        WHERE id_ddl IS NOT NULL
-    ) WHERE _rn = 1
+        atto_id                            AS id,
+        tipo,
+        CAST(data AS VARCHAR)              AS data,
+        CAST(numero_legge AS VARCHAR)      AS numero,
+        COALESCE(titolo_breve, titolo)     AS title,
+        'Senato DDL'                       AS collezione,
+        atto_uri                           AS source_filename,
+        'senato'                           AS source,
+        anno,
+        NULL::BIGINT  AS length_chars,
+        NULL::BIGINT  AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM read_parquet('{support.atti.path}')
+    WHERE ramo = 'senato'
 ),
 
 nodes_camera_ddl AS (
     SELECT
-        id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale,
-        stato, materia, qualita_score, sunsetting_score
-    FROM (
-        SELECT
-            'camera:' || CAST(id_ddl AS VARCHAR) AS id,
-            COALESCE(tipo, 'DDL') AS tipo,
-            CAST(data_presentazione AS VARCHAR) AS data,
-            CAST(id_ddl AS VARCHAR) AS numero,
-            COALESCE(titolo, '') AS title,
-            'Camera DDL' AS collezione,
-            atto_camera AS source_filename,
-            'camera_ddl' AS source,
-            anno AS anno,
-            NULL::BIGINT AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
-            ROW_NUMBER() OVER (
-                PARTITION BY id_ddl
-                ORDER BY data_presentazione DESC
-            ) AS _rn
-        FROM read_parquet({support.camera_ddl.outputs}, union_by_name = true)
-        WHERE id_ddl IS NOT NULL
-    ) WHERE _rn = 1
+        atto_id                            AS id,
+        COALESCE(tipo, 'DDL')              AS tipo,
+        CAST(data AS VARCHAR)              AS data,
+        CAST(numero_atto AS VARCHAR)       AS numero,
+        COALESCE(titolo, '')               AS title,
+        'Camera DDL'                       AS collezione,
+        atto_uri                           AS source_filename,
+        'camera_ddl'                       AS source,
+        anno,
+        NULL::BIGINT  AS length_chars,
+        NULL::BIGINT  AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM read_parquet('{support.atti.path}')
+    WHERE ramo = 'camera'
 ),
 
 -- Documento AKN del corpus Senato. Esiste come nodo separato (`senato:atto:X`)
@@ -938,13 +934,14 @@ nodes_camera_atti AS (
     ) c
 ),
 
--- DL emanati (open-politica decreti_legge #63): esito conversione sul
--- edge converte_decreto_legge (stato resta NULL: esito non è vigenza).
+-- DL emanati (open-politica `atti`): nodo dl:* per i DL senza URN nel
+-- corpus; l'esito di conversione sta sull'edge `converte_decreto_legge`
+-- (stato resta NULL: esito non è vigenza).
 nodes_dl AS (
     SELECT
         'dl:' || CAST(d.dl_anno AS VARCHAR) || '-' || CAST(d.dl_numero AS VARCHAR) AS id,
         'DECRETO-LEGGE' AS tipo,
-        CAST(d.data_presentazione AS VARCHAR) AS data,
+        CAST(d.data_dl AS VARCHAR) AS data,
         CAST(d.dl_numero AS VARCHAR) AS numero,
         d.titolo AS title,
         'DL conversione' AS collezione,
@@ -959,12 +956,12 @@ nodes_dl AS (
         NULL::VARCHAR AS materia,
         NULL::INTEGER AS qualita_score,
         NULL::INTEGER AS sunsetting_score
-        FROM read_parquet('{support.decreti_legge.path}') d
+        FROM read_parquet('{support.dl.path}') d
     WHERE d.dl_numero IS NOT NULL AND d.dl_anno IS NOT NULL
       -- Se l'atto esiste già come URN nel corpus, il nodo canonico è quello:
       -- `dl:*` sarebbe un duplicato (213 casi nel mart 2026-10).
       AND NOT EXISTS (
-          -- stesso insieme e stesso parsing di `decreti_legge_urn`
+          -- stesso insieme e stesso parsing di `conversione_dl`
           -- (mart_legal_edges.sql): normativa + atti_api + gu.
           SELECT 1 FROM (
               SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL

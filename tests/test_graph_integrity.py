@@ -665,3 +665,115 @@ class TestTemporalSanity:
               AND ns.anno < nt.anno
         """).fetchone()[0]
         assert n == 0, f"{n} archi di modifica con source anteriore al target"
+
+
+# ── Dimensione atto (open-politica `atti`, 2026-11) ─────────────
+
+class TestAttiCameraKey:
+    """La chiave Camera deve includere la legislatura: `camera:{leg}:{id}`.
+
+    `camera_ddl.id_ddl` riparte ogni legislatura: 6.328 valori su 7.614
+    compaiono in più legislature (es. l'atto n.1 esiste in tutte e 7). Fino a
+    2026-11 il compose deduplicava PARTITION BY id_ddl e i 34.315 atti Camera
+    diventavano 7.614 nodi (26.699 atti persi, con la riga più recente a
+    sopravvivere). Ora il nodo viene da open-politica `atti`, che espone
+    `atto_id` namespaced.
+    """
+
+    def test_camera_node_ids_hanno_legislatura(self, con):
+        if not _has_table(con, "nodes"):
+            pytest.skip("nodes non presente")
+        bad = con.execute("""
+            SELECT COUNT(*) FROM nodes
+            WHERE source = 'camera_ddl'
+              AND NOT regexp_matches(id, '^camera:[0-9]+:[0-9]+$')
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} nodi camera_ddl senza legislatura nell'id"
+
+    def test_camera_atti_completi(self, con):
+        """34.315 atti Camera reali (Leg13-19): sotto soglia = collasso."""
+        if not _has_table(con, "nodes"):
+            pytest.skip("nodes non presente")
+        n = con.execute(
+            "SELECT COUNT(*) FROM nodes WHERE source = 'camera_ddl'"
+        ).fetchone()[0]
+        assert n >= 34_000, f"solo {n} nodi camera_ddl (collasso su id_ddl?)"
+
+    def test_firmatario_camera_coerente_con_legislatura(self, con):
+        """Un firmatario non firma un atto di un'altra legislatura."""
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'firmatario'
+              AND target_id LIKE 'camera:%'
+              AND target_id NOT LIKE 'camera:' || CAST(source_year AS VARCHAR) || ':%'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} edge firmatario con legislatura incoerente"
+
+
+class TestDlDaAtti:
+    """I DL vengono da `atti.dl_numero/dl_anno` (assorbe compose/decreti-legge).
+
+    Prima esistevano due support (`decreti_legge` clean + lookup URN nel
+    compose); ora la dimensione DL è una sola, in open-politica.
+    """
+
+    def test_converte_dl_ha_esito_in_evidenza(self, con):
+        """L'evidenza porta esito e, se convertito, i giorni.
+
+        La vecchia concatenazione produceva NULL quando `giorni_conversione`
+        era NULL (decaduti/restituiti/in esame): l'esito spariva.
+        """
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        senza = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'converte_decreto_legge' AND evidence IS NULL
+        """).fetchone()[0]
+        assert senza == 0, f"{senza} edge converte_decreto_legge senza evidenza"
+
+    def test_converte_dl_un_edge_per_atto(self, con):
+        """Un DL con iter Camera+Senato produce un edge per ciascun atto."""
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'converte_decreto_legge'
+              AND target_id NOT LIKE 'senato:%' AND target_id NOT LIKE 'camera:%'
+        """).fetchone()[0]
+        assert n == 0, f"{n} edge converte_decreto_legge con target non-atto"
+
+
+class TestChiaveAttoNeiTarget:
+    """Nessun arco può puntare a un id Camera senza legislatura.
+
+    `camera:{num}` è ambiguo — lo stesso numero esiste in tutte e 7 le
+    legislature — quindi un target così è sempre un call-site dimenticato
+    (2026-11: `edges_itercost_atto` azzerava `proposta_cost` Camera, 1.276
+    edge persi). Il test guarda entrambi i lati dell'arco, tutte le relazioni.
+    """
+
+    def test_nessun_id_camera_senza_legislatura(self, con):
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        bad = con.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT source_id AS id FROM edges
+                UNION ALL
+                SELECT target_id FROM edges
+            ) WHERE regexp_matches(id, '^camera:[0-9]+$')
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} id camera senza legislatura negli archi"
+
+    def test_proposta_cost_copre_entrambi_i_rami(self, con):
+        """L'iter Costituzionale esiste su Camera e Senato: entrambi gli edge."""
+        if not _has_table(con, "edges"):
+            pytest.skip("edges non presente")
+        rami = dict(con.execute("""
+            SELECT split_part(target_id, ':', 1) AS ramo, COUNT(*)
+            FROM edges WHERE relation = 'proposta_cost'
+            GROUP BY 1
+        """).fetchall())
+        assert rami.get("camera", 0) >= 1_200, f"proposta_cost Camera: {rami.get('camera', 0)}"
+        assert rami.get("senato", 0) >= 1_400, f"proposta_cost Senato: {rami.get('senato', 0)}"
