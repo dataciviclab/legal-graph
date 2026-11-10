@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,15 @@ from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exi
 from legal_graph.resolve import resolve_row, sql_quote
 
 IC_RAW_BASE = "https://raw.githubusercontent.com/dataciviclab/italia-corpus/main"
+# Allegati AKN (#94): indice dei <doc> (uno per articolo/allegato) e file
+# markdown per atto. Pubblicati da italia-corpus sul raw layer / prefisso
+# `allegati/`. `doc_id` è l'identità stabile; `doc_name` porta "…-art. N".
+ALLEGATI_INDEX_URL = (
+    "https://storage.googleapis.com/dataciviclab-clean/"
+    "italia-corpus/_raw/2026/allegati.parquet"
+)
+ALLEGATI_MD_BASE = "https://storage.googleapis.com/dataciviclab-clean/italia-corpus"
+_ALLEGATI_TTL_SECONDS = 24 * 3600
 # URN → testo vigente (link pubblico, usato per gli atti fuori collezione)
 NORMATTIVA_URI = "https://www.normattiva.it/uri-res/N2Ls?"
 # Override opzionale: repo IC clonato in locale (sviluppo/offline)
@@ -65,6 +75,168 @@ def _read_cache(url: str) -> str | None:
 def _write_cache(url: str, text: str) -> None:
     TEXT_CACHE.mkdir(parents=True, exist_ok=True)
     _cache_path(url).write_text(text, encoding="utf-8")
+
+
+_allegati_cache: dict[str, list[dict]] | None = None
+
+
+def _allegati_index_path() -> Path:
+    return TEXT_CACHE.parent / "allegati_index.parquet"
+
+
+def _allegati_index() -> dict[str, list[dict]]:
+    """Indice allegati per URN, caricato una volta (TTL 24h su disco).
+
+    `allegati.parquet` è un indice di puntatori: per ogni `<doc>` di un atto
+    porta `doc_id`, `doc_name`, `chars` e il `rel_path` del markdown che lo
+    contiene (un file per atto, sezioni `## <doc_name>`).
+    """
+    global _allegati_cache
+    if _allegati_cache is not None:
+        return _allegati_cache
+    import urllib.request
+
+    import pyarrow.parquet as pq
+
+    path = _allegati_index_path()
+    if not path.exists() or time.time() - path.stat().st_mtime > _ALLEGATI_TTL_SECONDS:
+        with urllib.request.urlopen(ALLEGATI_INDEX_URL, timeout=60) as resp:
+            path.write_bytes(resp.read())
+    table = pq.read_table(path, columns=["urn", "doc_id", "doc_name", "chars", "rel_path"])
+    index: dict[str, list[dict]] = {}
+    for row in table.to_pylist():
+        urn = (row.get("urn") or "").strip()
+        if urn:
+            index.setdefault(urn, []).append(row)
+    _allegati_cache = index
+    return index
+
+
+def attachment_docs(urn: str) -> list[dict]:
+    """Documenti allegati di un atto (vuoto se non ne ha)."""
+    try:
+        return _allegati_index().get(urn, [])
+    except (OSError, ValueError) as exc:
+        # Indice non raggiungibile/illeggibile: legal_text resta sul body.
+        print(f"::warning::indice allegati non disponibile ({exc})")
+        return []
+
+
+def attachments_meta(docs: list[dict], limit: int = 40) -> dict[str, Any]:
+    """Riassunto degli allegati per la risposta di legal_text."""
+    return {
+        "count": len(docs),
+        "docs": [
+            {"doc_id": d.get("doc_id"), "doc_name": d.get("doc_name"), "chars": d.get("chars")}
+            for d in docs[:limit]
+        ],
+        "truncated": len(docs) > limit,
+    }
+
+
+def _fetch_url(url: str) -> tuple[str, str]:
+    """(testo, via) da un URL pubblico, con la cache su disco già usata."""
+    cached = _read_cache(url)
+    if cached is not None:
+        return cached, "cache"
+    result = _get_http().get(url)
+    if not result.is_ok or result.response is None or not result.response.ok:
+        raise OSError(f"HTTP fallito per {url}")
+    text = result.response.text
+    _write_cache(url, text)
+    return text, "gcs"
+
+
+def _sezione_doc(md: str, doc_name: str) -> str | None:
+    """Testo della sezione `## <doc_name>` (fino al successivo `## `)."""
+    marker = f"## {doc_name}"
+    start = md.find(marker)
+    if start < 0:
+        return None
+    body_start = md.find("\n", start)
+    if body_start < 0:
+        return None
+    nxt = md.find("\n## ", body_start + 1)
+    return (md[body_start:nxt] if nxt != -1 else md[body_start:]).strip()
+
+
+def _serve_doc(urn: str, target: dict, max_chars: int) -> dict:
+    rel_path = target.get("rel_path") or ""
+    if not rel_path:
+        return {"error": "allegato senza rel_path nell'indice"}
+    url = f"{ALLEGATI_MD_BASE}/{quote(rel_path)}"
+    try:
+        md, via = _fetch_url(url)
+    except OSError as exc:
+        return {"error": f"allegato non recuperato: {exc}", "url": url}
+    sezione = _sezione_doc(md, target.get("doc_name") or "")
+    if sezione is None:
+        return {"error": "sezione non trovata nel markdown allegati", "url": url}
+    total = len(sezione)
+    truncated = total > max_chars
+    if truncated:
+        sezione = sezione[:max_chars] + "\n\n… [troncato]"
+    return {
+        "via": via,
+        "url": url,
+        "doc_id": target.get("doc_id"),
+        "doc_name": target.get("doc_name"),
+        "chars": len(sezione),
+        "total_chars": total,
+        "truncated": truncated,
+        "max_chars": max_chars,
+        "text": sezione,
+    }
+
+
+def fetch_attachment_text(
+    *,
+    urn: str,
+    doc: str | None = None,
+    articolo: int | str | None = None,
+    max_chars: int = _DEFAULT_MAX_CHARS,
+) -> dict | None:
+    """Testo di un `<doc>` allegato (#94): i codici hanno il testo negli attachments.
+
+    `doc` = `doc_id` (identità stabile). Con `articolo` prova il match univoco
+    su `doc_name` che finisce per `art. N`; se è ambiguo (preleggi + codice),
+    restituisce i candidati. None se l'atto non ha allegati.
+    """
+    docs = attachment_docs(urn)
+    if not docs:
+        return None
+    max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
+    target: dict | None = None
+    if doc:
+        target = next((d for d in docs if str(d.get("doc_id")) == str(doc)), None)
+        if target is None:
+            return {
+                "error": f"doc {doc!r} non trovato tra gli allegati",
+                "attachments": attachments_meta(docs),
+            }
+    elif articolo:
+        want = f"art. {articolo}".lower()
+        matches = [
+            d for d in docs if str(d.get("doc_name") or "").strip().lower().endswith(want)
+        ]
+        if len(matches) == 1:
+            target = matches[0]
+        elif matches:
+            return {
+                "ambiguous": True,
+                "note": "più allegati per questo articolo: passa doc=<doc_id>.",
+                "attachments": attachments_meta(matches),
+            }
+        else:
+            return {
+                "error": f"articolo {articolo} non trovato negli allegati",
+                "attachments": attachments_meta(docs),
+            }
+    if target is None:
+        return {"attachments": attachments_meta(docs)}
+    served = _serve_doc(urn, target, max_chars)
+    served.setdefault("attachments", attachments_meta(docs))
+    return served
 
 
 @dataclass

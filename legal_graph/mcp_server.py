@@ -138,16 +138,17 @@ def legal_node(
 @mcp.tool(
     name="legal_text",
     description=(
-        "Testo di un atto normativa da nodo/URN (italia-corpus, GitHub raw). "
+        "Testo di un atto normativa da nodo/URN (italia-corpus). "
         "Copre normativa + articoli Cost. + pronunce Corte. "
-        "`articolo=N` estrae il singolo articolo dagli heading AKN (per i codici "
-        "il troncamento a max_chars non arriva agli articoli alti). "
-        "Restituisce anche total_chars."
+        "`articolo=N` estrae il singolo articolo dagli heading AKN; se il body "
+        "non lo contiene (codici) usa gli allegati. `doc=<doc_id>` serve un "
+        "singolo allegato (i codici hanno il testo negli <attachments>: "
+        "`attachments` elenca doc_id/doc_name/chars). Restituisce total_chars."
     ),
     structured_output=True,
 )
 def legal_text(
-    node_id: str, max_chars: int = 8000, articolo: int | str = 0
+    node_id: str, max_chars: int = 8000, articolo: int | str = 0, doc: str = ""
 ) -> dict[str, Any]:
     return guard_timed(
         _impl_legal_text,
@@ -155,6 +156,7 @@ def legal_text(
         node_id,
         max_chars=max_chars,
         articolo=articolo or None,
+        doc=doc or None,
     )
 
 
