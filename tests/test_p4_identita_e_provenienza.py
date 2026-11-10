@@ -66,3 +66,29 @@ class TestP4:
               AND prov_evidence_kind = 'quote'
         """).fetchone()[0]
         assert bad == 0, f"{bad} abroga con quote ma assertion=inferred"
+
+    def test_abroga_method_segue_la_fonte(self, con):
+        """`abroga` ha due fonti: regex sul testo (quote) e lifecycle AKN (label).
+
+        Il metodo non può essere uniforme: 3.364 edge arrivano dal mart URN di
+        italia-corpus con una quote, 369 dal lifecycle AKN con un locator.
+        """
+        rows = dict(
+            con.execute(
+                "SELECT method, COUNT(*) FROM edges WHERE relation = 'abroga' GROUP BY 1"
+            ).fetchall()
+        )
+        assert rows.get("regex", 0) > 3_000, rows
+        assert rows.get("akn_lifecycle", 0) > 300, rows
+        quote_akn = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'akn_lifecycle'
+              AND prov_evidence_kind = 'quote'
+        """).fetchone()[0]
+        assert quote_akn == 0, f"{quote_akn} abroga regex dichiarate akn_lifecycle"
+        regex_label = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'regex'
+              AND prov_evidence_kind = 'label'
+        """).fetchone()[0]
+        assert regex_label == 0, f"{regex_label} abroga AKN dichiarate regex"

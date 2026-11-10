@@ -1100,7 +1100,11 @@ SELECT
     CASE
         WHEN g.relation = 'riferimento' THEN 'akn_ref'
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
-            THEN 'akn_lifecycle'
+            -- `abroga` arriva da due fonti: lifecycle AKN (`evidence` =
+            -- `akn:activeModification`) e regex sul testo del mart URN IC
+            -- (quote). Il metodo segue l'evidenza, non il nome della
+            -- relazione: prima 3.364 regex erano dichiarate `akn_lifecycle`.
+            THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'akn_lifecycle' ELSE 'regex' END
         WHEN g.relation = 'attua_delega'
             THEN CASE WHEN COALESCE(g.from_title, FALSE) THEN 'title' ELSE 'regex' END
         WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'massima'
