@@ -94,6 +94,24 @@ def _stem_prefix(term: str) -> str:
     return term
 
 
+def _term_stem(term: str) -> str:
+    """Stem conservativo per l'indice full-text (`mart_legal_search_terms`).
+
+    Toglie la vocale finale solo se la parola è più lunga di 4 caratteri:
+    appalti/appalto → appalt, congedo/congedi → conged, rifiuti/rifiuto →
+    rifiut. È volutamente più prudente di `_stem_prefix` (che smonta i
+    suffissi e in un indice rovesciato farebbe collassare parole diverse,
+    es. ordinamento → ordin).
+
+    La stessa regola vive nel SQL del mart:
+    `CASE WHEN length(term) > 4 AND right(term,1) IN ('a','e','i','o')
+          THEN left(term, length(term)-1) ELSE term END`.
+    """
+    if len(term) > 4 and term[-1] in "aeio":
+        return term[:-1]
+    return term
+
+
 # Alias culturali → ancoraggio numerico (N/AAAA). Il cittadino cita il nome
 # mediatico, non gli estremi: "mani puliti", "basaglia". Riconoscimento alla
 # Normattiva (riferimenti normativi in linguaggio naturale).

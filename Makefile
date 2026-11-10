@@ -1,10 +1,15 @@
 TOOLKIT ?= python3 -m toolkit.cli.app
 YEAR ?= 2026
 PYTHON ?= python3
+# L'indice lessicale (mart_legal_search_terms) aggrega ~62M token prima di
+# ridurli a 7,2M coppie (atto, stem). `run_mart` non legge
+# `duckdb.memory_limit` (solo il clean): il tetto si passa da env, letta da
+# lab-connectors.safe_connect. Con il default 2GB il compose va in OOM.
+DUCKDB_MEMORY_LIMIT ?= 4GB
 
 .PHONY: run
 run:
-	$(TOOLKIT) run mart -c dataset.yml -y $(YEAR)
+	DUCKDB_MEMORY_LIMIT=$(DUCKDB_MEMORY_LIMIT) $(TOOLKIT) run mart -c dataset.yml -y $(YEAR)
 
 .PHONY: check
 check:
@@ -34,7 +39,7 @@ download-gcs:
 	for t in mart_legal_nodes mart_legal_edges mart_legal_entity_alias \
 	         mart_legal_relation_type mart_legal_coverage \
 	         mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel \
-	         mart_legal_emend_leg; do \
+	         mart_legal_emend_leg mart_legal_search_terms; do \
 		curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet.tmp" \
 			&& mv "$$DIR/$$t.parquet.tmp" "$$DIR/$$t.parquet" \
 			&& echo "✅ $$t" || { rm -f "$$DIR/$$t.parquet.tmp"; exit 1; }; \

@@ -13,7 +13,7 @@ Non è un'enciclopedia del diritto né un motore di ricerca normativo. È una **
 | **Nodi** | 858.126 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
 | **Relazioni** | 1.318.479 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
 | **Bersagli fuori corpus** | 10.852 atti citati che non sono nel corpus testuale, ricostruiti dal catalogo Normattiva (10.629 collegati al grafo) |
-| **Tabelle pubblicate** | 10 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, relazioni pre-aggregate, emendamenti, testi, massime |
+| **Tabelle pubblicate** | 13 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, **indice full-text (BM25)**, relazioni pre-aggregate, emendamenti, testi, massime |
 | **Fonti** | 5 repo del Lab, lette da rete |
 
 ## Domande a cui risponde

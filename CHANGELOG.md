@@ -2,6 +2,11 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-10
+
+- **P1 — ricerca per tema con indice full-text** — nuovo mart **`mart_legal_search_terms`** (13°): una riga per (atto, stem) con peso BM25 precalcolato (titolo 3x) su `italia-corpus/testi` e sui titoli di tutti gli atti navigabili. `legal_search` per tema legge l'indice invece di fare `LIKE` sul titolo; il ranking somma il punteggio testuale a `2·ln(1+citazioni in ingresso)`, mantenendo tipo e vigenza come primi criteri. Copertura minima: 1 termine per query di una parola, 2 per query più lunghe (le parole generiche non fanno tornare mezzo corpus). Senza l'indice (mart legacy) la search ricade sul titolo.
+  **Misurato sull'eval temi 2026-11** (20 casi valutabili): 15/24 → **18/24**; i casi con atto canonico verificato passano da 5/12 a 9/12. Restano scoperti L. 241/1990 (senza testo nel corpus), DPR 380/2001 ("permesso di costruire"), e i temi dove più atti sono ugualmente canonici.
+
 ## 2026-11-09
 
 - **M0 — contratto e provenance** — `legal_query` read-only (una istruzione, no scritture/file); colonne `assertion_type`, `method`, `prov_evidence_kind`, 4 confidenze, `review_status`, `snapshot_id` su `nodes`/`edges`; view `act`, `relation_type`, `entity_alias`, `coverage_level` L1-L2. `source_snapshot` sospeso (toolkit `metadata.inputs=[]`): nessun hash/URI inventato.

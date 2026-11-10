@@ -58,6 +58,10 @@ MART = {
     "massime": resolve_massime_file,
 }
 
+# `search_terms` (indice BM25, ~7M righe) resta una VIEW: materializzarlo
+# dentro il budget di 3GB sposterebbe la suite in OOM per pochi test che
+# lo interrogano. La view costa ~30 ms per query, accettabile qui.
+
 _MART_ASSENTE = "mart assente — esegui `make run` o `make download-gcs`"
 
 
