@@ -607,7 +607,9 @@ def _impl_neighbors(
                 SELECT e.relation, {canon_expr} AS canonical_relation,
                        {family_expr} AS family, e.{other} AS neighbor_id,
                        e.weight, e.source_year, e.target_year,
-                       n.tipo, n.anno, LEFT(n.title, 120) AS title
+                       n.tipo, n.anno, LEFT(n.title, 120) AS title,
+                       e.method, e.assertion_type, e.prov_evidence_kind,
+                       LEFT(e.evidence, 200) AS evidence
                 FROM {tabella} e
                 LEFT JOIN nodes n ON n.id = e.{other}
                 {join_rt}
@@ -633,6 +635,10 @@ def _impl_neighbors(
                     "tipo": r[7],
                     "anno": r[8],
                     "title": r[9],
+                    "method": r[10],
+                    "assertion_type": r[11],
+                    "prov_evidence_kind": r[12],
+                    "evidence": r[13],
                 }
                 for r in rows
             ]

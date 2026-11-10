@@ -379,6 +379,10 @@ edges_dib AS (
 -- tutti i D.Lgs post-2015. Il peso resta quello reale della citazione:
 -- weight = 1 segnala edge debole/euristico, il consumatore puo' filtrarlo.
 -- Guardia temporale: un D.Lgs non puo' attuare una delega successiva.
+-- `evidence` è lo snippet citante (da `riferimenti`), NON il titolo della
+-- legge bersaglio: l'evidenza deve mostrare dove l'atto nomina la delega.
+-- `assertion_type` resta `inferred`: la citazione non prova da sola che sia
+-- la legge delegante (per quello c'è `edges_delega_titolo`).
 edges_delega AS (
     SELECT
         e.source_id,
@@ -387,7 +391,7 @@ edges_delega AS (
         e.weight,
         e.source_year,
         e.target_year,
-        n2.oggetto AS evidence
+        e.evidence
     FROM edges_riferimenti e
     JOIN normativa_types n1 ON e.source_id = n1.urn
     JOIN normativa_types n2 ON e.target_id = n2.urn
@@ -1026,6 +1030,14 @@ SELECT
                     THEN 'locator'
                 ELSE 'quote'
             END
+        -- Delega dal titolo: il titolo dell'atto è la fonte (locator), non
+        -- una citazione. Delega da citazione: lo snippet è la quote.
+        WHEN g.relation = 'attua_delega' THEN
+            CASE
+                WHEN g.weight >= 5 THEN 'locator'
+                WHEN g.evidence = 'akn:ref' THEN 'none'
+                ELSE 'quote'
+            END
         WHEN g.evidence LIKE 'akn:%' THEN 'label'
         ELSE 'quote'
     END AS prov_evidence_kind,
@@ -1034,7 +1046,10 @@ SELECT
         WHEN g.relation = 'riferimento'
           AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
             THEN 'unverifiable'
-        WHEN g.relation = 'attua_delega' THEN 'inferred'
+        -- Il titolo del D.Lgs nomina la legge delegante: l'edge è estratto
+        -- (con locator). La citazione generica resta inferita.
+        WHEN g.relation = 'attua_delega' THEN
+            CASE WHEN g.weight >= 5 THEN 'extracted' ELSE 'inferred' END
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
             THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'extracted' ELSE 'inferred' END
         ELSE 'extracted'

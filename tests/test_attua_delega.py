@@ -11,6 +11,8 @@ e `test_no_future_edges` verificano l'effetto, che è ciò che conta.
 
 from __future__ import annotations
 
+import legal_graph.mcp_server as m
+
 
 class TestAttuaDelega:
     def test_edges_exist(self, con):
@@ -66,3 +68,56 @@ class TestAttuaDelega:
             WHERE e.relation = 'attua_delega' AND n.vigenza_fonte = 'atti_api'
         """).fetchone()[0]
         assert n > 50, f"attua_delega verso atti_api: {n} (attesi >50)"
+
+    def test_provenance_distingue_titolo_da_citazione(self, con):
+        """`method`/`assertion_type`/`prov_evidence_kind` sono coerenti.
+
+        Delega dal titolo: estratta, con locator (il titolo nomina la legge).
+        Delega da citazione: inferita, con quote (lo snippet citante).
+        """
+        rows = con.execute("""
+            SELECT method, assertion_type, prov_evidence_kind, COUNT(*)
+            FROM edges WHERE relation = 'attua_delega'
+            GROUP BY 1, 2, 3
+        """).fetchall()
+        assert rows, "nessun attua_delega"
+        for method, assertion, kind, n in rows:
+            assert method in ("title", "regex"), (method, n)
+            if method == "title":
+                assert assertion == "extracted", (assertion, n)
+                assert kind == "locator", (kind, n)
+            else:
+                assert assertion == "inferred", (assertion, n)
+                assert kind in ("quote", "none"), (kind, n)
+
+    def test_citation_evidence_non_e_il_titolo_del_bersaglio(self, con):
+        """Regressione: l'evidenza era `n2.oggetto` (titolo della legge).
+
+        Ora è lo snippet citante. Se qualcuno la riporta al titolo del target,
+        il consumer non può più verificare la citazione.
+        """
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges e
+            JOIN nodes t ON t.id = e.target_id
+            WHERE e.relation = 'attua_delega'
+              AND e.method = 'regex'
+              AND e.evidence IS NOT NULL
+              AND TRIM(e.evidence) = TRIM(COALESCE(t.title, ''))
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} attua_delega con evidenza = titolo del bersaglio"
+
+    def test_chain_espone_la_provenienza(self, con):
+        """`view=chain` porta method/assertion/evidence e mette davanti la
+        delega letta dal titolo (36/2023 → L. 78/2022)."""
+        node = m.legal_node(
+            "urn:nir:stato:decreto.legislativo:2023-03-31;36",
+            view="chain",
+            depth=1,
+        )
+        forward = node.get("chain_forward") or []
+        assert forward, "chain vuota per il Codice dei contratti pubblici"
+        assert all("method" in e and "assertion_type" in e for e in forward)
+        deleghe = [e for e in forward if e["relation"] == "attua_delega"]
+        assert deleghe, "nessun attua_delega nella chain del 36/2023"
+        assert deleghe[0]["method"] == "title", deleghe[0]
+        assert "2022-06-21;78" in deleghe[0]["target_id"], deleghe[0]

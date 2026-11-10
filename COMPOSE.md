@@ -29,8 +29,10 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
                               **nodi UE** `celex:*` da `direttive_ue`: una riga per
                               CELEX, le due grafie URN collassano sullo stesso nodo)
 2 mart_legal_edges          ← support esterni + relazioni tipizzate
-                              (attua_delega, modifiche AKN, relatore_sentenza,
-                              relatore Camera, firmatario, converte_decreto_legge)
+                              (attua_delega: `method='title'` letta dal titolo
+                              dell'atto, `regex` dedotta da una citazione;
+                              modifiche AKN, relatore_sentenza, relatore Camera,
+                              firmatario, converte_decreto_legge)
                               + abroga dal mart URN di italia-corpus
                               + `riferimento` verso le direttive UE (alias URN→CELEX)
 2b mart_legal_edges_in      ← FROM mart_legal_edges, stesse righe ordinate per

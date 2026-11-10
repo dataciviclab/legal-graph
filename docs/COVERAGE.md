@@ -162,7 +162,9 @@ Su nodi `source=normativa` il mart espone da **italia-corpus**:
 
 Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: derivano dai `<ref>`/`<destination>` dell'AKN di **Normattiva**, convertiti in link markdown da italia-corpus (`akn_parser.resolve_ref`). La fonte ha cross-reference **ambigui sui titoli generici**: es. la frase-titolo *"Codice dei contratti pubblici"* è linkata al **163/2006** anche in una norma del **2026** che cita il **36/2023** → l'arco punta a un atto abrogato mentre il testo cita quello vigente (delle 48 citazioni del 163/2006 nel 2024-26, solo 2 hanno link coerente).
 
-Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica`, `attua_delega` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
+Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
+
+**`attua_delega` (2026-11-10)** — Due livelli, esposti su ogni edge: `method='title'` (708 edge) = il titolo del D.Lgs nomina la legge delegante («in attuazione dell'articolo 1 della legge …»), `assertion_type='extracted'`, `prov_evidence_kind='locator'`; `method='regex'` (1.984) = la legge bersaglio ha «delega al Governo» nel titolo ed è citata dall'atto, `assertion_type='inferred'`, evidenza = snippet citante (o `none` se AKN non dà contesto). La vista `chain` mette davanti le deleghe `title` e chiude con le `regex`: non spariscono, ma non si spacciano per catena verificata. Solo 708/2.692 (26%) hanno la delega nominata nell'atto.
 
 ## Ponti open-politica
 
