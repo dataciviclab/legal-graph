@@ -726,32 +726,55 @@ edges_converte_dl AS (
       )
 ),
 
--- Firmatari Senato (open-politica senato_firmatari): senatore → ddl
--- Speculare a camera_firmatari. Solo firme attive (ritiro NULL) e
--- soli senatori (presentatori On./governativi non hanno senatore_id).
--- Dedup (senatore, ddl): la fonte ha più riga per dataAggiuntaFirma.
+-- Firmatari Senato (open-politica senato_firmatari): persona → ddl
+-- Speculare a camera_firmatari. Solo firme attive (ritiro NULL).
+-- La fonte ha due namespace di identità: `senatore_id` per i senatori e
+-- `deputato_url` per i deputati che firmano in Senato (25.630 righe su
+-- 38.567). Il secondo va risolto sullo stesso nodo `deputato:{persona_id}`
+-- della Camera, non scartato: senza, 3.210 DDL restano senza firmatari
+-- (1.409 atti isolati nel grafo).
+-- Dedup (persona, ddl): la fonte ha più righe per dataAggiuntaFirma.
 edges_firmatario_sen AS (
     SELECT
-        'senatore:' || CAST(f.senatore_id AS VARCHAR) AS source_id,
+        CASE
+            WHEN f.senatore_id IS NOT NULL
+                THEN 'senatore:' || CAST(f.senatore_id AS VARCHAR)
+            ELSE 'deputato:' || regexp_extract(
+                f.deputato_url, '/([a-z]?)([0-9]+)_[0-9]+$', 2
+            )
+        END AS source_id,
         'firmatario' AS relation,
         'senato:' || CAST(f.ddl_id AS VARCHAR) AS target_id,
         CASE WHEN BOOL_OR(f.primo_firmatario) THEN 2 ELSE 1 END AS weight,
         NULL::INTEGER AS source_year,
         NULL::INTEGER AS target_year,
-        CASE WHEN BOOL_OR(f.primo_firmatario) THEN 'primo_firmatario' ELSE 'firmatario' END AS evidence
+        CASE
+            WHEN BOOL_OR(f.primo_firmatario) THEN 'primo_firmatario'
+            WHEN BOOL_OR(f.senatore_id IS NULL) THEN 'firmatario_deputato'
+            ELSE 'firmatario'
+        END AS evidence
     FROM read_parquet('{support.senato_firmatari.path}') f
-    WHERE f.senatore_id IS NOT NULL
-      AND f.ddl_id IS NOT NULL
+    WHERE f.ddl_id IS NOT NULL
       AND f.data_ritiro_firma IS NULL
+      AND (
+          f.senatore_id IS NOT NULL
+          OR NULLIF(f.deputato_url, '') IS NOT NULL
+      )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
-          WHERE n.id = 'senatore:' || CAST(f.senatore_id AS VARCHAR)
+          WHERE n.id = CASE
+              WHEN f.senatore_id IS NOT NULL
+                  THEN 'senatore:' || CAST(f.senatore_id AS VARCHAR)
+              ELSE 'deputato:' || regexp_extract(
+                  f.deputato_url, '/([a-z]?)([0-9]+)_[0-9]+$', 2
+              )
+          END
       )
       AND EXISTS (
           SELECT 1 FROM mart_legal_nodes n
           WHERE n.id = 'senato:' || CAST(f.ddl_id AS VARCHAR)
       )
-    GROUP BY f.senatore_id, f.ddl_id
+    GROUP BY 1, 3
 ),
 
 -- Bridge senatore↔deputato via ponte_persona (open-politica).
@@ -1063,13 +1086,25 @@ SELECT
         WHEN g.relation = 'attua_delega' THEN
             CASE WHEN COALESCE(g.from_title, FALSE) THEN 'extracted' ELSE 'inferred' END
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
-            THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'extracted' ELSE 'inferred' END
+            -- `abroga` dal mart URN di IC è una regex sul testo con quote:
+            -- se l'evidenza c'è, è estratta; senza contesto resta inferita.
+            -- (Prima era `inferred` per ogni evidenza non-`akn:`, 3.364 edge
+            -- con quote dichiarati non verificabili.)
+            THEN CASE
+                WHEN g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref'
+                    THEN 'inferred'
+                ELSE 'extracted'
+            END
         ELSE 'extracted'
     END AS assertion_type,
     CASE
         WHEN g.relation = 'riferimento' THEN 'akn_ref'
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
-            THEN 'akn_lifecycle'
+            -- `abroga` arriva da due fonti: lifecycle AKN (`evidence` =
+            -- `akn:activeModification`) e regex sul testo del mart URN IC
+            -- (quote). Il metodo segue l'evidenza, non il nome della
+            -- relazione: prima 3.364 regex erano dichiarate `akn_lifecycle`.
+            THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'akn_lifecycle' ELSE 'regex' END
         WHEN g.relation = 'attua_delega'
             THEN CASE WHEN COALESCE(g.from_title, FALSE) THEN 'title' ELSE 'regex' END
         WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'massima'
