@@ -121,3 +121,41 @@ class TestAttuaDelega:
         assert deleghe, "nessun attua_delega nella chain del 36/2023"
         assert deleghe[0]["method"] == "title", deleghe[0]
         assert "2022-06-21;78" in deleghe[0]["target_id"], deleghe[0]
+
+    def test_bfs_non_scarta_la_delega_title_oltre_il_top8(self):
+        """Sintetico: 9 regex pesanti + 1 title; la title deve entrare in chain.
+
+        Il `ROW_NUMBER` della BFS limita a 8 candidati per nodo. Se ordina per
+        peso, un edge regex molto citato scavalca la delega letta dal titolo
+        (peso 5): la vista la perde. Qui si fissa l'ordinamento per `method`.
+        """
+        import duckdb
+
+        from legal_graph.mcp.node_views import _bfs
+
+        c = duckdb.connect()
+        c.execute(
+            "CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)"
+        )
+        c.execute(
+            "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+            "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
+            "prov_evidence_kind VARCHAR, evidence VARCHAR)"
+        )
+        c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO LEGISLATIVO', 'atto', 2020)")
+        for i in range(9):
+            c.execute("INSERT INTO nodes VALUES (?, 'LEGGE', ?, 2020)", [f"r{i}", f"regex {i}"])
+            c.execute(
+                "INSERT INTO edges VALUES ('x', 'attua_delega', ?, ?, 'regex', "
+                "'inferred', 'none', 'akn:ref')",
+                [f"r{i}", 20 - i],
+            )
+        c.execute("INSERT INTO nodes VALUES ('title', 'LEGGE', 'delega vera', 2019)")
+        c.execute(
+            "INSERT INTO edges VALUES ('x', 'attua_delega', 'title', 5, 'title', "
+            "'extracted', 'locator', 'titolo')"
+        )
+        trovate = _bfs(c, "x", 1, outbound=True)
+        target = [t[1] for t in trovate]
+        assert "title" in target, f"delega title fuori dai top-8: {target}"
+        c.close()
