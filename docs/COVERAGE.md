@@ -164,6 +164,8 @@ Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: der
 
 Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
 
+**`abroga` (2026-11-10)** — 3.733 edge, tutti `assertion_type='extracted'`: le abrogazioni regex del mart IC portano il contesto citante, quelle AKN il locator. Prima 3.364 erano marcati `inferred` pur avendo la quote (mappatura per prefisso `akn:` invece che per presenza di evidenza). Resta il buco di fonte: **7.668 atti `stato=abrogato` non hanno un arco in ingresso** (l'AKN non emette il lifecycle per la maggior parte degli atti).
+
 **`attua_delega` (2026-11-10)** — Due livelli, esposti su ogni edge: `method='title'` (471 edge: 290 dal corpus normativa + 181 da `atti_api`) = il titolo del D.Lgs nomina la legge delegante («in attuazione dell'articolo 1 della legge …»), `assertion_type='extracted'`, `prov_evidence_kind='locator'`; `method='regex'` (2.221) = la legge bersaglio ha «delega al Governo» nel titolo ed è citata dall'atto, `assertion_type='inferred'`, evidenza = snippet citante (o `none` se AKN non dà contesto). Il metodo è un flag esplicito dei due CTE, non il peso: il peso regex è il conteggio delle citazioni e può essere ≥5. La vista `chain` mette davanti le deleghe `title` e chiude con le `regex`: non spariscono, ma non si spacciano per catena verificata. Solo 471/2.692 (17,5%) hanno la delega nominata nell'atto.
 
 ## Ponti open-politica
@@ -173,7 +175,7 @@ Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Relatore → atto Camera | ✅ edge `relatore` (`deputato:*` → `camera:{legislatura}:{num}`) — ~19% incarichi (atto LOD parziale per design); l'id storico `camera:atto:{leg}_{id}` resta alias |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:{legislatura}:{num}`) |
-| Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`, weight 2 se primo) |
+| Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`; anche `deputato:*` quando la firma arriva da `deputato_url`, 20.470 edge; weight 2 se primo) |
 | DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
 | Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
