@@ -23,7 +23,7 @@ def test_relation_type_vocabolario(core):
     rows = core.execute(
         "SELECT relation, family, in_chain, in_impact FROM relation_type"
     ).fetchall()
-    assert len(rows) == 25
+    assert len(rows) == 24
     rels = {r[0] for r in rows}
     assert {"riferimento", "modifica", "abroga", "attua_delega", "impugna"} <= rels
     assert all(r[1] in {"norm", "proc", "juris", "identity", "doc", "program"} for r in rows)

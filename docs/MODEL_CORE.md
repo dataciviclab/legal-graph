@@ -217,7 +217,7 @@ For every important node/edge:
 - **Mart ricostruito:** 12 tabelle, 6.381.747 righe; 302 test, ruff pulito.
 
 **Canonical 25→15**
-`cita` (riferimento, cita_costituzione, referenzia_pnrr) · `modifica` (modifica, sostituisce) · `abroga` · `riordino` (split, join, renumbering) · `attua` · `conversione` (converte_decreto_legge, diventa_legge) · `iter_costituzionale` (proposta_cost, diventa_revisione) · `impugna` · `parametro` (invoca/evoca) · `relatore` (relatore, relatore_sentenza) · `firmatario` · `emendamento` · `voto` · `documento` (testo_atto, intervento) · `identita` (collega).
+`cita` (riferimento, cita_costituzione) · `modifica` (modifica, sostituisce) · `abroga` · `riordino` (split, join, renumbering) · `attua` · `conversione` (converte_decreto_legge, diventa_legge) · `iter_costituzionale` (proposta_cost, diventa_revisione) · `impugna` · `parametro` (invoca/evoca) · `relatore` (relatore, relatore_sentenza) · `firmatario` · `emendamento` · `voto` · `documento` (testo_atto, intervento) · `identita` (collega).
 
 **Compatibilità (M1)**
 - Gli id storici `camera:atto:*` risolvono via `entity_alias`, ma la riga risolta è il nodo canonico: `tipo='DDL'`, `source='camera_ddl'`, `anno` valorizzato. Chi filtra `tipo='ATTO CAMERA'` non trova più quei 2.590 atti: il filtro corretto è sull'id canonico o via alias.

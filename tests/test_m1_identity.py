@@ -2,7 +2,7 @@
 
 Protegge i cambi pubblici di M1:
 - `camera:atto:{leg}_{id}` non è più un nodo; resta alias in `entity_alias`;
-- `relation_type` è una tabella con `canonical_relation` (25→15) e i flag
+- `relation_type` è una tabella con `canonical_relation` (24→15) e i flag
   letti da metrics/chain;
 - `legal_neighbors` e `legal_coverage` rispondono senza liste hardcoded.
 """
@@ -59,11 +59,11 @@ def test_entity_alias_camera_survives_node_removal(con):
     assert dangling == 0
 
 
-def test_relation_type_canonical_25_to_15(con):
+def test_relation_type_canonical_24_to_15(con):
     rows = con.execute(
         "SELECT relation, canonical_relation FROM relation_type"
     ).fetchall()
-    assert len(rows) == 25
+    assert len(rows) == 24
     assert {r[1] for r in rows} == _CANONICAL
     assert all(r[1] for r in rows)
 
@@ -191,7 +191,7 @@ def test_relation_type_fallback_matches_mart(con):
         fallback_con.close()
     mart = con.execute(f"SELECT {cols} FROM relation_type ORDER BY relation").fetchall()
     assert fallback == mart
-    assert len(mart) == 25
+    assert len(mart) == 24
 
 
 def test_refresh_views_recreates_alias_and_vocabulary(con):

@@ -827,55 +827,6 @@ nodes_promovimento AS (
     ) WHERE _rn = 1
 ),
 
-nodes_pnrr AS (
-    -- Missione: tipo='missione' (upstream ha tipo come discriminante;
-    -- componente è sempre NOT NULL — il vecchio filtro componente IS NULL
-    -- produceva 0 righe, issue #19)
-    SELECT DISTINCT
-        'pnrr:missione:' || CAST(missione AS VARCHAR) AS id,
-        'MISSIONE PNRR' AS tipo,
-        NULL::VARCHAR AS data,
-        CAST(missione AS VARCHAR) AS numero,
-        'Missione ' || CAST(missione AS VARCHAR) || ' PNRR' AS title,
-        'PNRR' AS collezione,
-        NULL::VARCHAR AS source_filename,
-        'pnrr' AS source,
-        NULL::INTEGER AS anno,
-        NULL::BIGINT AS length_chars,
-        NULL::BIGINT AS length_words,
-        NULL::VARCHAR AS celex,
-        NULL::VARCHAR AS codice_redazionale,
-        NULL::VARCHAR AS stato,
-        NULL::VARCHAR AS materia,
-        NULL::INTEGER AS qualita_score,
-        NULL::INTEGER AS sunsetting_score
-    FROM read_parquet('{support.pnrr_references.path}')
-    WHERE missione IS NOT NULL AND tipo = 'missione'
-
-    UNION
-
-    SELECT DISTINCT
-        'pnrr:componente:' || CAST(missione AS VARCHAR) || ':' || CAST(componente AS VARCHAR),
-        'COMPONENTE PNRR',
-        NULL::VARCHAR,
-        CAST(missione AS VARCHAR) || '.' || CAST(componente AS VARCHAR),
-        'Missione ' || CAST(missione AS VARCHAR) || ', Componente ' || CAST(componente AS VARCHAR),
-        'PNRR',
-        NULL::VARCHAR,
-        'pnrr',
-        NULL::INTEGER,
-        NULL::BIGINT,
-        NULL::BIGINT,
-        NULL::VARCHAR,
-        NULL::VARCHAR,
-        NULL::VARCHAR,
-        NULL::VARCHAR,
-        NULL::INTEGER,
-        NULL::INTEGER
-    FROM read_parquet('{support.pnrr_references.path}')
-    WHERE missione IS NOT NULL AND componente IS NOT NULL AND tipo != 'missione'
-),
-
 -- DL emanati (open-politica `atti`): nodo dl:* per i DL senza URN nel
 -- corpus; l'esito di conversione sta sull'edge `converte_decreto_legge`
 -- (stato resta NULL: esito non è vigenza).
@@ -999,8 +950,6 @@ all_nodes AS (
     UNION ALL
     SELECT * FROM nodes_promovimento WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
-    SELECT * FROM nodes_pnrr WHERE id NOT IN (SELECT id FROM normativa)
-    UNION ALL
     SELECT * FROM nodes_dl WHERE id NOT IN (SELECT id FROM normativa)
     UNION ALL
     SELECT * FROM nodes_ue WHERE id NOT IN (SELECT id FROM normativa)
@@ -1065,7 +1014,6 @@ SELECT
         WHEN tipo = 'REGOLAMENTO' THEN 'REGOLAMENTO'
         WHEN source = 'decreti_legge' THEN 'DECRETO-LEGGE'
         WHEN source = 'revisioni' THEN 'LEGGE COSTITUZIONALE'
-        WHEN source = 'pnrr' THEN 'PNRR'
         ELSE 'ALTRO'
     END AS tipo,
     data,
@@ -1104,7 +1052,6 @@ SELECT
             'iter_costituzionale', 'senato_emend'
         ) THEN 'extracted'
         WHEN n.source IN ('catalogo', 'ue', 'decreti_legge') THEN 'resolved'
-        WHEN n.source = 'pnrr' THEN 'inferred'
         ELSE 'unknown'
     END AS assertion_type,
     CASE
@@ -1116,17 +1063,17 @@ SELECT
     CASE WHEN n.source_filename IS NULL THEN 'none' ELSE 'locator' END AS evidence_kind,
     n.source_filename AS evidence_locator,
     CASE
-        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%' OR n.source = 'pnrr' THEN 'weak'
+        WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%' THEN 'weak'
         ELSE 'strong'
     END AS conf_identity,
     CASE
-        WHEN n.source IN ('catalogo', 'ue', 'pnrr', 'decreti_legge') THEN 'weak'
+        WHEN n.source IN ('catalogo', 'ue', 'decreti_legge') THEN 'weak'
         WHEN n.source_filename IS NULL AND n.source NOT IN ('costituzione') THEN 'weak'
         ELSE 'strong'
     END AS conf_extraction,
     CASE
         WHEN n.id LIKE 'norma:%' OR n.id LIKE 'dl:%'
-          OR n.source IN ('catalogo', 'pnrr', 'decreti_legge') THEN 'weak'
+          OR n.source IN ('catalogo', 'decreti_legge') THEN 'weak'
         ELSE 'strong'
     END AS conf_semantic,
     CASE

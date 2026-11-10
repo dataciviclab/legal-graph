@@ -58,7 +58,7 @@ class TestNodes:
         valid_prefixes = (
             "urn:nir:", "costituzione:", "revisione:", "gu:",
             "senato:", "camera:", "sentenza:", "giudice:",
-            "norma:", "promovimento:", "celex:", "senatore:", "pnrr:",
+            "norma:", "promovimento:", "celex:", "senatore:",
             "deputato:", "votazione:", "itercost:", "dl:",
         )
         invalid = con.execute(f"""
