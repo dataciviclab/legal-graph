@@ -30,10 +30,11 @@ ALLEGATI_INDEX_URL = (
     "italia-corpus/_raw/2026/allegati.parquet"
 )
 ALLEGATI_MD_BASE = "https://storage.googleapis.com/dataciviclab-clean/italia-corpus"
-_ALLEGATI_TTL_SECONDS = 24 * 3600
+_ALLEGATI_TTL_SECONDS = 24 * 3600  # lista doc (nuovi allegati)
 # Il testo di un atto cambia quando IC rigenera il corpus (settimanale):
 # 7 giorni è bounded freshness coerente con la cadenza, senza riscaricare
-# lo stesso file ogni giorno.
+# lo stesso file ogni giorno. I due TTL sono volutamente diversi: l'indice
+# è la lista (24h), il markdown è il contenuto (7g).
 _ALLEGATI_MD_TTL_SECONDS = 7 * 24 * 3600
 # URN → testo vigente (link pubblico, usato per gli atti fuori collezione)
 NORMATTIVA_URI = "https://www.normattiva.it/uri-res/N2Ls?"
@@ -146,15 +147,22 @@ def _fetch_url(url: str, ttl: int | None = None) -> tuple[str, str]:
 
     La chiave è l'URL: la cache segue la granularità della risorsa (un file
     per atto, non un doc). `ttl` bounded-freschezza: scaduto, si riscarica.
+    Se il download fallisce e la copia scaduta esiste, si serve quella
+    (`via="cache_stale"`): per un grafo legale meglio un testo dichiarato
+    vecchio che un errore.
     """
-    if _cache_fresh(url, ttl):
-        cached = _read_cache(url)
+    cached = _read_cache(url)
+    if cached is not None and _cache_fresh(url, ttl):
+        return cached, "cache"
+    try:
+        result = _get_http().get(url)
+        if not result.is_ok or result.response is None or not result.response.ok:
+            raise OSError(f"HTTP fallito per {url}")
+        text = result.response.text
+    except OSError:
         if cached is not None:
-            return cached, "cache"
-    result = _get_http().get(url)
-    if not result.is_ok or result.response is None or not result.response.ok:
-        raise OSError(f"HTTP fallito per {url}")
-    text = result.response.text
+            return cached, "cache_stale"
+        raise
     _write_cache(url, text)
     return text, "gcs"
 
@@ -209,7 +217,7 @@ def _serve_doc(urn: str, target: dict, max_chars: int) -> dict:
     truncated = total > max_chars
     if truncated:
         sezione = sezione[:max_chars] + "\n\n… [troncato]"
-    return {
+    out = {
         "via": via,
         "url": url,
         "doc_id": target.get("doc_id"),
@@ -220,6 +228,11 @@ def _serve_doc(urn: str, target: dict, max_chars: int) -> dict:
         "max_chars": max_chars,
         "text": sezione,
     }
+    if via == "cache_stale":
+        mtime = _cache_path(url).stat().st_mtime
+        out["stale"] = True
+        out["cached_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+    return out
 
 
 def fetch_attachment_text(

@@ -125,3 +125,28 @@ def test_articolo_stringa_normalizzata():
     docs = [{"doc_id": "a", "doc_name": "CODICE-art. 2043"}]
     assert lt.match_articolo(docs, "Art. 2043") == docs
     assert lt.match_articolo(docs, "art.2043.") == docs
+
+
+def test_cache_scaduta_e_rete_giu_serve_la_copia_vecchia(monkeypatch, tmp_path):
+    """TTL scaduto + download fallito → testo vecchio dichiarato stale, non errore."""
+    import os
+
+    monkeypatch.setattr(lt, "TEXT_CACHE", tmp_path)
+    url = "https://example.test/allegati/z.md"
+    lt._write_cache(url, "testo vecchio")
+    path = lt._cache_path(url)
+    old = path.stat().st_mtime - 8 * 24 * 3600
+    os.utime(path, (old, old))
+
+    class _Result:
+        is_ok = False
+        response = None
+
+    class _Http:
+        def get(self, url):
+            return _Result()
+
+    monkeypatch.setattr(lt, "_get_http", lambda: _Http())
+    text, via = lt._fetch_url(url, ttl=7 * 24 * 3600)
+    assert text == "testo vecchio"
+    assert via == "cache_stale"
