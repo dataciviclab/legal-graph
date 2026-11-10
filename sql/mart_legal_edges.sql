@@ -5,7 +5,17 @@
 -- attua_delega: riusa riferimenti + tipi/oggetti da normativa
 -- (non dal mart nodi — il compose e' indipendente per tabella).
 
-WITH urn_lookup AS (
+WITH massime_norme_dated AS (
+    -- `norma_data` arriva dai mart di costituzione-italiana come stringa
+    -- dd/mm/yyyy (#42); il vecchio clean la dava DATE. Accettiamo entrambi
+    -- qui, in un solo punto: join, filtri e partizioni usano `norma_data_date`.
+    SELECT *,
+        (CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$')
+              THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE)
+              ELSE TRY_CAST(norma_data AS DATE) END) AS norma_data_date
+    FROM read_parquet('{support.massime_norme.path}')
+),
+urn_lookup AS (
     SELECT * FROM (
         SELECT
             filename,
@@ -113,6 +123,8 @@ edges_citazioni AS (
 -- ~959 / 2.444 norme state mappabili; i non-match sono atti pre-1960
 -- non presenti nel corpus normativa.
 -- Codici Corte → URN tipo: solo state-level (regionali esclusi: lr*).
+-- `norma_data`: il mart di costituzione-italiana la espone come stringa
+-- dd/mm/yyyy (#42); accettiamo anche ISO per non legarci al formato.
 norma_urn_lookup AS (
     SELECT
         CASE m.norma_codice
@@ -124,16 +136,16 @@ norma_urn_lookup AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
         END AS urn_tipo,
         TRY_CAST(m.norma_numero AS BIGINT) AS norma_numero,
-        YEAR(TRY_CAST(m.norma_data AS DATE)) AS norma_anno,
+        YEAR(m.norma_data_date) AS norma_anno,
         n.id AS urn_id
     FROM (
         SELECT DISTINCT
             norma_codice,
             norma_numero,
-            norma_data
-        FROM read_parquet('{support.massime_corte_costituzionale.path}')
+            norma_data_date
+        FROM massime_norme_dated
         WHERE NULLIF(norma_numero, '') IS NOT NULL
-          AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+          AND norma_data_date IS NOT NULL
           AND norma_codice IN ('l', 'dl', 'dlgs', 'dpr', 'rd', 'rdl')
     ) m
     JOIN (
@@ -154,9 +166,9 @@ norma_urn_lookup AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
           END
       AND n.numero = TRY_CAST(m.norma_numero AS BIGINT)
-      AND n.anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+      AND n.anno = YEAR(m.norma_data_date)
     QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY m.norma_codice, m.norma_numero, YEAR(TRY_CAST(m.norma_data AS DATE))
+        PARTITION BY m.norma_codice, m.norma_numero, YEAR(m.norma_data_date)
         ORDER BY n.id
     ) = 1
 ),
@@ -170,13 +182,13 @@ edges_massime AS (
             ul.urn_id,
             'norma:' || LOWER(COALESCE(m.norma_descrizione, 'legge'))
                    || ':' || CAST(m.norma_numero AS VARCHAR)
-                   || ':' || CAST(YEAR(TRY_CAST(m.norma_data AS DATE)) AS VARCHAR)
+                   || ':' || CAST(YEAR(m.norma_data_date) AS VARCHAR)
         ) AS target_id,
         1 AS weight,
         m.anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
         m.norma_descrizione AS evidence
-    FROM read_parquet('{support.massime_corte_costituzionale.path}') m
+    FROM massime_norme_dated m
     LEFT JOIN norma_urn_lookup ul
       ON  ul.urn_tipo = CASE m.norma_codice
             WHEN 'l'   THEN 'legge'
@@ -187,10 +199,10 @@ edges_massime AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
           END
       AND ul.norma_numero = TRY_CAST(m.norma_numero AS BIGINT)
-      AND ul.norma_anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+      AND ul.norma_anno = YEAR(m.norma_data_date)
     WHERE m.esito IN ('illegittimo', 'misto')
       AND NULLIF(m.norma_numero, '') IS NOT NULL
-      AND TRY_CAST(m.norma_data AS DATE) IS NOT NULL
+      AND m.norma_data_date IS NOT NULL
 ),
 
 -- Parametro costituzionale: la massima distingue l'atto del parametro con
@@ -212,7 +224,7 @@ edges_parametri AS (
         anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
         'Costituzione art. ' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS evidence
-    FROM read_parquet('{support.massime_corte_costituzionale.path}')
+    FROM read_parquet('{support.massime_parametri.path}')
     WHERE parametro_codice = '25'
       AND TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
 ),

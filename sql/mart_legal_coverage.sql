@@ -110,7 +110,7 @@ parametri_cost AS (
             WHERE parametro_codice = '25'
               AND TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
         ) AS natural_pairs
-    FROM read_parquet('{support.massime_corte_costituzionale.path}')
+    FROM read_parquet('{support.massime_parametri.path}')
 ),
 
 funnel AS (

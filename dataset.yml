@@ -127,6 +127,23 @@ support:
     slug: massime_corte_costituzionale
     layer: clean
     years: [2026]
+  # Massime: il clean è una riga per massima con `parametri`/`norme` in JSON.
+  # Gli edge leggono i mart esplosi (una riga per massima×parametro/norma):
+  # niente prodotto cartesiano tra le due liste.
+  - name: massime_parametri
+    type: external
+    repo: costituzione-italiana
+    slug: massime_corte_costituzionale
+    layer: mart
+    table: mart_massime_parametri
+    years: [2026]
+  - name: massime_norme
+    type: external
+    repo: costituzione-italiana
+    slug: massime_corte_costituzionale
+    layer: mart
+    table: mart_massime_norme
+    years: [2026]
   - name: giudici_corte_costituzionale
     type: external
     repo: costituzione-italiana
