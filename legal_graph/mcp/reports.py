@@ -12,6 +12,7 @@ from legal_graph.legal_text import (
     fetch_attachment_text,
     fetch_mart_text,
     fetch_normativa_text,
+    is_shell,
 )
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.mcp import db
@@ -333,7 +334,7 @@ def _impl_legal_text(
         # significa l'articolo del codice, non quello del decreto.
         docs_total = sum(int(d.get("chars") or 0) for d in docs)
         body_total = int(result.get("total_chars") or 0)
-        shell = docs_total > 10 * max(body_total, 1)
+        shell = is_shell(docs_total, body_total)
         if shell or "error" in result:
             att = fetch_attachment_text(urn=urn, articolo=articolo, max_chars=max_chars)
             if att is not None and "text" in att:

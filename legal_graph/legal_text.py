@@ -77,49 +77,44 @@ def _write_cache(url: str, text: str) -> None:
     _cache_path(url).write_text(text, encoding="utf-8")
 
 
-_allegati_cache: dict[str, list[dict]] | None = None
-
-
 def _allegati_index_path() -> Path:
     return TEXT_CACHE.parent / "allegati_index.parquet"
 
 
-def _allegati_index() -> dict[str, list[dict]]:
-    """Indice allegati per URN, caricato una volta (TTL 24h su disco).
-
-    `allegati.parquet` è un indice di puntatori: per ogni `<doc>` di un atto
-    porta `doc_id`, `doc_name`, `chars` e il `rel_path` del markdown che lo
-    contiene (un file per atto, sezioni `## <doc_name>`).
-    """
-    global _allegati_cache
-    if _allegati_cache is not None:
-        return _allegati_cache
+def _ensure_allegati_index_file() -> Path:
+    """Scarica l'indice allegati (TTL 24h) e restituisce il path locale."""
     import urllib.request
 
-    import pyarrow.parquet as pq
-
     path = _allegati_index_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists() or time.time() - path.stat().st_mtime > _ALLEGATI_TTL_SECONDS:
         with urllib.request.urlopen(ALLEGATI_INDEX_URL, timeout=60) as resp:
             path.write_bytes(resp.read())
-    table = pq.read_table(path, columns=["urn", "doc_id", "doc_name", "chars", "rel_path"])
-    index: dict[str, list[dict]] = {}
-    for row in table.to_pylist():
-        urn = (row.get("urn") or "").strip()
-        if urn:
-            index.setdefault(urn, []).append(row)
-    _allegati_cache = index
-    return index
+    return path
 
 
 def attachment_docs(urn: str) -> list[dict]:
-    """Documenti allegati di un atto (vuoto se non ne ha)."""
+    """Documenti allegati di un atto (vuoto se non ne ha).
+
+    Legge l'indice con duckdb filtrando per URN: niente 177 MB di dict in
+    memoria, e duckdb è già dipendenza del repo (pyarrow non lo è).
+    """
     try:
-        return _allegati_index().get(urn, [])
-    except (OSError, ValueError) as exc:
-        # Indice non raggiungibile/illeggibile: legal_text resta sul body.
+        path = _ensure_allegati_index_file()
+        con = duckdb.connect()
+        try:
+            rows = con.execute(
+                "SELECT doc_id, doc_name, chars, rel_path, hash, versione "
+                f"FROM read_parquet('{path.as_posix()}') WHERE urn = ?",
+                [urn],
+            ).fetchall()
+        finally:
+            con.close()
+    except (OSError, ValueError, duckdb.Error) as exc:
         print(f"::warning::indice allegati non disponibile ({exc})")
         return []
+    cols = ("doc_id", "doc_name", "chars", "rel_path", "hash", "versione")
+    return [dict(zip(cols, row)) for row in rows]
 
 
 def attachments_meta(docs: list[dict], limit: int = 40) -> dict[str, Any]:
@@ -134,16 +129,21 @@ def attachments_meta(docs: list[dict], limit: int = 40) -> dict[str, Any]:
     }
 
 
-def _fetch_url(url: str) -> tuple[str, str]:
-    """(testo, via) da un URL pubblico, con la cache su disco già usata."""
-    cached = _read_cache(url)
+def _fetch_url(url: str, cache_hint: str | None = None) -> tuple[str, str]:
+    """(testo, via) da un URL pubblico, con cache su disco.
+
+    `cache_hint` (hash/versione dell'allegato) entra nella chiave: se IC
+    rigenera lo stesso path, il testo vecchio non viene servito.
+    """
+    key = f"{url}|{cache_hint}" if cache_hint else url
+    cached = _read_cache(key)
     if cached is not None:
         return cached, "cache"
     result = _get_http().get(url)
     if not result.is_ok or result.response is None or not result.response.ok:
         raise OSError(f"HTTP fallito per {url}")
     text = result.response.text
-    _write_cache(url, text)
+    _write_cache(key, text)
     return text, "gcs"
 
 
@@ -160,13 +160,26 @@ def _sezione_doc(md: str, doc_name: str) -> str | None:
     return (md[body_start:nxt] if nxt != -1 else md[body_start:]).strip()
 
 
+def match_articolo(docs: list[dict], articolo: int | str) -> list[dict]:
+    """Allegati il cui `doc_name` finisce per `art. N` (N esatto, non prefisso)."""
+    want = f"art. {articolo}".lower()
+    return [
+        d for d in docs if str(d.get("doc_name") or "").strip().lower().endswith(want)
+    ]
+
+
+def is_shell(docs_total: int, body_total: int) -> bool:
+    """True se il body è il decreto di approvazione e il testo sta negli allegati."""
+    return docs_total > 10 * max(body_total, 1)
+
+
 def _serve_doc(urn: str, target: dict, max_chars: int) -> dict:
     rel_path = target.get("rel_path") or ""
     if not rel_path:
         return {"error": "allegato senza rel_path nell'indice"}
     url = f"{ALLEGATI_MD_BASE}/{quote(rel_path)}"
     try:
-        md, via = _fetch_url(url)
+        md, via = _fetch_url(url, cache_hint=str(target.get("hash") or target.get("versione") or "")) 
     except OSError as exc:
         return {"error": f"allegato non recuperato: {exc}", "url": url}
     sezione = _sezione_doc(md, target.get("doc_name") or "")
@@ -210,15 +223,18 @@ def fetch_attachment_text(
     if doc:
         target = next((d for d in docs if str(d.get("doc_id")) == str(doc)), None)
         if target is None:
+            # tolleranza: il chiamante può passare il doc_name letto dalla risposta
+            target = next(
+                (d for d in docs if str(d.get("doc_name") or "").strip() == str(doc).strip()),
+                None,
+            )
+        if target is None:
             return {
                 "error": f"doc {doc!r} non trovato tra gli allegati",
                 "attachments": attachments_meta(docs),
             }
     elif articolo:
-        want = f"art. {articolo}".lower()
-        matches = [
-            d for d in docs if str(d.get("doc_name") or "").strip().lower().endswith(want)
-        ]
+        matches = match_articolo(docs, articolo)
         if len(matches) == 1:
             target = matches[0]
         elif matches:

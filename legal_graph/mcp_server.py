@@ -141,9 +141,10 @@ def legal_node(
         "Testo di un atto normativa da nodo/URN (italia-corpus). "
         "Copre normativa + articoli Cost. + pronunce Corte. "
         "`articolo=N` estrae il singolo articolo dagli heading AKN; se il body "
-        "non lo contiene (codici) usa gli allegati. `doc=<doc_id>` serve un "
-        "singolo allegato (i codici hanno il testo negli <attachments>: "
-        "`attachments` elenca doc_id/doc_name/chars). Restituisce total_chars."
+        "è il decreto di approvazione (codici: testo negli <attachments>) usa "
+        "gli allegati. `doc=<doc_id>` (o doc_name) serve un singolo allegato; "
+        "la risposta elenca `attachments` (doc_id/doc_name/chars). Testo "
+        "markdown: i ritorni a capo sono conservati. Restituisce total_chars."
     ),
     structured_output=True,
 )
