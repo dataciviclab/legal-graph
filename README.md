@@ -42,7 +42,7 @@ legal_search("responsabilita amministrativa")
 |---|---|
 | `legal_search` | Trova atti per parole, tipo, anno, fonte, stato, materia, collezione |
 | `legal_node` | Contesto: `overview` · `chain` · `jurisprudence` · `parliament` |
-| `legal_text` | Testo di un atto; con `articolo=N` estrae il singolo articolo |
+| `legal_text` | Testo di un atto; `articolo=N` estrae l'articolo; `doc=<doc_id>` serve un allegato (codici: il testo è negli `<attachments>`, elencati in `attachments`) |
 | `legal_neighbors` | Vicini per direzione, relazione esatta o canonica (25→15) |
 | `legal_coverage` | Copertura per relazione e livelli L1-L2 |
 | `legal_query` | SQL in sola lettura su nodi e archi |

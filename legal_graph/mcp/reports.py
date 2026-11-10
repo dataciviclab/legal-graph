@@ -6,7 +6,14 @@ from typing import Any
 
 import duckdb
 
-from legal_graph.legal_text import fetch_mart_text, fetch_normativa_text
+from legal_graph.legal_text import (
+    attachment_docs,
+    attachments_meta,
+    fetch_attachment_text,
+    fetch_mart_text,
+    fetch_normativa_text,
+    is_shell,
+)
 from legal_graph.legal_text import resolve_node as resolve_text_node
 from legal_graph.mcp import db
 from legal_graph.mcp.db import _has_col, _view_exists, db_lock, locked
@@ -195,7 +202,10 @@ def _readonly_error(sql: str) -> str | None:
 
 
 def _impl_legal_text(
-    node_id: str, max_chars: int = 8000, articolo: int | str | None = None
+    node_id: str,
+    max_chars: int = 8000,
+    articolo: int | str | None = None,
+    doc: str | None = None,
 ) -> dict[str, Any]:
     # solo le letture sul grafo stanno sotto lock: il fetch del testo è di rete
     with db_lock():
@@ -302,12 +312,40 @@ def _impl_legal_text(
             ),
         }
 
+    urn = str(node.get("id") or "")
+    docs = attachment_docs(urn)
+
+    # #94: i codici hanno il testo negli attachments. `doc` serve il singolo
+    # <doc>; `articolo` prova il match univoco su doc_name ("…-art. N").
+    if doc:
+        att = fetch_attachment_text(urn=urn, doc=doc, max_chars=max_chars)
+        if att is not None:
+            return {**base, **att}
+
     result = fetch_normativa_text(
         collezione=node.get("collezione") or "",
         filename=node.get("source_filename") or "",
         max_chars=max_chars,
         articolo=articolo,
     )
+    if articolo and docs:
+        # "Guscio": body minuscolo rispetto agli allegati (codici = decreto di
+        # approvazione + 3.000 articoli negli attachments). Lì `articolo=N`
+        # significa l'articolo del codice, non quello del decreto.
+        docs_total = sum(int(d.get("chars") or 0) for d in docs)
+        body_total = int(result.get("total_chars") or 0)
+        shell = is_shell(docs_total, body_total)
+        if shell or "error" in result:
+            att = fetch_attachment_text(urn=urn, articolo=articolo, max_chars=max_chars)
+            if att is not None and "text" in att:
+                result = {
+                    **att,
+                    "note": "testo dall'allegato: il body dell'atto è il decreto di approvazione",
+                }
+            elif att is not None:
+                return {**base, **att}
+    if docs:
+        result = {**result, "attachments": attachments_meta(docs)}
     return {**base, **result}
 
 
