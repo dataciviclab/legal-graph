@@ -316,8 +316,12 @@ def _attua_delega_hint(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[
         "delega_anno": legge[2],
         "delega_urn_guess": hint["legge_id"],
         "note": (
-            "attua_delega euristica dal titolo (non un edge tipizzato). "
-            "Verifica con legal_text / legal_query su edges."
+            (
+                "L'edge attua_delega esiste (method='title'): la catena lo mostra."
+                if exists
+                else "Legge-base citata nel titolo, ma l'edge attua_delega non è nel grafo."
+            )
+            + " Verifica con legal_text / legal_query su edges."
         ),
     }
 
@@ -365,7 +369,7 @@ def _bfs(
     depth: int,
     *,
     outbound: bool,
-) -> list[tuple[str, str, str, int, str, int | None]]:
+) -> list[tuple[str, str, str, int, str, int | None, str, str, str, str]]:
     """BFS per livelli: **una query per livello**, non una per nodo.
 
     La versione precedente faceva 2 query per ogni nodo visitato (arco + nodo):
@@ -377,6 +381,11 @@ def _bfs(
     pesi sono interi piccoli, e senza tie-break il `LIMIT 8` per nodo sceglieva
     righe diverse a ogni chiamata (ordine di scan parallelo) → la stessa catena
     cambiava da una chiamata all'altra.
+
+    Le ultime quattro colonne sono la provenienza dell'edge (`method`,
+    `assertion_type`, `prov_evidence_kind`, `evidence`): servono alla vista
+    `chain` per distinguere una delega letta dal titolo (forte) da una
+    dedotta da una citazione (debole).
     """
     a, b = ("source_id", "target_id") if outbound else ("target_id", "source_id")
     tabella = "edges" if outbound else _tabella_in(con)
@@ -384,7 +393,9 @@ def _bfs(
     in_rel = ",".join("?" * len(rels))
     visited = {start}
     frontier = [start]
-    trovate: list[tuple[str, str, str, int, str, int | None]] = []
+    trovate: list[
+        tuple[str, str, str, int, str, int | None, str, str, str, str]
+    ] = []
     for _ in range(depth):
         if not frontier:
             break
@@ -393,32 +404,53 @@ def _bfs(
             f"""
             WITH cand AS (
                 SELECT e.{a} AS parent, e.{b} AS nid, e.relation, e.weight,
+                       e.method, e.assertion_type, e.prov_evidence_kind,
+                       e.evidence,
                        ROW_NUMBER() OVER (
                            PARTITION BY e.{a}
-                           ORDER BY e.weight DESC, e.{b}, e.relation
+                           ORDER BY
+                             CASE WHEN e.relation = 'attua_delega'
+                                  THEN CASE WHEN e.method = 'title' THEN 0 ELSE 2 END
+                                  ELSE 1 END,
+                             e.weight DESC, e.{b}, e.relation
                        ) AS rn
                 FROM {tabella} e
                 WHERE e.{a} IN ({placeholders}) AND e.relation IN ({in_rel})
             )
             SELECT c.parent, c.nid, c.relation, c.weight,
-                   n.tipo, LEFT(n.title, 100), n.anno
+                   n.tipo, LEFT(n.title, 100), n.anno,
+                   c.method, c.assertion_type, c.prov_evidence_kind,
+                   LEFT(c.evidence, 200)
             FROM cand c LEFT JOIN nodes n ON n.id = c.nid
             WHERE c.rn <= 8
             """,
             [*frontier, *rels],
         ).fetchall()
         posizione = {nodo: i for i, nodo in enumerate(frontier)}
-        # `relation` chiude l'ordinamento: due relazioni diverse verso lo stesso
-        # nodo (es. abroga + sostituisce) hanno lo stesso peso, e senza il quarto
-        # campo l'etichetta che esce dipende dall'ordine di scan.
-        rows.sort(key=lambda r: (posizione[r[0]], -r[3], r[1], r[2]))
+
+        def _rank(r: tuple, _pos: dict = posizione) -> tuple:
+            # La catena legislativa mette davanti la delega letta dal titolo;
+            # le deleghe dedotte da una citazione chiudono il livello.
+            if r[2] == "attua_delega":
+                trust = 0 if r[7] == "title" else 2
+            else:
+                trust = 1
+            return (_pos[r[0]], trust, -r[3], r[1], r[2])
+
+        rows.sort(key=_rank)
         prossimo: list[str] = []
-        for _parent, nid, relation, weight, tipo, title, anno in rows:
+        for (
+            _parent, nid, relation, weight, tipo, title, anno,
+            method, assertion, evidence_kind, evidence,
+        ) in rows:
             if nid in visited:
                 continue
             visited.add(nid)
             prossimo.append(nid)
-            trovate.append((relation, nid, tipo or "?", title or "", weight, anno))
+            trovate.append(
+                (relation, nid, tipo or "?", title or "", weight, anno,
+                 method or "", assertion or "", evidence_kind or "", evidence or "")
+            )
         frontier = prossimo
     return trovate
 
@@ -435,8 +467,12 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "target_title": title,
             "target_anno": anno,
             "weight": weight,
+            "method": method,
+            "assertion_type": assertion,
+            "prov_evidence_kind": evidence_kind,
+            "evidence": evidence,
         }
-        for relation, nid, tipo, title, weight, anno in _bfs(
+        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence in _bfs(
             con, actual_id, depth, outbound=True
         )
     ]
@@ -448,8 +484,12 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "source_title": title,
             "source_anno": anno,
             "weight": weight,
+            "method": method,
+            "assertion_type": assertion,
+            "prov_evidence_kind": evidence_kind,
+            "evidence": evidence,
         }
-        for relation, nid, tipo, title, weight, anno in _bfs(
+        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence in _bfs(
             con, actual_id, depth, outbound=False
         )
     ]
@@ -497,8 +537,13 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         "note": (
             "chain_* = relazioni legislative tipizzate + modifiche AKN "
             "(abroga, sostituisce, split, join, renumbering). "
+            "Ogni edge porta `method`/`assertion_type`/`prov_evidence_kind`/"
+            "`evidence`: per `attua_delega`, `method='title'` = delega letta "
+            "dal titolo dell'atto (estratta, locator), `regex` = dedotta da "
+            "una citazione (inferita, debole). "
             "top_riferimenti_* = campione riferimento se la chain è vuota. "
-            "attua_delega_hint = euristica dal titolo (legge-base citata)."
+            "attua_delega_hint = legge-base citata nel titolo (stessa euristica "
+            "dell'edge `method='title'`)."
         ),
     }
 

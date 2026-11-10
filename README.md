@@ -89,7 +89,7 @@ Legal Graph è un **motore di contesto relazionale** sul processo legislativo, s
 
 - **Coperto bene**: catene legislative, attuazione delle deleghe, modifiche e abrogazioni, Corte costituzionale, firmatari e relatori, decreti legislativi di sistema.
 - **Scoperto**: corpus normativo completo (20.790 atti contro i 205.117 del catalogo), codici articolo per articolo, giurisprudenza ordinaria, EUR-Lex, PNRR come dataset.
-- **Citazioni**: derivano dai riferimenti Akoma Ntoso di Normattiva, non sono rinvii verificati. Sui titoli generici la fonte può sbagliare bersaglio; le relazioni tipizzate (`abroga`, `sostituisce`, `attua_delega`) sono più affidabili del `riferimento` generico.
+- **Citazioni**: derivano dai riferimenti Akoma Ntoso di Normattiva, non sono rinvii verificati. Sui titoli generici la fonte può sbagliare bersaglio. Le relazioni tipizzate (`abroga`, `sostituisce`) sono più precise del `riferimento` generico; per `attua_delega` la forza dipende da `method`: `title` (la delega è nominata nel titolo dell'atto, estratta con locator) batte `regex` (dedotta da una citazione, inferita).
 - **Copertura dichiarata**: 193.217 riferimenti su 267.636 coppie (72,2%) e 3.733 abrogazioni su 4.199 (88,9%). Le direttive UE citate restano fuori perché non sono nel catalogo italiano ([issue #124](https://github.com/dataciviclab/italia-corpus/issues/124)).
 - **Vigenza**: `stato` è lo status formale di Normattiva, a livello di atto; non cattura abrogazioni implicite o parziali.
 - **Testo**: `legal_text` restituisce il documento o il singolo articolo, non l'atto consolidato. Per gli atti fuori dal corpus risponde con il link a Normattiva; per le **direttive UE** con il link EUR-Lex (`note`, non `error`).

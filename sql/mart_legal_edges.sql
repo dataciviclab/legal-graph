@@ -379,6 +379,10 @@ edges_dib AS (
 -- tutti i D.Lgs post-2015. Il peso resta quello reale della citazione:
 -- weight = 1 segnala edge debole/euristico, il consumatore puo' filtrarlo.
 -- Guardia temporale: un D.Lgs non puo' attuare una delega successiva.
+-- `evidence` è lo snippet citante (da `riferimenti`), NON il titolo della
+-- legge bersaglio: l'evidenza deve mostrare dove l'atto nomina la delega.
+-- `assertion_type` resta `inferred`: la citazione non prova da sola che sia
+-- la legge delegante (per quello c'è `edges_delega_titolo`).
 edges_delega AS (
     SELECT
         e.source_id,
@@ -387,7 +391,8 @@ edges_delega AS (
         e.weight,
         e.source_year,
         e.target_year,
-        n2.oggetto AS evidence
+        e.evidence,
+        FALSE AS from_title
     FROM edges_riferimenti e
     JOIN normativa_types n1 ON e.source_id = n1.urn
     JOIN normativa_types n2 ON e.target_id = n2.urn
@@ -412,7 +417,8 @@ edges_delega_titolo AS (
         5 AS weight,
         n1.anno_atto AS source_year,
         n2.anno_atto AS target_year,
-        n1.oggetto AS evidence
+        n1.oggetto AS evidence,
+        TRUE AS from_title
     FROM normativa_types n1
     JOIN normativa_types n2
       ON n2.tipo = 'LEGGE'
@@ -877,65 +883,71 @@ grouped AS (
         MAX(weight) AS weight,
         MIN(source_year) AS source_year,
         MAX(target_year) AS target_year,
-        -- MIN e non FIRST: FIRST dipende dall'ordine fisico di input e fa
-        -- fluttuare evidence a ogni rebuild (riproducibilità del mart)
-        MIN(evidence) AS evidence
+        -- Per le coppie presenti sia come titolo sia come citazione vince
+        -- l'evidenza del titolo (è il locator: l'atto nomina la delega);
+        -- altrimenti resta lo snippet. `MIN` da solo poteva scegliere
+        -- `akn:ref` o un URL dal ramo regex e contraddire `from_title`.
+        COALESCE(
+            MIN(CASE WHEN from_title THEN evidence END),
+            MIN(evidence)
+        ) AS evidence,
+        BOOL_OR(from_title) AS from_title
     FROM (
-    SELECT * FROM edges_riferimenti
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_riferimenti
     UNION ALL
-    SELECT * FROM edges_citazioni
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_citazioni
     UNION ALL
-    SELECT * FROM edges_massime
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_massime
     UNION ALL
-    SELECT * FROM edges_parametri
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_parametri
     UNION ALL
-    SELECT * FROM edges_promovimento
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_promovimento
     UNION ALL
-    SELECT * FROM edges_senato
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_senato
     UNION ALL
-    SELECT * FROM edges_camera_leggi
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_camera_leggi
     UNION ALL
     SELECT * FROM edges_delega
     UNION ALL
     SELECT * FROM edges_delega_titolo
     UNION ALL
-    SELECT * FROM edges_corpus
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_corpus
     UNION ALL
-    SELECT * FROM edges_emend
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_emend
     UNION ALL
-    SELECT * FROM edges_dib
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_dib
     UNION ALL
-    SELECT * FROM edges_pnrr
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_pnrr
     UNION ALL
-    SELECT * FROM edges_abro
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_abro
     UNION ALL
-    SELECT * FROM edges_akn_abroga
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_abroga
     UNION ALL
-    SELECT * FROM edges_akn_sost
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_sost
     UNION ALL
-    SELECT * FROM edges_akn_modifiche
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_modifiche
     UNION ALL
-    SELECT * FROM edges_akn_modifica
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_modifica
     UNION ALL
-    SELECT * FROM edges_relatore_sentenza
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_relatore_sentenza
     UNION ALL
-    SELECT * FROM edges_relatore
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_relatore
     UNION ALL
-    SELECT * FROM edges_relatore_camera
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_relatore_camera
     UNION ALL
-    SELECT * FROM edges_converte_dl
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_converte_dl
     UNION ALL
-    SELECT * FROM edges_firmatario
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_firmatario
     UNION ALL
-    SELECT * FROM edges_firmatario_sen
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_firmatario_sen
     UNION ALL
-    SELECT * FROM edges_ponte_persona
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_ponte_persona
     UNION ALL
-    SELECT * FROM edges_votazione
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_votazione
     UNION ALL
-    SELECT * FROM edges_itercost_atto
+    SELECT *, NULL::BOOLEAN AS from_title FROM edges_itercost_atto
         UNION ALL
-        SELECT * FROM edges_itercost_rev
+        SELECT *, NULL::BOOLEAN AS from_title FROM edges_itercost_rev
     )
     -- Autoanelli: un atto che cita sé stesso (rinvii interni tra articoli
     -- collassati sul nodo-atto) o che "abroga sé stesso" non è una relazione
@@ -1026,6 +1038,18 @@ SELECT
                     THEN 'locator'
                 ELSE 'quote'
             END
+        -- Delega dal titolo: il titolo dell'atto è la fonte (locator), non
+        -- una citazione. Delega da citazione: lo snippet è la quote.
+        WHEN g.relation = 'attua_delega' THEN
+            CASE
+                WHEN COALESCE(g.from_title, FALSE) THEN 'locator'
+                WHEN g.evidence IS NULL OR g.evidence = ''
+                     OR g.evidence = 'akn:ref' THEN 'none'
+                WHEN g.evidence LIKE '%urn:nir:%'
+                  OR g.evidence LIKE '%i-res/N2Ls%'
+                  OR g.evidence LIKE '%:costituzione:%' THEN 'locator'
+                ELSE 'quote'
+            END
         WHEN g.evidence LIKE 'akn:%' THEN 'label'
         ELSE 'quote'
     END AS prov_evidence_kind,
@@ -1034,7 +1058,10 @@ SELECT
         WHEN g.relation = 'riferimento'
           AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
             THEN 'unverifiable'
-        WHEN g.relation = 'attua_delega' THEN 'inferred'
+        -- Il titolo del D.Lgs nomina la legge delegante: l'edge è estratto
+        -- (con locator). La citazione generica resta inferita.
+        WHEN g.relation = 'attua_delega' THEN
+            CASE WHEN COALESCE(g.from_title, FALSE) THEN 'extracted' ELSE 'inferred' END
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
             THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'extracted' ELSE 'inferred' END
         ELSE 'extracted'
@@ -1044,7 +1071,7 @@ SELECT
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
             THEN 'akn_lifecycle'
         WHEN g.relation = 'attua_delega'
-            THEN CASE WHEN g.weight >= 5 THEN 'title' ELSE 'regex' END
+            THEN CASE WHEN COALESCE(g.from_title, FALSE) THEN 'title' ELSE 'regex' END
         WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'massima'
         WHEN g.relation = 'cita_costituzione' THEN 'regex'
         WHEN g.relation = 'converte_decreto_legge' THEN 'join'
@@ -1066,7 +1093,7 @@ SELECT
           AND (g.evidence IS NULL OR g.evidence = '' OR g.evidence = 'akn:ref')
             THEN 'unknown'
         WHEN g.relation = 'attua_delega'
-            THEN CASE WHEN g.weight >= 5 THEN 'strong' ELSE 'weak' END
+            THEN CASE WHEN COALESCE(g.from_title, FALSE) THEN 'strong' ELSE 'weak' END
         WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'weak'
         ELSE 'strong'
     END AS conf_extraction,
