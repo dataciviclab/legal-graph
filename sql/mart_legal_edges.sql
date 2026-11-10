@@ -15,6 +15,23 @@ WITH massime_norme_dated AS (
               ELSE TRY_CAST(norma_data AS DATE) END) AS norma_data_date
     FROM read_parquet('{support.massime_norme.path}')
 ),
+-- Locator AKN (#67): il `detail` di akn_relations porta il frammento
+-- (es. `#art_47-com1-leta`). Aggreghiamo per (fonte, target, tipo) così un
+-- edge con più articoli espone l'elenco; le relazioni mappano ai rel_type AKN.
+akn_locator AS (
+    SELECT
+        fonte_urn,
+        target_urn,
+        rel_type,
+        string_agg(
+            DISTINCT regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1),
+            ','
+        ) AS locators
+    FROM read_parquet('{support.akn_relations.path}')
+    WHERE detail LIKE '%#art_%'
+      AND regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1) <> ''
+    GROUP BY 1, 2, 3
+),
 urn_lookup AS (
     SELECT * FROM (
         SELECT
@@ -1111,7 +1128,7 @@ SELECT
         ) THEN 'join'
         ELSE 'unknown'
     END AS method,
-    NULL::VARCHAR AS evidence_locator,
+    l.locators AS evidence_locator,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
           OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
@@ -1152,6 +1169,16 @@ SELECT
     'unreviewed' AS review_status,
     NULL::VARCHAR AS snapshot_id
 FROM grouped g
+LEFT JOIN akn_locator l
+  ON  l.fonte_urn = g.source_id
+  AND l.target_urn = g.target_id
+  AND l.rel_type = CASE g.relation
+        WHEN 'riferimento' THEN 'citation'
+        WHEN 'abroga' THEN 'repeal'
+        WHEN 'modifica' THEN 'insertion'
+        WHEN 'sostituisce' THEN 'substitution'
+        ELSE g.relation
+      END
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
 -- con i parquet ordinati il row-group pruning salta la maggior parte del file

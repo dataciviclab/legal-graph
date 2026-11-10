@@ -178,7 +178,7 @@ def _top_edges(
         rows = con.execute(
         f"""
         SELECT e.relation, e.{join_col}, e.weight, e.source_year, e.target_year,
-               n.tipo, LEFT(n.title, 90)
+               n.tipo, LEFT(n.title, 90), e.evidence_locator
         FROM {tabella} e
         LEFT JOIN nodes n ON n.id = e.{join_col}
         WHERE e.{column} = ?
@@ -199,6 +199,7 @@ def _top_edges(
             "target_year": r[4],
             "tipo": r[5],
             "title": r[6],
+            "evidence_locator": r[7],
         }
         for r in rows
     ]
@@ -394,7 +395,7 @@ def _bfs(
     visited = {start}
     frontier = [start]
     trovate: list[
-        tuple[str, str, str, int, str, int | None, str, str, str, str]
+        tuple[str, str, str, int, str, int | None, str, str, str, str, str | None]
     ] = []
     for _ in range(depth):
         if not frontier:
@@ -405,7 +406,7 @@ def _bfs(
             WITH cand AS (
                 SELECT e.{a} AS parent, e.{b} AS nid, e.relation, e.weight,
                        e.method, e.assertion_type, e.prov_evidence_kind,
-                       e.evidence,
+                       e.evidence, e.evidence_locator,
                        ROW_NUMBER() OVER (
                            PARTITION BY e.{a}
                            ORDER BY
@@ -420,7 +421,7 @@ def _bfs(
             SELECT c.parent, c.nid, c.relation, c.weight,
                    n.tipo, LEFT(n.title, 100), n.anno,
                    c.method, c.assertion_type, c.prov_evidence_kind,
-                   LEFT(c.evidence, 200)
+                   LEFT(c.evidence, 200), c.evidence_locator
             FROM cand c LEFT JOIN nodes n ON n.id = c.nid
             WHERE c.rn <= 8
             """,
@@ -441,7 +442,7 @@ def _bfs(
         prossimo: list[str] = []
         for (
             _parent, nid, relation, weight, tipo, title, anno,
-            method, assertion, evidence_kind, evidence,
+            method, assertion, evidence_kind, evidence, locator,
         ) in rows:
             if nid in visited:
                 continue
@@ -449,7 +450,8 @@ def _bfs(
             prossimo.append(nid)
             trovate.append(
                 (relation, nid, tipo or "?", title or "", weight, anno,
-                 method or "", assertion or "", evidence_kind or "", evidence or "")
+                 method or "", assertion or "", evidence_kind or "", evidence or "",
+                 locator)
             )
         frontier = prossimo
     return trovate
@@ -471,8 +473,9 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "assertion_type": assertion,
             "prov_evidence_kind": evidence_kind,
             "evidence": evidence,
+            "evidence_locator": locator,
         }
-        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence in _bfs(
+        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence, locator in _bfs(
             con, actual_id, depth, outbound=True
         )
     ]
@@ -488,8 +491,9 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "assertion_type": assertion,
             "prov_evidence_kind": evidence_kind,
             "evidence": evidence,
+            "evidence_locator": locator,
         }
-        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence in _bfs(
+        for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence, locator in _bfs(
             con, actual_id, depth, outbound=False
         )
     ]
