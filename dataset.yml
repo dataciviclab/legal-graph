@@ -133,14 +133,14 @@ support:
   - name: massime_parametri
     type: external
     repo: costituzione-italiana
-    slug: massime
+    slug: massime_corte_costituzionale
     layer: mart
     table: mart_massime_parametri
     years: [2026]
   - name: massime_norme
     type: external
     repo: costituzione-italiana
-    slug: massime
+    slug: massime_corte_costituzionale
     layer: mart
     table: mart_massime_norme
     years: [2026]

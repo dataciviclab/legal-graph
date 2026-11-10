@@ -691,16 +691,16 @@ nodes_norme AS (
         SELECT
             'norma:' || LOWER(COALESCE(norma_descrizione, 'legge'))
                    || ':' || CAST(norma_numero AS VARCHAR)
-                   || ':' || CAST(YEAR(TRY_CAST(norma_data AS DATE)) AS VARCHAR) AS id,
+                   || ':' || CAST(YEAR((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END)) AS VARCHAR) AS id,
             UPPER(COALESCE(norma_descrizione, 'NORMA')) AS tipo,
-            CAST(norma_data AS VARCHAR) AS data,
+            CAST((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END) AS VARCHAR) AS data,
             CAST(norma_numero AS VARCHAR) AS numero,
             COALESCE(norma_descrizione, 'norma') || ' n. ' || norma_numero
-                || ' del ' || CAST(YEAR(TRY_CAST(norma_data AS DATE)) AS VARCHAR) AS title,
+                || ' del ' || CAST(YEAR((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END)) AS VARCHAR) AS title,
             'Massime Corte' AS collezione,
             NULL::VARCHAR AS source_filename,
             'costituzione' AS source,
-            YEAR(TRY_CAST(norma_data AS DATE)) AS anno,
+            YEAR((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END)) AS anno,
             NULL::BIGINT AS length_chars,
             NULL::BIGINT AS length_words,
             NULL::VARCHAR AS celex,
@@ -710,12 +710,12 @@ nodes_norme AS (
             NULL::INTEGER AS qualita_score,
             NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (
-                PARTITION BY norma_descrizione, norma_numero, YEAR(TRY_CAST(norma_data AS DATE))
+                PARTITION BY norma_descrizione, norma_numero, YEAR((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END))
                 ORDER BY norma_data DESC
             ) AS _rn
         FROM read_parquet('{support.massime_norme.path}')
         WHERE NULLIF(norma_numero, '') IS NOT NULL
-          AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+          AND (CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END) IS NOT NULL
           -- Solo le norme che diventano target di un edge `impugna`
           -- (esito illegittimo/misto, come in mart_legal_edges.sql): prima
           -- ogni norma citata da una massima creava un nodo, e 5.000
@@ -740,7 +740,7 @@ nodes_norme AS (
               WHERE n.id LIKE 'urn:nir:stato:%'
                 AND TRY_CAST(regexp_extract(
                         n.id, 'urn:nir:stato:[^:]+:([0-9]{4})-[0-9]{2}-[0-9]{2};[0-9]+$', 1
-                    ) AS INTEGER) = YEAR(TRY_CAST(norma_data AS DATE))
+                    ) AS INTEGER) = YEAR((CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END))
                 AND TRY_CAST(regexp_extract(
                         n.id, 'urn:nir:stato:[^:]+:[0-9]{4}-[0-9]{2}-[0-9]{2};([0-9]+)$', 1
                     ) AS BIGINT) = TRY_CAST(norma_numero AS BIGINT)

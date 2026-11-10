@@ -113,6 +113,8 @@ edges_citazioni AS (
 -- ~959 / 2.444 norme state mappabili; i non-match sono atti pre-1960
 -- non presenti nel corpus normativa.
 -- Codici Corte → URN tipo: solo state-level (regionali esclusi: lr*).
+-- `norma_data`: il mart di costituzione-italiana la espone come stringa
+-- dd/mm/yyyy (#42); accettiamo anche ISO per non legarci al formato.
 norma_urn_lookup AS (
     SELECT
         CASE m.norma_codice
@@ -124,7 +126,7 @@ norma_urn_lookup AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
         END AS urn_tipo,
         TRY_CAST(m.norma_numero AS BIGINT) AS norma_numero,
-        YEAR(TRY_CAST(m.norma_data AS DATE)) AS norma_anno,
+        YEAR((CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END)) AS norma_anno,
         n.id AS urn_id
     FROM (
         SELECT DISTINCT
@@ -133,7 +135,7 @@ norma_urn_lookup AS (
             norma_data
         FROM read_parquet('{support.massime_norme.path}')
         WHERE NULLIF(norma_numero, '') IS NOT NULL
-          AND TRY_CAST(norma_data AS DATE) IS NOT NULL
+          AND (CASE WHEN regexp_matches(norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(norma_data AS DATE) END) IS NOT NULL
           AND norma_codice IN ('l', 'dl', 'dlgs', 'dpr', 'rd', 'rdl')
     ) m
     JOIN (
@@ -154,9 +156,9 @@ norma_urn_lookup AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
           END
       AND n.numero = TRY_CAST(m.norma_numero AS BIGINT)
-      AND n.anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+      AND n.anno = YEAR((CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END))
     QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY m.norma_codice, m.norma_numero, YEAR(TRY_CAST(m.norma_data AS DATE))
+        PARTITION BY m.norma_codice, m.norma_numero, YEAR((CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END))
         ORDER BY n.id
     ) = 1
 ),
@@ -170,7 +172,7 @@ edges_massime AS (
             ul.urn_id,
             'norma:' || LOWER(COALESCE(m.norma_descrizione, 'legge'))
                    || ':' || CAST(m.norma_numero AS VARCHAR)
-                   || ':' || CAST(YEAR(TRY_CAST(m.norma_data AS DATE)) AS VARCHAR)
+                   || ':' || CAST(YEAR((CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END)) AS VARCHAR)
         ) AS target_id,
         1 AS weight,
         m.anno_pronuncia AS source_year,
@@ -187,10 +189,10 @@ edges_massime AS (
             WHEN 'rdl' THEN 'regio.decreto.legge'
           END
       AND ul.norma_numero = TRY_CAST(m.norma_numero AS BIGINT)
-      AND ul.norma_anno = YEAR(TRY_CAST(m.norma_data AS DATE))
+      AND ul.norma_anno = YEAR((CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END))
     WHERE m.esito IN ('illegittimo', 'misto')
       AND NULLIF(m.norma_numero, '') IS NOT NULL
-      AND TRY_CAST(m.norma_data AS DATE) IS NOT NULL
+      AND (CASE WHEN regexp_matches(m.norma_data, '^\d{1,2}/\d{1,2}/\d{4}$') THEN TRY_CAST(strptime(m.norma_data, '%d/%m/%Y') AS DATE) ELSE TRY_CAST(m.norma_data AS DATE) END) IS NOT NULL
 ),
 
 -- Parametro costituzionale: la massima distingue l'atto del parametro con
