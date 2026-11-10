@@ -34,7 +34,6 @@ dataset:
 
 support:
   # -- italia-corpus (clean GCS -- layer toolkit IC) ----------------
-  # citazioni/pnrr/abrogations: ancora derived GitHub (wave 2 IC)
   - name: normativa
     type: external
     repo: italia-corpus
@@ -70,14 +69,15 @@ support:
     slug: direttive_ue
     layer: clean
     years: [2026]
-  - name: citazioni_costituzionali
+  # Citazioni costituzionali: archi `origine='costituzione'` nel clean di
+  # `riferimenti` (fold 2026-11). Il target non è un atto: `bersaglio_id`
+  # porta `costituzione:art:N`, `bersaglio_urn` è vuota.
+  - name: riferimenti_clean
     type: external
     repo: italia-corpus
-    path: data/derived/citazioni-costituzionali.parquet
-  - name: pnrr_references
-    type: external
-    repo: italia-corpus
-    path: data/derived/pnrr_references.parquet
+    slug: riferimenti
+    layer: clean
+    years: [2026]
   # repeal/substitution AKN (URN→URN); le abroga regex arrivano dal mart
   # riferimenti_urn, non più da un parquet derivato (2026-11)
   - name: akn_relations

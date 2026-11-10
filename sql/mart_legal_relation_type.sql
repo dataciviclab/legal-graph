@@ -44,8 +44,7 @@ SELECT * FROM (VALUES
     ('testo_atto', 'doc', 'document', 'act', 'act', false, false, false, 'strong', false, false, false, 'documento', 'documento → atto'),
     ('proposta_cost', 'proc', 'act', 'act', 'act', false, false, false, 'strong', false, false, false, 'iter_costituzionale', 'proposta costituzionale'),
     ('diventa_revisione', 'proc', 'act', 'act', 'act', false, false, false, 'strong', false, false, false, 'iter_costituzionale', 'proposta → revisione'),
-    ('collega', 'identity', 'person', 'person', 'act', false, false, false, 'strong', false, false, false, 'identita', 'ponte persona'),
-    ('referenzia_pnrr', 'program', 'act', 'program', 'act', false, false, false, 'weak', false, false, false, 'cita', 'riferimento PNRR')
+    ('collega', 'identity', 'person', 'person', 'act', false, false, false, 'strong', false, false, false, 'identita', 'ponte persona')
 ) AS t(relation, family, domain, range, granularity, directed, temporal,
        inferable, reliability, in_chain, in_impact, in_chain_view,
        canonical_relation, description)

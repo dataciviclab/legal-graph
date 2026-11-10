@@ -92,19 +92,20 @@ edges_citazioni AS (
     SELECT
         COALESCE(lu.urn, 'file:' || regexp_extract(c.fonte_filename, '/([^/]+)$', 1)) AS source_id,
         'cita_costituzione' AS relation,
-        'costituzione:art:' || CAST(CAST(c.articolo AS INTEGER) AS VARCHAR) AS target_id,
+        c.bersaglio_id AS target_id,
         1 AS weight,
         c.fonte_anno AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(c.contesto, 200) AS evidence
-    FROM read_parquet('{support.citazioni_costituzionali.path}') c
+    FROM read_parquet('{support.riferimenti_clean.path}') c
     LEFT JOIN urn_lookup lu
       ON regexp_extract(c.fonte_filename, '/([^/]+)$', 1) = lu.filename
-    WHERE c.articolo IS NOT NULL
+    WHERE c.origine = 'costituzione'
+      AND c.bersaglio_id IS NOT NULL
       -- Guardrail: la Costituzione ha 139 articoli. Oggi la fonte è pulita
       -- (max 139, 0 righe fuori range), il filtro evita che un drift upstream
       -- crei target inesistenti in silenzio.
-      AND TRY_CAST(c.articolo AS INTEGER) BETWEEN 1 AND 139
+      AND TRY_CAST(regexp_extract(c.bersaglio_id, ':art:([0-9]+)$', 1) AS INTEGER) BETWEEN 1 AND 139
 ),
 
 -- Lookup: mappa (norma_codice, numero, anno) dalle massime Corte → URN ID.
@@ -440,23 +441,6 @@ edges_delega_titolo AS (
             'legge\s+\d{1,2}\s+[a-zà-ù]+\s+\d{4}\s*,?\s*n\.\s*\d+',
             0
         ) != ''
-),
-
-edges_pnrr AS (
-    SELECT
-        lu.urn AS source_id,
-        'referenzia_pnrr' AS relation,
-        'pnrr:missione:' || CAST(r.missione AS VARCHAR) AS target_id,
-        1 AS weight,
-        r.missione AS source_year,
-        NULL::INTEGER AS target_year,
-        'M' || CAST(r.missione AS VARCHAR) || 'C' || CAST(r.componente AS VARCHAR)
-            || CASE WHEN r.investimento IS NOT NULL THEN '-I' || r.investimento ELSE '' END AS evidence
-    FROM read_parquet('{support.pnrr_references.path}') r
-    JOIN (
-        SELECT filename, urn FROM urn_lookup
-    ) lu ON r.filename = lu.filename
-    WHERE r.missione IS NOT NULL
 ),
 
 -- Abrogazioni: `rel_type='abroga'` dal mart URN-based di italia-corpus.
@@ -940,8 +924,6 @@ grouped AS (
     UNION ALL
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_dib
     UNION ALL
-    SELECT *, NULL::BOOLEAN AS from_title FROM edges_pnrr
-    UNION ALL
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_abro
     UNION ALL
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_abroga
@@ -1113,7 +1095,7 @@ SELECT
         WHEN g.relation IN (
             'diventa_legge', 'firmatario', 'relatore', 'vota', 'emendamento',
             'intervento', 'testo_atto', 'collega', 'relatore_sentenza',
-            'proposta_cost', 'diventa_revisione', 'referenzia_pnrr'
+            'proposta_cost', 'diventa_revisione'
         ) THEN 'join'
         ELSE 'unknown'
     END AS method,
