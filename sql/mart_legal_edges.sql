@@ -131,7 +131,7 @@ norma_urn_lookup AS (
             norma_codice,
             norma_numero,
             norma_data
-        FROM read_parquet('{support.massime_corte_costituzionale.path}')
+        FROM read_parquet('{support.massime_norme.path}')
         WHERE NULLIF(norma_numero, '') IS NOT NULL
           AND TRY_CAST(norma_data AS DATE) IS NOT NULL
           AND norma_codice IN ('l', 'dl', 'dlgs', 'dpr', 'rd', 'rdl')
@@ -176,7 +176,7 @@ edges_massime AS (
         m.anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
         m.norma_descrizione AS evidence
-    FROM read_parquet('{support.massime_corte_costituzionale.path}') m
+    FROM read_parquet('{support.massime_norme.path}') m
     LEFT JOIN norma_urn_lookup ul
       ON  ul.urn_tipo = CASE m.norma_codice
             WHEN 'l'   THEN 'legge'
@@ -212,7 +212,7 @@ edges_parametri AS (
         anno_pronuncia AS source_year,
         NULL::INTEGER AS target_year,
         'Costituzione art. ' || CAST(TRY_CAST(parametro_articolo AS INTEGER) AS VARCHAR) AS evidence
-    FROM read_parquet('{support.massime_corte_costituzionale.path}')
+    FROM read_parquet('{support.massime_parametri.path}')
     WHERE parametro_codice = '25'
       AND TRY_CAST(parametro_articolo AS INTEGER) BETWEEN 1 AND 139
 ),

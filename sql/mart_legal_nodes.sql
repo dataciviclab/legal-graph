@@ -713,7 +713,7 @@ nodes_norme AS (
                 PARTITION BY norma_descrizione, norma_numero, YEAR(TRY_CAST(norma_data AS DATE))
                 ORDER BY norma_data DESC
             ) AS _rn
-        FROM read_parquet('{support.massime_corte_costituzionale.path}')
+        FROM read_parquet('{support.massime_norme.path}')
         WHERE NULLIF(norma_numero, '') IS NOT NULL
           AND TRY_CAST(norma_data AS DATE) IS NOT NULL
           -- Solo le norme che diventano target di un edge `impugna`
