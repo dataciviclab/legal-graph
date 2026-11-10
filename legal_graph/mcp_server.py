@@ -65,7 +65,8 @@ mcp = create_mcp_server(
 @mcp.tool(
     name="legal_search",
     description=(
-        "Trova atti/nodi nel grafo. Multi-parola = AND; frase tra virgolette = LIKE intero. "
+        "Trova atti/nodi nel grafo. Multi-parola = tema (indice BM25 sul testo "
+        "degli atti + citazioni in ingresso), non solo titolo. "
         "Numeri (es. '231', '231/2001', 'n. 231') → priorità a normativa. "
         "Accenti flessibili (responsabilità ~ responsabilita). "
         "Filtri: tipo (canonico: LEGGE, DECRETO-LEGGE, DECRETO LEGISLATIVO, DDL, "

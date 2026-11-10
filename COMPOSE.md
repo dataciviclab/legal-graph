@@ -11,9 +11,9 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 |---|---|
 | Config | `dataset.yml` (ordine tabelle obbligatorio) |
 | SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
-| SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
+| SQL derivate | alias · relation_type · coverage · metrics · search_keys · **search_terms** · node_rel · emend_leg · **texts** · **massime** |
 | Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 12 tabelle nel compose; `entity_alias` e `relation_type` online dal primo run di pipeline M1 |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 13 tabelle nel compose; `entity_alias` e `relation_type` online dal primo run di pipeline M1 |
 | Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
@@ -39,6 +39,7 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
                               → coppie distinte → edge (funnel per relazione)
 4 mart_legal_node_metrics   ← FROM mart_legal_nodes + edges
 5 mart_legal_search_keys    ← FROM mart_legal_nodes
+5b mart_legal_search_terms   ← FROM search_keys + testi IC (indice BM25)
 6 mart_legal_node_rel       ← FROM mart_legal_edges
 7 mart_legal_emend_leg      ← FROM mart_legal_edges
 8 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
@@ -78,7 +79,7 @@ Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
 | Tool | Cosa fa |
 |---|---|
-| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; filtri: tipo, anno, source, stato, vigenza_fonte, materia, min_score, collezione |
+| `legal_search` | intent (numero/anno, ECLI, Cost., data, frase) → 1 SQL su search_keys+metrics; per i temi join su `search_terms` (BM25 + hub del grafo); filtri: tipo, anno, source, stato, vigenza_fonte, materia, min_score, collezione |
 | `legal_node` | overview · chain (con modifiche AKN) · jurisprudence (con relatore) · parliament (con firmatari) — usano node_rel/emend_leg |
 | `legal_text` | testo normativa (fetch rete) |
 | `legal_neighbors` | vicini in/out, filtro relazione o canonica |
@@ -96,7 +97,7 @@ MCP e test risolvono i mart in quest'ordine: **locale `out/` → env `LEGAL_GRAP
 |---|---|---|
 | `LEGAL_GRAPH_SOURCE` | `auto` | `auto`: locale se esiste, altrimenti GCS · `local`: solo build locale, nessun fallback · `gcs`: solo GCS, anche con build locale (evita di servire dati vecchi) |
 | `LEGAL_GRAPH_MART_DIR` | — | path esplicito dei mart (sostituisce l'autodetect di `out/`) |
-| `LEGAL_GRAPH_THREADS` | `min(4, cpu)` | thread per query; `legal_search` è uno scan completo di `search_keys` (~2,4s a 1 thread, ~0,9s a 4) |
+| `LEGAL_GRAPH_THREADS` | `min(4, cpu)` | thread per query; `legal_search` è uno scan di `search_keys` (numeri/titoli) o un lookup su `search_terms` (temi, ~30-80ms) |
 | `LEGAL_GRAPH_MEMORY_LIMIT` | `1GB` | tetto di memoria per connessione (non prenotata: RSS reale ~350MB); da alzare se materializzi i mart nella stessa connessione |
 | `LEGAL_GRAPH_REQUIRE_MART` | assente | `1` → mart mancante è un errore, non uno skip (CI) |
 
@@ -119,7 +120,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 12 tabelle (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 13 tabelle (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, search_terms, rel, emend_leg, texts, massime) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline → GCS + registry PR |
@@ -129,7 +130,7 @@ Locale == CI: stessi target Makefile.
 | Repo pubblico | ✅ · MCP nel template org ⏳ |
 | Hub FOIA 33/2013 e 241/1990 | ✅ nodi nel grafo, con citazioni in ingresso (bersagli fuori corpus agganciati per URN); 33/2013: 157, 241/1990: 1.156 |
 | Codici c.c./c.p. navigabili | ❌ gap |
-| FTS / giurisprudenza ordinaria / PNRR dataset | ❌ fuori grafo |
+| Ricerca full-text (BM25 su `testi`) / giurisprudenza ordinaria / PNRR dataset | ✅ indice · ❌ giurisprudenza ordinaria e PNRR fuori grafo |
 
 ## Prossimi passi
 

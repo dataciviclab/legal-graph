@@ -12,6 +12,14 @@ Data: 2026-10-08 · aggiornata 2026-11-09 · Fonte: build locale 2026-11-09 (il 
 - **Costituzione** (articoli + Corte Cost. + massime)
 - **normativa “di sistema” recente** (~21k atti: D.Lgs UE, appalti, 231, privacy, Terzo settore)
 
+> **Ricerca (2026-11-10)** — `legal_search` per tema usa un indice BM25
+> (`mart_legal_search_terms`) costruito su `italia-corpus/testi`: copre il
+> testo dei **20.790 atti** del corpus e il titolo di tutti gli atti
+> navigabili. Gli atti senza testo nel corpus (es. L. 241/1990) restano
+> cercabili per titolo, ma non per contenuto. Il ranking somma il punteggio
+> testuale al log delle citazioni in ingresso: un codice molto citato batte
+> un atto che nomina il tema una volta.
+
 Non è un’enciclopedia del diritto italiano né un database giurisprudenza ordinaria.
 
 ## Bilancio di copertura del compose (2026-11-01)
@@ -196,7 +204,7 @@ Tributario · penale (modifiche, non TU navigabile) · privacy come corpus artic
 > Nota 2026-10-08: il **D.Lgs 33/2013 (FOIA)** è un hub critical del grafo (115 incoming) — prima documentato come gap sull'errato "33/2011".
 
 ### Scoperti
-Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · **EUR-Lex (solo identità delle direttive citate)** · GU come fonte · **vigenza live (stato IC = tombstone)** · FTS · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
+Giurisprudenza ordinaria/amm. · testo consolidato articoli codici · **EUR-Lex (solo identità delle direttive citate)** · GU come fonte · **vigenza live (stato IC = tombstone)** · ordine giudiziario · INPS/sicurezza sociale · enti locali come nodi
 
 ## Cosa significa per il Lab
 

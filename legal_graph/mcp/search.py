@@ -18,6 +18,7 @@ from legal_graph.mcp.textfold import (
     _parse_date_query,
     _parse_ecli_or_sentenza,
     _stem_prefix,
+    _term_stem,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,11 @@ def _parse_intent(q: str, folded: str) -> dict[str, Any]:
         expanded.append(term)
         expanded.extend(_EN_IT_GLOSSARY.get(term, []))
     terms = [t for t in expanded if t not in _STOP and len(t) >= 2][:6]
-    return {"kind": "phrase", "terms": terms, "raw_terms": terms}
+    # `primary` = parole dell'utente, senza espansioni: serve a decidere
+    # quanti termini deve centrare un documento (copertura), altrimenti le
+    # espansioni del glossario conterebbero come concetti distinti.
+    primary = [t for t in raw if t not in _STOP and len(t) >= 2]
+    return {"kind": "phrase", "terms": terms, "raw_terms": terms, "primary": primary}
 
 
 def _payload(r: tuple) -> dict[str, Any]:
@@ -156,7 +161,9 @@ def _dedup_documenti(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _select_sk_sql(use_metrics: bool, has_fonte: bool = True) -> str:
+def _select_sk_sql(
+    use_metrics: bool, has_fonte: bool = True, extra_join: str = ""
+) -> str:
     metrics_join = "LEFT JOIN metrics m ON m.id = k.id" if use_metrics else ""
     fonte_col = ", n.vigenza_fonte" if has_fonte else ""
     return f"""
@@ -167,6 +174,7 @@ def _select_sk_sql(use_metrics: bool, has_fonte: bool = True) -> str:
     FROM search_keys k
     {metrics_join}
     LEFT JOIN nodes n ON n.id = k.id
+    {extra_join}
     """
 
 
@@ -198,6 +206,82 @@ def _base_order(exact_id: str | None = None) -> str:
     return ", ".join(parts)
 
 
+_TERM_MAX = 8
+# Quanto pesa l'essere citati (hub del grafo) rispetto al match testuale.
+# Tarato sull'eval temi 2026-11: 0 = solo testo, 4 = i codici abrogati
+# tornano davanti. 2 è il punto in cui i temi migliorano senza perdere
+# i golden (vigenza e tipo restano i primi criteri).
+_TERM_PRIOR_WEIGHT = 2.0
+
+
+def _query_stems(terms: list[str]) -> list[str]:
+    """Stem dei termini interrogabili sull'indice (solo lettere, len>=3)."""
+    stems: list[str] = []
+    for term in terms:
+        if not re.fullmatch(r"[a-z]{3,}", term or ""):
+            continue
+        stem = _term_stem(term)
+        if stem not in stems:
+            stems.append(stem)
+    return stems[:_TERM_MAX]
+
+
+def _term_join(
+    con: duckdb.DuckDBPyConnection,
+    intent: dict[str, Any],
+    min_need: int | None = None,
+) -> tuple[str, list[Any], int] | None:
+    """JOIN sul mart `search_terms` (BM25) per la ricerca per tema.
+
+    Il sottoquery tiene solo i documenti che centrano almeno `need` termini
+    distinti: `need = min(2, parole dell'utente)`. Con un solo termine
+    (o con un'espansione del glossario) basta un match; con due o più serve
+    la copertura minima, altrimenti una parola generica ("ordinamento")
+    farebbe tornare mezzo corpus.
+
+    `min_need` abbassa la soglia (usato dal fallback quando la query stretta
+    è vuota: "pizzo estorsione" non co-occorre in un atto, ma i due atti
+    esistono separatamente).
+
+    `None` se l'indice non è pubblicato (mart legacy): il chiamante ricade
+    sul match sul titolo.
+    """
+    if not _view_exists(con, "search_terms"):
+        return None
+    stems = _query_stems(intent.get("terms") or [])
+    if not stems:
+        return None
+    primary = _query_stems(intent.get("primary") or [])
+    need = min(2, len(primary)) if primary else 1
+    need = max(1, min(need, len(stems)))
+    if min_need is not None:
+        need = max(1, min(need, min_need))
+    placeholders = ",".join("?" for _ in stems)
+    join = (
+        "LEFT JOIN ("
+        "SELECT id, SUM(weight) AS score FROM search_terms "
+        f"WHERE term IN ({placeholders}) GROUP BY id "
+        f"HAVING COUNT(DISTINCT term) >= ?"
+        ") ts ON ts.id = k.id"
+    )
+    return join, [*stems, need], need
+
+
+def _term_order(use_metrics: bool) -> str:
+    """Tipo → vigenza → rilevanza testuale + hub del grafo → anno."""
+    prior = "COALESCE(m.referenced_by, 0)" if use_metrics else "0"
+    return (
+        "CASE WHEN k.tipo IN ('DECRETO LEGISLATIVO','LEGGE','DECRETO-LEGGE','DECRETO') "
+        "THEN 0 WHEN k.source = 'costituzione' AND k.tipo = 'COSTITUZIONE' THEN 1 "
+        "WHEN k.source = 'costituzione' THEN 2 ELSE 3 END, "
+        "CASE COALESCE(LOWER(n.stato), '') "
+        "WHEN 'vigente' THEN 0 WHEN '' THEN 1 WHEN 'decaduto' THEN 2 "
+        "WHEN 'abrogato' THEN 3 ELSE 1 END, "
+        f"(COALESCE(ts.score, 0) + {_TERM_PRIOR_WEIGHT} * LN(1 + {prior})) DESC, "
+        f"{prior} DESC, k.anno DESC NULLS LAST, k.title, k.id"
+    )
+
+
 def _run_sk(
     con: duckdb.DuckDBPyConnection,
     where: str,
@@ -207,6 +291,8 @@ def _run_sk(
     extra_params: list[Any],
     limit: int,
     order_params: list[Any] | None = None,
+    from_extra: str = "",
+    from_params: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Esegue la query su search_keys.
 
@@ -214,8 +300,12 @@ def _run_sk(
     bindati **dopo** `extra_params`, perché nell'SQL l'ORDER BY segue i filtri.
     Tenerli separati evita che i pattern del boost finiscano nei confronti dei
     filtri (query testuale + filtro → sempre 0 righe, in silenzio).
+
+    `from_extra`/`from_params` sono un JOIN opzionale (indice lessicale): i
+    suoi segnaposto stanno nel FROM, quindi si bindano **prima** del WHERE.
     """
     order_params = list(order_params or [])
+    from_params = list(from_params or [])
     use_metrics = _view_exists(con, "metrics")
     # se ORDER usa metrics ma la view manca, togli i riferimenti a m.
     sql_order = order
@@ -238,11 +328,13 @@ def _run_sk(
     # (which starts with AND) would bind only to the last OR clause due to
     # SQL precedence, leaking rows that ignore the filters.
     sql = (
-        _select_sk_sql(use_metrics, _has_col(con, "nodes", "vigenza_fonte"))
+        _select_sk_sql(use_metrics, _has_col(con, "nodes", "vigenza_fonte"), from_extra)
         + f" WHERE ({where}){extra_where} ORDER BY {sql_order} LIMIT {limit}"
     )
     try:
-        rows = con.execute(sql, [*params, *extra_params, *order_params]).fetchall()
+        rows = con.execute(
+            sql, [*from_params, *params, *extra_params, *order_params]
+        ).fetchall()
     except duckdb.Error as exc:
         # Non inghiottire: un mismatch di binding (es. order_params dimenticati
         # da un nuovo ramo) arriva qui come errore DuckDB, non come risultato
@@ -473,6 +565,9 @@ def _impl_search(
     where = "1=1"
     params: list[Any] = []
     order_params: list[Any] = []
+    from_extra = ""
+    from_params: list[Any] = []
+    term_need = 1
     order = _base_order()
     fallthrough_phrase: list[str] | None = None
 
@@ -629,48 +724,85 @@ def _impl_search(
             where = "(" + " OR ".join(clauses) + ")"
             order = _base_order()
         else:
-            # 1) AND; se vuoto → OR (niente over-filter su topic libero)
-            and_where, and_params = _phrase_where(terms, "and")
-            # Con un solo termine AND e OR coincidono: la sonda sarebbe la
-            # stessa query due volte (una scansione in più per ogni ricerca).
-            test = [{"id": "_"}] if len(terms) == 1 else _run_sk(
-                con, and_where, and_params, _base_order(), extra_where, extra_params, 3
-            )
-            test = [r for r in test if r.get("id")]
-            if test:
-                where, params = and_where, and_params
-                boost_terms = [t for t in terms if len(t) >= 5]
-                if boost_terms:
-                    boosts = [
-                        "CASE WHEN LOWER(k.title_folded) LIKE ? THEN -1000 ELSE 0 END"
-                        for _ in boost_terms
-                    ]
-                    order = ", ".join(boosts) + ", " + _base_order()
-                    # i segnaposto dell'ORDER BY vanno bindati dopo i filtri:
-                    # passali separati, non in `params` (che è il WHERE)
-                    order_params = [f"%{t}%" for t in boost_terms]
-                else:
-                    order = _base_order()
+            # Indice lessicale (BM25): copre anche gli atti il cui titolo non
+            # contiene le parole del tema ("appalti" → Codice dei contratti).
+            # Se il mart non è pubblicato (legacy) si ricade sul titolo.
+            term = _term_join(con, intent)
+            if term is not None:
+                from_extra, from_params, term_need = term
+                where = "ts.id IS NOT NULL"
+                order = _term_order(_view_exists(con, "metrics"))
             else:
-                or_where, or_params = _phrase_where(terms, "or")
-                where, params = or_where, or_params
-                order = (
-                    "CASE WHEN k.source = 'normativa' THEN 0 ELSE 1 END, "
-                    + _base_order()
+                # 1) AND; se vuoto → OR (niente over-filter su topic libero)
+                and_where, and_params = _phrase_where(terms, "and")
+                # Con un solo termine AND e OR coincidono: la sonda sarebbe la
+                # stessa query due volte (una scansione in più per ogni ricerca).
+                test = [{"id": "_"}] if len(terms) == 1 else _run_sk(
+                    con, and_where, and_params, _base_order(), extra_where, extra_params, 3
                 )
-                # OR può essere rumoroso: se source è costituzione, tieni solo nodi giurisprudenziali
-                if source == "costituzione":
-                    where = (
-                        "(" + or_where + ") AND ("
-                        "k.id LIKE 'sentenza:%' OR LOWER(k.title) LIKE '%ecli%'"
-                        " OR UPPER(k.tipo) IN ('SENTENZA','ORDINANZA','PRONUNCIA')"
-                        ")"
+                test = [r for r in test if r.get("id")]
+                if test:
+                    where, params = and_where, and_params
+                    boost_terms = [t for t in terms if len(t) >= 5]
+                    if boost_terms:
+                        boosts = [
+                            "CASE WHEN LOWER(k.title_folded) LIKE ? THEN -1000 ELSE 0 END"
+                            for _ in boost_terms
+                        ]
+                        order = ", ".join(boosts) + ", " + _base_order()
+                        # i segnaposto dell'ORDER BY vanno bindati dopo i filtri:
+                        # passali separati, non in `params` (che è il WHERE)
+                        order_params = [f"%{t}%" for t in boost_terms]
+                    else:
+                        order = _base_order()
+                else:
+                    or_where, or_params = _phrase_where(terms, "or")
+                    where, params = or_where, or_params
+                    order = (
+                        "CASE WHEN k.source = 'normativa' THEN 0 ELSE 1 END, "
+                        + _base_order()
                     )
+                    # OR può essere rumoroso: se source è costituzione, tieni solo nodi giurisprudenziali
+                    if source == "costituzione":
+                        where = (
+                            "(" + or_where + ") AND ("
+                            "k.id LIKE 'sentenza:%' OR LOWER(k.title) LIKE '%ecli%'"
+                            " OR UPPER(k.tipo) IN ('SENTENZA','ORDINANZA','PRONUNCIA')"
+                            ")"
+                        )
 
     # esegui intent principale
     out = _run_sk(
-        con, where, params, order, extra_where, extra_params, limit, order_params
+        con,
+        where,
+        params,
+        order,
+        extra_where,
+        extra_params,
+        limit,
+        order_params,
+        from_extra=from_extra,
+        from_params=from_params,
     )
+
+    # Copertura stretta vuota: succede quando i termini non co-occorrono in un
+    # atto ("pizzo estorsione") o uno è un refuso ("prescrizine"). Prima di
+    # rispondere "niente", riprova chiedendo un solo termine.
+    if not out and from_extra and term_need > 1:
+        relaxed = _term_join(con, intent, min_need=1)
+        if relaxed is not None:
+            r_join, r_params, _ = relaxed
+            out = _run_sk(
+                con,
+                where,
+                params,
+                order,
+                extra_where,
+                extra_params,
+                limit,
+                from_extra=r_join,
+                from_params=r_params,
+            )
 
     # fallback number → residual phrase
     if not out and fallthrough_phrase:

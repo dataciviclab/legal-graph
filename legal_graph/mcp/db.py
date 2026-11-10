@@ -47,6 +47,7 @@ from legal_graph.paths import (
     resolve_nodes_file,
     resolve_relation_type_file,
     resolve_search_keys_file,
+    resolve_search_terms_file,
     resolve_texts_file,
     source_exists,
 )
@@ -393,6 +394,7 @@ def _mart_opzionali() -> tuple[tuple[str, str, object], ...]:
         ("coverage", "mart_legal_coverage", resolve_coverage_file),
         ("metrics", "mart_legal_node_metrics", resolve_metrics_file),
         ("search_keys", "mart_legal_search_keys", resolve_search_keys_file),
+        ("search_terms", "mart_legal_search_terms", resolve_search_terms_file),
         ("node_rel", "mart_legal_node_rel", resolve_node_rel_file),
         ("emend_leg", "mart_legal_emend_leg", resolve_emend_leg_file),
         ("texts", "mart_legal_texts", resolve_texts_file),

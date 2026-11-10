@@ -11,11 +11,11 @@ Priorità sorgente mart (tabelle del compose):
 - `gcs`: solo GCS, anche se un build locale è presente (evita di servire
   dati vecchi quando il publish è più fresco)
 
-Il contract di publish copre 12 tabelle: le 10 del grafo (nodes, edges,
+Il contract di publish copre 13 tabelle: le 10 del grafo (nodes, edges,
 entity_alias, relation_type, edges_in, coverage, metrics, search_keys,
 node_rel, emend_leg) sono previste dal compose M1 e diventano online col
-primo run di pipeline che le pubblica; texts e massime seguono lo stesso
-meccanismo.
+primo run di pipeline che le pubblica; `search_terms` (indice BM25),
+`texts` e `massime` seguono lo stesso meccanismo.
 Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations
@@ -46,6 +46,7 @@ GCS_MART_TABLES = frozenset(
         "mart_legal_coverage",
         "mart_legal_node_metrics",
         "mart_legal_search_keys",
+        "mart_legal_search_terms",
         "mart_legal_node_rel",
         "mart_legal_emend_leg",
         "mart_legal_texts",
@@ -173,6 +174,11 @@ def resolve_coverage_file() -> PathLike | None:
 
 def resolve_search_keys_file() -> PathLike | None:
     return resolve("mart_legal_search_keys")
+
+
+def resolve_search_terms_file() -> PathLike | None:
+    """Indice lessicale full-text (BM25) per `legal_search`."""
+    return resolve("mart_legal_search_terms")
 
 
 def resolve_node_rel_file() -> PathLike | None:
