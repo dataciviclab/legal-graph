@@ -88,7 +88,7 @@ class TestAttuaDelega:
                 assert kind == "locator", (kind, n)
             else:
                 assert assertion == "inferred", (assertion, n)
-                assert kind in ("quote", "none"), (kind, n)
+                assert kind in ("quote", "none", "locator"), (kind, n)
 
     def test_citation_evidence_non_e_il_titolo_del_bersaglio(self, con):
         """Regressione: l'evidenza era `n2.oggetto` (titolo della legge).

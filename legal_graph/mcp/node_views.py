@@ -316,8 +316,12 @@ def _attua_delega_hint(con: duckdb.DuckDBPyConnection, node_row: tuple) -> dict[
         "delega_anno": legge[2],
         "delega_urn_guess": hint["legge_id"],
         "note": (
-            "attua_delega euristica dal titolo (non un edge tipizzato). "
-            "Verifica con legal_text / legal_query su edges."
+            (
+                "L'edge attua_delega esiste (method='title'): la catena lo mostra."
+                if exists
+                else "Legge-base citata nel titolo, ma l'edge attua_delega non è nel grafo."
+            )
+            + " Verifica con legal_text / legal_query su edges."
         ),
     }
 
@@ -538,7 +542,8 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "dal titolo dell'atto (estratta, locator), `regex` = dedotta da "
             "una citazione (inferita, debole). "
             "top_riferimenti_* = campione riferimento se la chain è vuota. "
-            "attua_delega_hint = euristica dal titolo (legge-base citata)."
+            "attua_delega_hint = legge-base citata nel titolo (stessa euristica "
+            "dell'edge `method='title'`)."
         ),
     }
 
