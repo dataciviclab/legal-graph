@@ -16,9 +16,12 @@
 -- I link markdown e gli URL non sono testo dell'atto e vengono rimossi
 -- prima del conteggio (evita di indicizzare `VIGENZA` e nomi di file).
 --
--- Perché non si indicizzano le stopword: non serve. Il consumer le toglie
--- dalla query (`textfold._STOP`); indexarle aggiungerebbe solo righe con
--- idf≈0. La lista resta in un posto solo, il codice.
+-- Stopword: sono indicizzate, non filtrate qui. Il consumer le toglie dalla
+-- query (`textfold._STOP`), quindi non vengono mai interrogate e il loro
+-- idf≈0 non entra mai nel punteggio. Sono 713.743 righe su 7.209.185
+-- (9,9%): il costo è accettato per non duplicare la lista in due linguaggi
+-- (SQL + Python) e per non rischiare che le due copie divergano. L'unica
+-- fonte della lista resta il codice.
 
 WITH docs AS (
     SELECT id, title_folded
