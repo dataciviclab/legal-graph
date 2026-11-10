@@ -142,3 +142,14 @@ def test_term_index_absent_falls_back(monkeypatch):
     monkeypatch.setattr(s, "_view_exists", lambda con, name: name != "search_terms")
     # la funzione restituisce None quando il mart manca
     assert s._term_join(None, {"terms": ["appalti"], "primary": ["appalti"]}) is None
+
+
+def test_appalti_pubblici_ordinamento(terms_ready):
+    """P1.1: il Codice 36/2023 deve battere la legge 1909/422 sul tema appalti.
+
+    Il titolo corto della 1909 ("... per appalti pubblici") con il boost 3x
+    scavalca il Codice 36/2023, che nomina il tema nel testo ma non nel titolo.
+    """
+    rows = m.legal_search("appalti pubblici", limit=3)
+    assert rows, "nessun risultato per appalti pubblici"
+    assert rows[0]["id"] == "urn:nir:stato:decreto.legislativo:2023-03-31;36", rows[:3]

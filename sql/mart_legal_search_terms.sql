@@ -7,7 +7,7 @@
 -- la stessa regola di `legal_graph.mcp.textfold._term_stem`.
 --
 -- Il peso BM25 è precalcolato qui (k1=1.2, b=0.75) e include il titolo
--- pesato 3x: `legal_search` somma i pesi dei termini della query, senza
+-- pesato 2x: `legal_search` somma i pesi dei termini della query, senza
 -- ricalcolare nulla a ogni chiamata. `ORDER BY term` è un contratto di
 -- performance: il filtro `term IN (...)` usa le statistiche parquet.
 --
@@ -81,11 +81,11 @@ body_terms AS (
     FROM body_clean
 ),
 
--- Il titolo pesa 3x: un atto che nomina il tema nel titolo è più
+-- Il titolo pesa 2x: un atto che nomina il tema nel titolo è più
 -- probabilmente il tema, ma il peso non basta a battere un testo che
 -- lo tratta centinaia di volte (vedi eval temi 2026-11).
 fields AS (
-    SELECT id, term, COUNT(*) * 3.0 AS w
+    SELECT id, term, COUNT(*) * 2.0 AS w
     FROM title_terms
     WHERE length(term) >= 3
     GROUP BY 1, 2

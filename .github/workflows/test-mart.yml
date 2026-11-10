@@ -1,0 +1,42 @@
+# Test mart — cambi ai soli test
+#
+# Il compose completo (e il publish su GCS) gira in `pipeline.yml` su
+# sql/**, dataset.yml, legal_graph/**. Qui si scarica il mart già pubblicato
+# e si eseguono i test: ~1-2 minuti invece di una pipeline intera.
+#
+# Niente trigger su pull_request: se la PR tocca anche sql/** o
+# legal_graph/** il mart su GCS è vecchio rispetto al branch e i test
+# fallirebbero per dati, non per codice. In quel caso testa la pipeline
+# al merge; qui girano i push di soli test.
+name: Test mart
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "dataset.yml"
+      - "sql/**"
+      - "legal_graph/**"
+      - ".github/workflows/pipeline.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: legal-graph-test-mart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-mart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dataciviclab/.github/actions/python-setup@main
+        with:
+          install-extras: "dev,mcp"
+
+      - name: Download mart da GCS
+        run: make download-gcs
+
+      - name: Test sul mart pubblicato
+        run: make test
