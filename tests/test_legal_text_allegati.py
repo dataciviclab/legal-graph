@@ -64,3 +64,64 @@ def test_doc_accetta_anche_doc_name(monkeypatch):
     )
     r = lt.fetch_attachment_text(urn="u", doc="Preleggi-art. 1")
     assert r["doc_id"] == "a" and r["text"] == "ok"
+
+
+def test_cache_per_file_una_sola_fetch(monkeypatch, tmp_path):
+    """Due doc dello stesso file → un solo download (la chiave è l'URL)."""
+    monkeypatch.setattr(lt, "TEXT_CACHE", tmp_path)
+    calls: list[str] = []
+
+    class _Resp:
+        ok = True
+        text = "# Allegati - X\n\n## A-art. 1\n\ntesto\n"
+
+    class _Result:
+        is_ok = True
+        response = _Resp()
+
+    class _Http:
+        def get(self, url):
+            calls.append(url)
+            return _Result()
+
+    monkeypatch.setattr(lt, "_get_http", lambda: _Http())
+    url = "https://example.test/allegati/x.md"
+    a, _ = lt._fetch_url(url, ttl=3600)
+    b, _ = lt._fetch_url(url, ttl=3600)
+    assert a == b
+    assert len(calls) == 1
+
+
+def test_cache_ttl_scaduto_riscarica(monkeypatch, tmp_path):
+    monkeypatch.setattr(lt, "TEXT_CACHE", tmp_path)
+    calls: list[str] = []
+
+    class _Resp:
+        ok = True
+        text = "# Allegati\n"
+
+    class _Result:
+        is_ok = True
+        response = _Resp()
+
+    class _Http:
+        def get(self, url):
+            calls.append(url)
+            return _Result()
+
+    monkeypatch.setattr(lt, "_get_http", lambda: _Http())
+    url = "https://example.test/allegati/y.md"
+    lt._fetch_url(url, ttl=60)
+    path = lt._cache_path(url)
+    import os
+
+    old = path.stat().st_mtime - 7200
+    os.utime(path, (old, old))
+    lt._fetch_url(url, ttl=60)
+    assert len(calls) == 2
+
+
+def test_articolo_stringa_normalizzata():
+    docs = [{"doc_id": "a", "doc_name": "CODICE-art. 2043"}]
+    assert lt.match_articolo(docs, "Art. 2043") == docs
+    assert lt.match_articolo(docs, "art.2043.") == docs

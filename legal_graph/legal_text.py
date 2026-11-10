@@ -31,6 +31,10 @@ ALLEGATI_INDEX_URL = (
 )
 ALLEGATI_MD_BASE = "https://storage.googleapis.com/dataciviclab-clean/italia-corpus"
 _ALLEGATI_TTL_SECONDS = 24 * 3600
+# Il testo di un atto cambia quando IC rigenera il corpus (settimanale):
+# 7 giorni è bounded freshness coerente con la cadenza, senza riscaricare
+# lo stesso file ogni giorno.
+_ALLEGATI_MD_TTL_SECONDS = 7 * 24 * 3600
 # URN → testo vigente (link pubblico, usato per gli atti fuori collezione)
 NORMATTIVA_URI = "https://www.normattiva.it/uri-res/N2Ls?"
 # Override opzionale: repo IC clonato in locale (sviluppo/offline)
@@ -129,21 +133,29 @@ def attachments_meta(docs: list[dict], limit: int = 40) -> dict[str, Any]:
     }
 
 
-def _fetch_url(url: str, cache_hint: str | None = None) -> tuple[str, str]:
-    """(testo, via) da un URL pubblico, con cache su disco.
+def _cache_fresh(url: str, ttl: int | None) -> bool:
+    """True se la cache esiste ed è più recente di `ttl` (None = sempre fresca)."""
+    path = _cache_path(url)
+    if not path.exists():
+        return False
+    return ttl is None or (time.time() - path.stat().st_mtime) <= ttl
 
-    `cache_hint` (hash/versione dell'allegato) entra nella chiave: se IC
-    rigenera lo stesso path, il testo vecchio non viene servito.
+
+def _fetch_url(url: str, ttl: int | None = None) -> tuple[str, str]:
+    """(testo, via) da un URL pubblico, cache su disco per URL.
+
+    La chiave è l'URL: la cache segue la granularità della risorsa (un file
+    per atto, non un doc). `ttl` bounded-freschezza: scaduto, si riscarica.
     """
-    key = f"{url}|{cache_hint}" if cache_hint else url
-    cached = _read_cache(key)
-    if cached is not None:
-        return cached, "cache"
+    if _cache_fresh(url, ttl):
+        cached = _read_cache(url)
+        if cached is not None:
+            return cached, "cache"
     result = _get_http().get(url)
     if not result.is_ok or result.response is None or not result.response.ok:
         raise OSError(f"HTTP fallito per {url}")
     text = result.response.text
-    _write_cache(key, text)
+    _write_cache(url, text)
     return text, "gcs"
 
 
@@ -160,9 +172,17 @@ def _sezione_doc(md: str, doc_name: str) -> str | None:
     return (md[body_start:nxt] if nxt != -1 else md[body_start:]).strip()
 
 
+def _norm_articolo(articolo: int | str) -> str:
+    """`"Art. 2043"`, `"art.2043."`, `2043` → `"2043"`."""
+    val = str(articolo).strip().lower()
+    if val.startswith("art."):
+        val = val[4:].strip()
+    return val.rstrip(".").strip()
+
+
 def match_articolo(docs: list[dict], articolo: int | str) -> list[dict]:
     """Allegati il cui `doc_name` finisce per `art. N` (N esatto, non prefisso)."""
-    want = f"art. {articolo}".lower()
+    want = f"art. {_norm_articolo(articolo)}"
     return [
         d for d in docs if str(d.get("doc_name") or "").strip().lower().endswith(want)
     ]
@@ -179,7 +199,7 @@ def _serve_doc(urn: str, target: dict, max_chars: int) -> dict:
         return {"error": "allegato senza rel_path nell'indice"}
     url = f"{ALLEGATI_MD_BASE}/{quote(rel_path)}"
     try:
-        md, via = _fetch_url(url, cache_hint=str(target.get("hash") or target.get("versione") or "")) 
+        md, via = _fetch_url(url, ttl=_ALLEGATI_MD_TTL_SECONDS)
     except OSError as exc:
         return {"error": f"allegato non recuperato: {exc}", "url": url}
     sezione = _sezione_doc(md, target.get("doc_name") or "")
