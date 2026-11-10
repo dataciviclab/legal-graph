@@ -6,7 +6,7 @@
 # di pipeline che li carica (prima l'MCP degrada su GitHub raw / `edges`).
 #
 # Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**|
-# legal_graph/**|tests/**.
+# legal_graph/**. I cambi ai soli test girano in `test-mart.yml`.
 #
 # Perché anche il codice: la CI su PR fa solo preflight+lint, i test sul mart
 # girano qui. Senza `legal_graph/**` un fix di search/views arriverebbe su main
@@ -23,7 +23,7 @@ on:
       - "dataset.yml"
       - "sql/**"
       - "legal_graph/**"
-      - "tests/**"
+      # test-only → Test mart (download GCS + pytest), non compose+publish
       - ".github/workflows/pipeline.yml"
   workflow_dispatch:
 

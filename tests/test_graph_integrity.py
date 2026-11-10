@@ -279,12 +279,19 @@ class TestEvidenzaFormulaica:
             "SELECT COUNT(*) FROM edges WHERE relation = 'riferimento'"
         ).fetchone()[0]
         assert sum(kinds.values()) == totale, (kinds, totale)
-        assert set(kinds) == {"missing", "locator", "quote"}, kinds
+        # `locator` resta possibile per i mart legacy; con il contesto pulito
+        # (IC 2026-11-10) le citazioni non hanno più evidenza-URL, quindi il
+        # set effettivo è {missing, quote}. La partizione è il contratto.
+        assert set(kinds) <= {"missing", "locator", "quote"}, kinds
+        assert {"missing", "quote"} <= set(kinds), kinds
 
         mismatch = con.execute("""
             SELECT COUNT(*) FROM edges
             WHERE COALESCE(evidence_kind = 'missing', FALSE)
-              IS DISTINCT FROM (relation = 'riferimento' AND evidence = 'akn:ref')
+              IS DISTINCT FROM (
+                  relation = 'riferimento'
+                  AND (evidence IS NULL OR evidence = '' OR evidence = 'akn:ref')
+              )
         """).fetchone()[0]
         assert mismatch == 0, f"{mismatch} edge con evidence_kind 'missing' incoerente"
 

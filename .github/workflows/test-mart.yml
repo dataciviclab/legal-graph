@@ -1,0 +1,74 @@
+# Test mart — cambi ai soli test
+#
+# Il compose completo (e il publish su GCS) gira in `pipeline.yml` su
+# sql/**, dataset.yml, legal_graph/**. Qui si scarica il mart già pubblicato
+# e si eseguono i test: ~1-2 minuti invece di una pipeline intera.
+#
+# `paths: tests/**` fa partire il workflow solo se almeno un test è cambiato.
+# Il job `gate` controlla poi che nel push non ci sia anche un file che
+# invalida il mart (sql/**, legal_graph/**, dataset.yml, pipeline.yml):
+# in quel caso `test-mart` è saltato e gira solo la pipeline, che testa il
+# mart appena costruito. `paths-ignore` da solo non basta: GitHub lo applica
+# solo se *tutti* i file cambiati matchano la lista, non "se c'è anche".
+name: Test mart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tests/**"
+  workflow_dispatch:
+
+concurrency:
+  group: legal-graph-test-mart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          printf 'File cambiati:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE '^(dataset\.yml|sql/|legal_graph/|\.github/workflows/pipeline\.yml)'; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-mart:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dataciviclab/.github/actions/python-setup@main
+        with:
+          install-extras: "dev,mcp"
+
+      - name: Download mart da GCS
+        run: make download-gcs
+
+      - name: Test sul mart pubblicato
+        run: make test
