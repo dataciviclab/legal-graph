@@ -16,15 +16,21 @@ WITH massime_norme_dated AS (
     FROM read_parquet('{support.massime_norme.path}')
 ),
 -- Locator AKN (#67): il `detail` di akn_relations porta il frammento
--- (es. `#art_47-com1-leta`). Aggreghiamo per (fonte, target, tipo) così un
--- edge con più articoli espone l'elenco; le relazioni mappano ai rel_type AKN.
+-- (es. `#art_47-com1-leta`). Aggreghiamo per (fonte, target, rel_type) con
+-- lista ordinata: l'ordine è deterministico tra run e un edge con più
+-- articoli espone `art_3,art_47`. Filtro consigliato sui multi-locator:
+--   (',' || evidence_locator || ',') LIKE '%,art_3,%'
+--
+-- Oggi SOLO `rel_type='citation'` ha il fragment nel `detail`. Le textualMod
+-- (`insertion`/`repeal`/`substitution`) hanno `src=…;dest=…` senza `#art_`:
+-- il mapping relazione→rel_type sotto è future-proofing per IC#142.
 akn_locator AS (
     SELECT
         fonte_urn,
         target_urn,
         rel_type,
-        string_agg(
-            DISTINCT regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1),
+        array_to_string(
+            list_sort(list(DISTINCT regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1))),
             ','
         ) AS locators
     FROM read_parquet('{support.akn_relations.path}')
