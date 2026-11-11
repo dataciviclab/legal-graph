@@ -15,27 +15,43 @@ WITH massime_norme_dated AS (
               ELSE TRY_CAST(norma_data AS DATE) END) AS norma_data_date
     FROM read_parquet('{support.massime_norme.path}')
 ),
--- Locator AKN (#67): il `detail` di akn_relations porta il frammento
--- (es. `#art_47-com1-leta`). Aggreghiamo per (fonte, target, rel_type) con
--- lista ordinata: l'ordine è deterministico tra run e un edge con più
--- articoli espone `art_3,art_47`. Filtro consigliato sui multi-locator:
+-- Locator AKN (#67, italia-corpus #142): due fonti, in ordine di precisione.
+-- 1. `articolo`: forma normalizzata `art_N[-suffisso][-comM]`. Può essere una
+--    lista (`art_3,art_47`) quando un edge copre più articoli → si splitta.
+-- 2. fallback su `detail`: fragment `#art_...` delle citazioni (righe prodotte
+--    prima di #142 e collezioni non ancora riprocessate).
+-- Aggregazione per (fonte, target, rel_type) con lista ordinata: l'ordine è
+-- deterministico tra run. Filtro consigliato sui multi-locator:
 --   (',' || evidence_locator || ',') LIKE '%,art_3,%'
---
--- Oggi SOLO `rel_type='citation'` ha il fragment nel `detail`. Le textualMod
--- (`insertion`/`repeal`/`substitution`) hanno `src=…;dest=…` senza `#art_`:
--- il mapping relazione→rel_type sotto è future-proofing per IC#142.
+-- La regex ripete la grammatica di `articolo_da_frammento` (suffisso incluso:
+-- `art_47-bis` ≠ `art_47`), altrimenti il fallback perderebbe il suffisso.
+-- RE2 (DuckDB) non ha il lookahead: si usa `\b` con gli ordinali lunghi prima
+-- (`terdecies` non deve essere troncato a `ter`).
 akn_locator AS (
     SELECT
         fonte_urn,
         target_urn,
         rel_type,
-        array_to_string(
-            list_sort(list(DISTINCT regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1))),
-            ','
-        ) AS locators
-    FROM read_parquet('{support.akn_relations.path}')
-    WHERE detail LIKE '%#art_%'
-      AND regexp_extract(detail, '#(art_[0-9]+(?:-com[0-9]+)?)', 1) <> ''
+        array_to_string(list_sort(list(DISTINCT trim(loc))), ',') AS locators
+    FROM (
+        SELECT
+            fonte_urn,
+            target_urn,
+            rel_type,
+            unnest(string_split(
+                COALESCE(
+                    NULLIF(articolo, ''),
+                    regexp_extract(
+                        detail,
+                        '#(art_[0-9]+(?:-(?:terdecies|quaterdecies|septendecies|quindecies|octodecies|novodecies|duodecies|undecies|quinquies|sedecies|sexies|septies|octies|novies|decies|quater|vicies|bis|ter)\b)?(?:-com[0-9]+)?)',
+                        1
+                    )
+                ),
+                ','
+            )) AS loc
+        FROM read_parquet('{support.akn_relations.path}')
+    )
+    WHERE trim(loc) <> ''
     GROUP BY 1, 2, 3
 ),
 urn_lookup AS (
