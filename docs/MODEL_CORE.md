@@ -159,7 +159,7 @@ For every important node/edge:
 - L.149/2016: 4 expressions, 2 identical texts, 1 different, 1 missing.
 - D.P.R. 631/1949: artt. 96–98 abrogati, act `vigente`.
 - D.Lgs 50/2016: total abrogation; 998 `vigente`+`abroga`; 14.532/14.933 abrogati without edge.
-- 140.406 citation article locators, 61.578 comma; `insertion`/`repeal`/`substitution` act-level.
+- 302.621 edge `citation` nel clean (109.339 con `articolo`, 157.310 con `contesto`); `insertion`/`repeal`/`substitution` hanno il locator dove la collezione è riprocessata (956 righe restano act-level per il pin `V`).
 - 2.590 Camera duplicates; 3 `norma:*` duplicates; 4.322 impossible citations.
 
 ---
@@ -221,7 +221,7 @@ For every important node/edge:
 
 **Compatibilità (M1)**
 - Gli id storici `camera:atto:*` risolvono via `entity_alias`, ma la riga risolta è il nodo canonico: `tipo='DDL'`, `source='camera_ddl'`, `anno` valorizzato. Chi filtra `tipo='ATTO CAMERA'` non trova più quei 2.590 atti: il filtro corretto è sull'id canonico o via alias.
-- `evidence_locator` è popolato **solo sui nodi** (da `source_filename`) in M1. Sugli edge resta NULL: l'evidenza grezza è in `evidence` e la sua forma in `prov_evidence_kind`; non viene duplicata in un locator. Nessuna sospensione silenziosa: è una scelta di contratto.
+- `evidence_locator` è popolato sui **nodi** (da `source_filename`) e, dal 2026-11-11, anche sugli **edge** dove il dato esiste: 91.134 `riferimento`, 12.479 `modifica`, 151 `abroga`, 203 `sostituisce`. La forma resta descritta da `prov_evidence_kind`; il locator non sostituisce `evidence` ma lo qualifica (`art_N[-suffisso][-comM]`, lista se l'edge copre più articoli).
 
 **Limiti noti (non finti)**
 - `impugna` copre solo gli esiti `illegittimo|misto`: mancano `infondato`/`inammissibile` e `id_massima`. È lavoro dati/modello di M2 (C3.5), non di vocabolario.

@@ -1,8 +1,8 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-08 · aggiornata 2026-11-09 · Fonte: build locale 2026-11-09 (il mart pubblico si aggiorna al prossimo run)
+Data: 2026-10-08 · aggiornata 2026-11-11 · Fonte: mart pubblicato 2026-11-11
 
-> 2026-11-09 — build con **860.469 nodi / 1.346.607 archi**, direttive UE incluse. Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
+> 2026-11-11 — build con **857.938 nodi / 1.369.447 archi**, direttive UE incluse. Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
 
 ## Cosa è (in sintesi)
 
@@ -22,7 +22,7 @@ Data: 2026-10-08 · aggiornata 2026-11-09 · Fonte: build locale 2026-11-09 (il 
 
 Non è un’enciclopedia del diritto italiano né un database giurisprudenza ordinaria.
 
-## Bilancio di copertura del compose (2026-11-01)
+## Bilancio di copertura del compose (2026-11-11)
 
 Il compose scarta le righe che non riesce a collegare. Prima questo era
 invisibile: il test di integrità vedeva **0 dangling**, perché gli edge non
@@ -36,11 +36,22 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 267.636 | 267.636 | 221.345 | 82,7% | bersagli senza nodo (URN ambigui/malformati), guardia temporale; direttive UE incluse |
+| `riferimento` | 267.961 | 267.961 | 221.292 | 82,6% | bersagli senza nodo (URN ambigui/malformati), guardia temporale; direttive UE incluse |
 | `emendamento` | 763.690 | 561.270 | 494.259 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
-| `invoca_parametro` | 256.934 | 52.738 | 52.738 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (256.934 righe → 52.738 coppie) |
+| `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
 | `diventa_legge` | 7.520 | 4.496 | 3.574 | 79,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
-| `abroga` | 4.199 | 4.199 | 3.733 | 88,9% | target senza nodo, guardia temporale |
+| `abroga` | 4.199 | 4.199 | 3.990 | 95% | target senza nodo, guardia temporale |
+
+**Locator articolo (`evidence_locator`, 2026-11-11).** L'edge dice *quale articolo*, non solo quale atto:
+
+| Relazione | Edge | Con locator |
+|---|---:|---:|
+| `riferimento` | 221.292 | **91.134** (41,2%) |
+| `modifica` | 28.402 | **12.479** (43,9%) |
+| `sostituisce` | 591 | **203** (34,3%) |
+| `abroga` | 3.990 | **151** (3,8%) |
+
+Codice civile: **1.632/2.059** edge con locator. `abroga`/`sostituisce` bassi perché **956 righe** stanno nelle 4 collezioni con pin `V` (dato IC assente, non limite del grafo). Con più articoli il valore è una lista: `(',' || evidence_locator || ',') LIKE '%,art_3,%'`.
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.
