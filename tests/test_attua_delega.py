@@ -140,20 +140,20 @@ class TestAttuaDelega:
         c.execute(
             "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
             "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
-            "prov_evidence_kind VARCHAR, evidence VARCHAR)"
+            "prov_evidence_kind VARCHAR, evidence VARCHAR, evidence_locator VARCHAR)"
         )
         c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO LEGISLATIVO', 'atto', 2020)")
         for i in range(9):
             c.execute("INSERT INTO nodes VALUES (?, 'LEGGE', ?, 2020)", [f"r{i}", f"regex {i}"])
             c.execute(
                 "INSERT INTO edges VALUES ('x', 'attua_delega', ?, ?, 'regex', "
-                "'inferred', 'none', 'akn:ref')",
+                "'inferred', 'none', 'akn:ref', NULL)",
                 [f"r{i}", 20 - i],
             )
         c.execute("INSERT INTO nodes VALUES ('title', 'LEGGE', 'delega vera', 2019)")
         c.execute(
             "INSERT INTO edges VALUES ('x', 'attua_delega', 'title', 5, 'title', "
-            "'extracted', 'locator', 'titolo')"
+            "'extracted', 'locator', 'titolo', NULL)"
         )
         trovate = _bfs(c, "x", 1, outbound=True)
         target = [t[1] for t in trovate]

@@ -15,6 +15,45 @@ WITH massime_norme_dated AS (
               ELSE TRY_CAST(norma_data AS DATE) END) AS norma_data_date
     FROM read_parquet('{support.massime_norme.path}')
 ),
+-- Locator AKN (#67, italia-corpus #142): due fonti, in ordine di precisione.
+-- 1. `articolo`: forma normalizzata `art_N[-suffisso][-comM]`. Può essere una
+--    lista (`art_3,art_47`) quando un edge copre più articoli → si splitta.
+-- 2. fallback su `detail`: fragment `#art_...` delle citazioni (righe prodotte
+--    prima di #142 e collezioni non ancora riprocessate).
+-- Aggregazione per (fonte, target, rel_type) con lista ordinata: l'ordine è
+-- deterministico tra run. Filtro consigliato sui multi-locator:
+--   (',' || evidence_locator || ',') LIKE '%,art_3,%'
+-- La regex ripete la grammatica di `articolo_da_frammento` (suffisso incluso:
+-- `art_47-bis` ≠ `art_47`), altrimenti il fallback perderebbe il suffisso.
+-- RE2 (DuckDB) non ha il lookahead: si usa `\b` con gli ordinali lunghi prima
+-- (`terdecies` non deve essere troncato a `ter`).
+akn_locator AS (
+    SELECT
+        fonte_urn,
+        target_urn,
+        rel_type,
+        array_to_string(list_sort(list(DISTINCT trim(loc))), ',') AS locators
+    FROM (
+        SELECT
+            fonte_urn,
+            target_urn,
+            rel_type,
+            unnest(string_split(
+                COALESCE(
+                    NULLIF(articolo, ''),
+                    regexp_extract(
+                        detail,
+                        '#(art_[0-9]+(?:-(?:terdecies|quaterdecies|septendecies|quindecies|octodecies|novodecies|duodecies|undecies|quinquies|sedecies|sexies|septies|octies|novies|decies|quater|vicies|bis|ter)\b)?(?:-com[0-9]+)?)',
+                        1
+                    )
+                ),
+                ','
+            )) AS loc
+        FROM read_parquet('{support.akn_relations.path}')
+    )
+    WHERE trim(loc) <> ''
+    GROUP BY 1, 2, 3
+),
 urn_lookup AS (
     SELECT * FROM (
         SELECT
@@ -1111,7 +1150,7 @@ SELECT
         ) THEN 'join'
         ELSE 'unknown'
     END AS method,
-    NULL::VARCHAR AS evidence_locator,
+    l.locators AS evidence_locator,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
           OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
@@ -1152,6 +1191,16 @@ SELECT
     'unreviewed' AS review_status,
     NULL::VARCHAR AS snapshot_id
 FROM grouped g
+LEFT JOIN akn_locator l
+  ON  l.fonte_urn = g.source_id
+  AND l.target_urn = g.target_id
+  AND l.rel_type = CASE g.relation
+        WHEN 'riferimento' THEN 'citation'
+        WHEN 'abroga' THEN 'repeal'
+        WHEN 'modifica' THEN 'insertion'
+        WHEN 'sostituisce' THEN 'substitution'
+        ELSE g.relation
+      END
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
 -- con i parquet ordinati il row-group pruning salta la maggior parte del file
