@@ -1,6 +1,6 @@
 # Legal Knowledge Graph — il diritto italiano come sistema
 
-**858.126 nodi e 1.318.479 relazioni tra leggi, decreti, disegni di legge, sentenze e Costituzione (build 2026-11-09).**
+**857.938 nodi e 1.369.447 relazioni tra leggi, decreti, disegni di legge, sentenze e Costituzione (build 2026-11-11).**
 
 Una legge non nasce da sola. Un disegno di legge diventa legge, un decreto legislativo attua una delega, una sentenza della Corte costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Il Legal Graph mette in un unico grafo interrogabile queste relazioni, raccolte da cinque fonti del Lab: italia-corpus, costituzione-italiana, senato-akn, open-politica e gu-monitor.
 
@@ -10,8 +10,8 @@ Non è un'enciclopedia del diritto né un motore di ricerca normativo. È una **
 
 | | |
 |---|---|
-| **Nodi** | 858.126 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
-| **Relazioni** | 1.318.479 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
+| **Nodi** | 857.938 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
+| **Relazioni** | 1.369.447 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
 | **Bersagli fuori corpus** | 10.852 atti citati che non sono nel corpus testuale, ricostruiti dal catalogo Normattiva (10.629 collegati al grafo) |
 | **Tabelle pubblicate** | 13 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, **indice full-text (BM25)**, relazioni pre-aggregate, emendamenti, testi, massime |
 | **Fonti** | 5 repo del Lab, lette da rete |

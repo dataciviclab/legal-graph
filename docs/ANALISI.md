@@ -26,6 +26,8 @@ Se il grafo non copre, dichiararlo e passare a un dataset Lab o a una fonte este
 | A4 | Qual è la catena privacy pre/post GDPR? | search `196/2003`, `101/2018` → overview + riferimenti |
 | A5 | Quante relazioni `attua_delega` ci sono nel grafo? | `legal_query` GROUP BY relation |
 | A6 | Questo atto cosa abroga o sostituisce? | search atto → `legal_node` view=`chain` (modifiche AKN: abroga/sostituisce/split/join) |
+| A7 | Qual è l'articolo più citato del corpus? | `legal_query` su `edges` `riferimento` + split di `evidence_locator` (oggi: art. 17 c.3 L. 400/1988, 2.263 atti — [Analisi #10](../discussions/72)) |
+| A8 | Quali articoli del Codice civile sono più modificati? | `legal_query` su `edges` `modifica` con `unnest(string_split(evidence_locator, ','))` (oggi: societario — [Analisi #11](../discussions/73)) |
 
 ## B. Costituzione e giurisprudenza (forte)
 
