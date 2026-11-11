@@ -47,34 +47,35 @@ def _cte_body(tmp_path) -> str:
 
 
 def test_cte_aggregata_e_ordinata(tmp_path):
-    """Il CTE reale: `articolo` (anche liste), fallback `detail`, esclusioni."""
-    import pandas as pd
+    """Il CTE reale: `articolo` (anche liste), fallback `detail`, esclusioni.
 
-    pd.DataFrame(
-        [
-            # fallback sul detail (righe/citazioni senza `articolo`)
-            {"fonte_urn": "A", "target_urn": "B", "rel_type": "citation",
-             "detail": "/akn/...#art_47", "articolo": None},
-            {"fonte_urn": "A", "target_urn": "B", "rel_type": "citation",
-             "detail": "/akn/...#art_3", "articolo": "art_3"},
-            # lista di articoli sullo stesso edge
-            {"fonte_urn": "A", "target_urn": "B", "rel_type": "insertion",
-             "detail": "src=None;dest=urn:x", "articolo": "art_3,art_47"},
-            # suffisso conservato
-            {"fonte_urn": "A", "target_urn": "C", "rel_type": "citation",
-             "detail": "/akn/...#art_47-bis", "articolo": "art_47-bis"},
-            # nessuna delle due fonti → esclusa
-            {"fonte_urn": "A", "target_urn": "C", "rel_type": "citation",
-             "detail": "src=None;dest=urn:x", "articolo": None},
-            # repeal: solo `articolo`, il detail non ha fragment
-            {"fonte_urn": "A", "target_urn": "D", "rel_type": "repeal",
-             "detail": "src=None;dest=urn:y", "articolo": "art_8-ter"},
-        ]
-    ).to_parquet(tmp_path / "akn.parquet")
-
-    body = _cte_body(tmp_path)
+    Il fixture si costruisce con DuckDB (`COPY ... FORMAT PARQUET`): pyarrow
+    non è una dipendenza runtime, e la pipeline esegue i test nel venv minimo.
+    """
     con = duckdb.connect()
     try:
+        con.execute(
+            """
+            CREATE TABLE akn(
+                fonte_urn VARCHAR, target_urn VARCHAR, rel_type VARCHAR,
+                detail VARCHAR, articolo VARCHAR
+            );
+            INSERT INTO akn VALUES
+                -- fallback sul detail (righe/citazioni senza `articolo`)
+                ('A', 'B', 'citation', '/akn/...#art_47', NULL),
+                ('A', 'B', 'citation', '/akn/...#art_3', 'art_3'),
+                -- lista di articoli sullo stesso edge
+                ('A', 'B', 'insertion', 'src=None;dest=urn:x', 'art_3,art_47'),
+                -- suffisso conservato
+                ('A', 'C', 'citation', '/akn/...#art_47-bis', 'art_47-bis'),
+                -- nessuna delle due fonti → esclusa
+                ('A', 'C', 'citation', 'src=None;dest=urn:x', NULL),
+                -- repeal: solo `articolo`, il detail non ha fragment
+                ('A', 'D', 'repeal', 'src=None;dest=urn:y', 'art_8-ter');
+            """
+        )
+        con.execute(f"COPY akn TO '{tmp_path / 'akn.parquet'}' (FORMAT PARQUET)")
+        body = _cte_body(tmp_path)
         rows = con.execute(
             f"WITH akn_locator AS ({body}) "
             "SELECT target_urn, rel_type, locators FROM akn_locator "
