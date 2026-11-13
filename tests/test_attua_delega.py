@@ -159,3 +159,82 @@ class TestAttuaDelega:
         target = [t[1] for t in trovate]
         assert "title" in target, f"delega title fuori dai top-8: {target}"
         c.close()
+
+
+    def test_bfs_preferisce_il_locator_e_riporta_i_nascosti(self):
+        """Con lo stesso peso, l'edge con `evidence_locator` viene prima.
+
+        F-2 dello stress test 2026-11-13: l'ordinamento per id nascondeva le
+        abrogazioni recenti (con locator) dietro 8 ministeriali.
+        """
+        import duckdb
+
+        from legal_graph.mcp.node_views import _bfs
+
+        c = duckdb.connect()
+        c.execute(
+            "CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)"
+        )
+        c.execute(
+            "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+            "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
+            "prov_evidence_kind VARCHAR, evidence VARCHAR, evidence_locator VARCHAR)"
+        )
+        c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO', 'atto', 2020)")
+        for i in range(10):
+            c.execute(
+                "INSERT INTO nodes VALUES (?, 'DECRETO', ?, 2000)", [f"a{i}", f"abroga {i}"]
+            )
+            loc = "art_1" if i == 9 else None
+            c.execute(
+                "INSERT INTO edges VALUES ('x', 'abroga', ?, 1, 'akn_lifecycle', "
+                "'extracted', 'locator', 'x', ?)",
+                [f"a{i}", loc],
+            )
+        meta: dict[str, int] = {}
+        trovate = _bfs(c, "x", 1, outbound=True, meta=meta)
+        assert trovate[0][1] == "a9", trovate
+        assert trovate[0][10] == "art_1"
+        assert meta["hidden"] == 2
+        c.close()
+
+
+    def test_bfs_locator_prima_del_peso(self):
+        """Il locator precede il peso, come nell'ORDER BY SQL (review #75).
+
+        Un edge leggero con locator deve stare davanti a uno pesante senza.
+        """
+        import duckdb
+
+        from legal_graph.mcp.node_views import _bfs
+
+        c = duckdb.connect()
+        c.execute(
+            "CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)"
+        )
+        c.execute(
+            "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+            "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
+            "prov_evidence_kind VARCHAR, evidence VARCHAR, evidence_locator VARCHAR)"
+        )
+        c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO', 'atto', 2020)")
+        c.execute("INSERT INTO nodes VALUES ('pesante', 'DECRETO', 'senza locator', 2000)")
+        c.execute("INSERT INTO nodes VALUES ('evidenza', 'DECRETO', 'con locator', 2001)")
+        c.execute(
+            "INSERT INTO edges VALUES ('x', 'abroga', 'pesante', 100, 'akn_lifecycle', "
+            "'extracted', 'locator', 'x', NULL)"
+        )
+        c.execute(
+            "INSERT INTO edges VALUES ('x', 'abroga', 'evidenza', 1, 'akn_lifecycle', "
+            "'extracted', 'locator', 'x', 'art_9')"
+        )
+        for i in range(7):
+            c.execute("INSERT INTO nodes VALUES (?, 'DECRETO', ?, 1999)", [f"f{i}", f"f{i}"])
+            c.execute(
+                "INSERT INTO edges VALUES ('x', 'abroga', ?, 10, 'akn_lifecycle', "
+                "'extracted', 'locator', 'x', NULL)",
+                [f"f{i}"],
+            )
+        trovate = _bfs(c, "x", 1, outbound=True)
+        assert trovate[0][1] == "evidenza", trovate
+        c.close()

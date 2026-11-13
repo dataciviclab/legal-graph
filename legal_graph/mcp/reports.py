@@ -647,12 +647,15 @@ def _impl_neighbors(
                        e.weight, e.source_year, e.target_year,
                        n.tipo, n.anno, LEFT(n.title, 120) AS title,
                        e.method, e.assertion_type, e.prov_evidence_kind,
-                       LEFT(e.evidence, 200) AS evidence
+                       LEFT(e.evidence, 200) AS evidence,
+                       e.evidence_locator
                 FROM {tabella} e
                 LEFT JOIN nodes n ON n.id = e.{other}
                 {join_rt}
                 WHERE {' AND '.join(where)}
-                ORDER BY e.weight DESC, e.{other}, e.relation
+                ORDER BY e.weight DESC,
+                         (e.evidence_locator IS NOT NULL) DESC,
+                         e.{other}, e.relation
                 LIMIT ?
             """
             params.append(limit)
@@ -677,6 +680,7 @@ def _impl_neighbors(
                     "assertion_type": r[11],
                     "prov_evidence_kind": r[12],
                     "evidence": r[13],
+                    "evidence_locator": r[14],
                 }
                 for r in rows
             ]
