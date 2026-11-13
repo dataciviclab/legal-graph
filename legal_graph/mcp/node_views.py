@@ -370,6 +370,7 @@ def _bfs(
     depth: int,
     *,
     outbound: bool,
+    meta: dict[str, int] | None = None,
 ) -> list[tuple[str, str, str, int, str, int | None, str, str, str, str]]:
     """BFS per livelli: **una query per livello**, non una per nodo.
 
@@ -390,6 +391,12 @@ def _bfs(
     """
     a, b = ("source_id", "target_id") if outbound else ("target_id", "source_id")
     tabella = "edges" if outbound else _tabella_in(con)
+    # Anno dell'arco: nei mart c'è, nelle tabelle sintetiche dei test no.
+    anno_expr = (
+        "COALESCE(GREATEST(e.source_year, e.target_year), 0)"
+        if _has_col(con, tabella, "source_year")
+        else "0"
+    )
     rels = _chain_rels(con)
     in_rel = ",".join("?" * len(rels))
     visited = {start}
@@ -407,13 +414,15 @@ def _bfs(
                 SELECT e.{a} AS parent, e.{b} AS nid, e.relation, e.weight,
                        e.method, e.assertion_type, e.prov_evidence_kind,
                        e.evidence, e.evidence_locator,
+                       COUNT(*) OVER (PARTITION BY e.{a}) AS n_tot,
                        ROW_NUMBER() OVER (
                            PARTITION BY e.{a}
                            ORDER BY
                              CASE WHEN e.relation = 'attua_delega'
                                   THEN CASE WHEN e.method = 'title' THEN 0 ELSE 2 END
                                   ELSE 1 END,
-                             e.weight DESC, e.{b}, e.relation
+                             (e.evidence_locator IS NOT NULL) DESC,
+                             e.weight DESC, {anno_expr} DESC, e.{b}, e.relation
                        ) AS rn
                 FROM {tabella} e
                 WHERE e.{a} IN ({placeholders}) AND e.relation IN ({in_rel})
@@ -421,12 +430,19 @@ def _bfs(
             SELECT c.parent, c.nid, c.relation, c.weight,
                    n.tipo, LEFT(n.title, 100), n.anno,
                    c.method, c.assertion_type, c.prov_evidence_kind,
-                   LEFT(c.evidence, 200), c.evidence_locator
+                   LEFT(c.evidence, 200), c.evidence_locator, c.n_tot
             FROM cand c LEFT JOIN nodes n ON n.id = c.nid
             WHERE c.rn <= 8
             """,
             [*frontier, *rels],
         ).fetchall()
+        if meta is not None:
+            # `n_tot` è per parent: somma gli archi oltre il limite di 8.
+            per_parent = {r[0]: r[-1] for r in rows}
+            meta["hidden"] = meta.get("hidden", 0) + sum(
+                max(0, n - 8) for n in per_parent.values()
+            )
+        rows = [r[:-1] for r in rows]
         posizione = {nodo: i for i, nodo in enumerate(frontier)}
 
         def _rank(r: tuple, _pos: dict = posizione) -> tuple:
@@ -436,7 +452,17 @@ def _bfs(
                 trust = 0 if r[7] == "title" else 2
             else:
                 trust = 1
-            return (_pos[r[0]], trust, -r[3], r[1], r[2])
+            # A parità di evidenza, prima l'edge con locator e poi il più
+            # recente: l'ordinamento per id tagliava le abrogazioni recenti.
+            return (
+                _pos[r[0]],
+                trust,
+                -r[3],
+                0 if r[11] else 1,
+                -(r[6] or 0),
+                r[1],
+                r[2],
+            )
 
         rows.sort(key=_rank)
         prossimo: list[str] = []
@@ -461,6 +487,8 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
     actual_id = node_row[0]
     depth = max(1, min(int(depth or 3), 5))
 
+    f_meta: dict[str, int] = {}
+    b_meta: dict[str, int] = {}
     forward = [
         {
             "relation": relation,
@@ -476,7 +504,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "evidence_locator": locator,
         }
         for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence, locator in _bfs(
-            con, actual_id, depth, outbound=True
+            con, actual_id, depth, outbound=True, meta=f_meta
         )
     ]
     backward = [
@@ -494,7 +522,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "evidence_locator": locator,
         }
         for relation, nid, tipo, title, weight, anno, method, assertion, evidence_kind, evidence, locator in _bfs(
-            con, actual_id, depth, outbound=False
+            con, actual_id, depth, outbound=False, meta=b_meta
         )
     ]
 
@@ -535,6 +563,11 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
         "node": _node_payload(node_row),
         "chain_forward": forward,
         "chain_backward": backward,
+        "truncated": {
+            "limit_per_node": 8,
+            "forward_hidden": f_meta.get("hidden", 0),
+            "backward_hidden": b_meta.get("hidden", 0),
+        },
         "top_riferimenti_out": top_riferimenti_out,
         "top_riferimenti_in": top_riferimenti_in,
         "attua_delega_hint": _attua_delega_hint(con, node_row),
@@ -545,6 +578,7 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "`evidence`: per `attua_delega`, `method='title'` = delega letta "
             "dal titolo dell'atto (estratta, locator), `regex` = dedotta da "
             "una citazione (inferita, debole). "
+            "truncated = archi oltre il limite di 8 per nodo (per direzione). "
             "top_riferimenti_* = campione riferimento se la chain è vuota. "
             "attua_delega_hint = legge-base citata nel titolo (stessa euristica "
             "dell'edge `method='title'`)."

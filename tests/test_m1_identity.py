@@ -125,6 +125,7 @@ def test_legal_neighbors_in_and_canonical_filter(con):
     assert out.get("matched_by") == "alias"
     assert out["returned"] > 0
     assert all(n["direction"] == "in" for n in out["neighbors"])
+    assert all("evidence_locator" in n for n in out["neighbors"])
     assert all(n["canonical_relation"] for n in out["neighbors"])
 
     filt = _impl_neighbors(

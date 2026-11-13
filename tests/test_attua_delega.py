@@ -159,3 +159,41 @@ class TestAttuaDelega:
         target = [t[1] for t in trovate]
         assert "title" in target, f"delega title fuori dai top-8: {target}"
         c.close()
+
+
+    def test_bfs_preferisce_il_locator_e_riporta_i_nascosti(self):
+        """Con lo stesso peso, l'edge con `evidence_locator` viene prima.
+
+        F-2 dello stress test 2026-11-13: l'ordinamento per id nascondeva le
+        abrogazioni recenti (con locator) dietro 8 ministeriali.
+        """
+        import duckdb
+
+        from legal_graph.mcp.node_views import _bfs
+
+        c = duckdb.connect()
+        c.execute(
+            "CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)"
+        )
+        c.execute(
+            "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+            "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
+            "prov_evidence_kind VARCHAR, evidence VARCHAR, evidence_locator VARCHAR)"
+        )
+        c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO', 'atto', 2020)")
+        for i in range(10):
+            c.execute(
+                "INSERT INTO nodes VALUES (?, 'DECRETO', ?, 2000)", [f"a{i}", f"abroga {i}"]
+            )
+            loc = "art_1" if i == 9 else None
+            c.execute(
+                "INSERT INTO edges VALUES ('x', 'abroga', ?, 1, 'akn_lifecycle', "
+                "'extracted', 'locator', 'x', ?)",
+                [f"a{i}", loc],
+            )
+        meta: dict[str, int] = {}
+        trovate = _bfs(c, "x", 1, outbound=True, meta=meta)
+        assert trovate[0][1] == "a9", trovate
+        assert trovate[0][10] == "art_1"
+        assert meta["hidden"] == 2
+        c.close()
