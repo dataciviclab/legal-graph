@@ -18,6 +18,8 @@ from urllib.parse import quote
 import duckdb
 from lab_connectors.http import HttpClient
 
+from legal_graph.mcp import db
+from legal_graph.mcp.db import db_lock
 from legal_graph.paths import resolve_nodes_file, resolve_texts_file, source_exists
 from legal_graph.resolve import resolve_row, sql_quote
 
@@ -518,7 +520,18 @@ def fetch_mart_text(
     *,
     max_chars: int = _DEFAULT_MAX_CHARS,
 ) -> dict:
-    """Testo da mart_legal_texts (articoli Cost. + pronunce Corte)."""
+    """Testo da mart_legal_texts (articoli Cost. + pronunce Corte).
+
+    Legge dalla connessione condivisa del server (`texts` è una VIEW sul
+    parquet), non da una connessione nuova: `mart_legal_texts` è un singolo
+    file da 80 MB e DuckDB tiene in cache esterna i blocchi letti, quindi
+    dalla seconda chiamata in poi non si riscarica (misurato da GCS: 5,0 s
+    la prima, 0,8-1,2 s le successive; con una connessione per chiamata
+    restavano 5-7 s ogni volta).
+
+    Il prezzo è il lock della connessione, come per le altre letture del
+    grafo: DuckDB non è thread-safe su una connessione condivisa.
+    """
     texts_file = resolve_texts_file()
     if not source_exists(texts_file):
         return {
@@ -528,20 +541,26 @@ def fetch_mart_text(
             )
         }
     max_chars = max(200, min(int(max_chars), _HARD_MAX_CHARS))
-    con = duckdb.connect(":memory:")
     try:
-        res = resolve_row(
-            con,
-            source=f"read_parquet('{sql_quote(str(texts_file))}')",
-            cols="id, kind, title, testo, dispositivo, ecli",
-            node_id=node_id,
-        )
+        with db_lock():
+            con = db._get_con()
+            # senza la view (mart pubblicato dopo il bootstrap) si legge il
+            # parquet per path: stesso risultato, senza la cache del server
+            source = (
+                "texts"
+                if db._view_exists(con, "texts")
+                else f"read_parquet('{sql_quote(str(texts_file))}')"
+            )
+            res = resolve_row(
+                con,
+                source=source,
+                cols="id, kind, title, testo, dispositivo, ecli",
+                node_id=node_id,
+            )
     except duckdb.Error as exc:
         # URL pubblico non raggiungibile (es. tabella non ancora pubblicata):
         # errore leggibile invece dell'eccezione DuckDB grezza.
         return {"error": f"mart_legal_texts non leggibile ({texts_file}): {exc}"}
-    finally:
-        con.close()
     if res.row is None:
         if res.candidates:
             return {

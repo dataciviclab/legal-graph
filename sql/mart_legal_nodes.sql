@@ -405,7 +405,9 @@ nodes_emend AS (
             tipologia AS tipo,
             CAST(work_date AS VARCHAR) AS data,
             emend_id AS numero,
-            LEFT(text_integrale, 100) AS title,
+            -- anteprima (clean senato-akn): il testo integrale pesa 158 MB
+            -- su 211 MB del clean e serviva per 100 caratteri di titolo
+            LEFT(text_preview, 100) AS title,
             'Senato Emendamenti' AS collezione,
             document_id AS source_filename,
             'senato_emend' AS source,
@@ -438,7 +440,9 @@ nodes_dib AS (
             tipologia AS tipo,
             CAST(data_seduta AS VARCHAR) AS data,
             nome_oratore AS numero,
-            LEFT(text_intervento, 100) AS title,
+            -- anteprima dell'intervento (clean senato-akn): `text_intervento`
+            -- è 82 MB su 96 MB del clean per 100 caratteri di titolo
+            LEFT(text_preview, 100) AS title,
             'Senato Dibattito' AS collezione,
             document_id AS source_filename,
             'senato_dib' AS source,

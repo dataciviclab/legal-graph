@@ -342,6 +342,11 @@ mart:
       sql: "sql/mart_legal_emend_leg.sql"
     - name: "mart_legal_texts"
       sql: "sql/mart_legal_texts.sql"
+      # 22.567 righe da ~3,6 KB (il testo) stanno in UN row group con il
+      # default (122.880 righe): ogni `legal_text` da GCS leggeva 77 MB per
+      # una riga. Con 2048 righe per gruppo (il minimo che DuckDB accetta)
+      # sono 12 gruppi e un lookup legge ~6 MB.
+      row_group_size: 2048
     - name: "mart_legal_massime"
       sql: "sql/mart_legal_massime.sql"
   required_tables:

@@ -35,3 +35,9 @@ FROM articoli
 UNION ALL
 SELECT id, kind, title, testo, dispositivo, ecli
 FROM pronunce
+-- Ordinato per `id` perché è l'unica chiave di lettura (`legal_text`): con i
+-- dati ordinati i min/max di ogni row group sono strette e il pruning di
+-- parquet salta i gruppi che non contengono l'id. Il numero di righe per
+-- gruppo si dichiara in dataset.yml (`row_group_size`): senza, le 22.567
+-- righe stanno in un unico blocco da 80 MB e un lookup da GCS legge tutto.
+ORDER BY id
