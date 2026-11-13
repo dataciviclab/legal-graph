@@ -235,3 +235,34 @@ class TestMcpLegalText:
     def test_tool_missing(self):
         out = _impl_legal_text("questo-nodo-non-esiste-xyz")
         assert "error" in out
+
+
+def test_fetch_mart_text_riusa_la_connessione_del_server(con, monkeypatch):
+    """Nessuna connessione propria per chiamata.
+
+    La cache esterna di DuckDB (i blocchi del parquet già letti) vive nella
+    connessione: una connessione nuova per ogni `legal_text` la azzera, e da
+    GCS erano 5-7 s *a ogni* chiamata (`mart_legal_texts` è un unico row
+    group da 80 MB). Con la connessione del server la seconda chiamata
+    scende a ~2,5 s. Il test vieta `duckdb.connect` dentro il fetch.
+    """
+    from legal_graph import legal_text as lt
+
+    class _Vietato:
+        Error = lt.duckdb.Error
+
+        def __getattr__(self, name):
+            return getattr(lt.duckdb, name)
+
+        def connect(self, *args, **kwargs):
+            raise AssertionError(
+                "fetch_mart_text ha aperto una connessione propria: la cache "
+                "esterna non viene riusata e il testo si riscarica ogni volta"
+            )
+
+    monkeypatch.setattr(lt, "duckdb", _Vietato())
+
+    out = fetch_mart_text("costituzione:art:3")
+
+    assert "error" not in out, out
+    assert out["text"].strip(), "testo vuoto dall'articolo 3"
