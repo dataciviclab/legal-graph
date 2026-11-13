@@ -30,7 +30,7 @@ SELECT * FROM (VALUES
     ('join', 'norm', 'act', 'act', 'article', true, true, true, 'strong', true, false, true, 'riordino', 'join AKN'),
     ('renumbering', 'norm', 'act', 'act', 'article', true, true, true, 'strong', true, false, true, 'riordino', 'rinumerazione AKN'),
     ('attua_delega', 'norm', 'act', 'act', 'article', true, false, true, 'weak', true, true, true, 'attua', 'attuazione di delega (euristica)'),
-    ('converte_decreto_legge', 'proc', 'act', 'act', 'act', false, false, false, 'strong', true, false, true, 'conversione', 'conversione tentata'),
+    ('converte_decreto_legge', 'proc', 'act', 'act', 'act', false, false, false, 'strong', true, false, true, 'conversione', 'conversione (esito: convertito | decaduto | in_esame | restituito)'),
     ('diventa_legge', 'proc', 'act', 'act', 'act', false, false, false, 'strong', true, true, true, 'conversione', 'DDL → legge'),
     ('impugna', 'juris', 'act', 'act', 'article', false, false, false, 'strong', true, true, false, 'impugna', 'impugnazione'),
     ('invoca_parametro', 'juris', 'act', 'provision', 'article', false, false, false, 'strong', true, true, false, 'parametro', 'parametro costituzionale'),

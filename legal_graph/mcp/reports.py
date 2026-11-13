@@ -648,7 +648,7 @@ def _impl_neighbors(
                        n.tipo, n.anno, LEFT(n.title, 120) AS title,
                        e.method, e.assertion_type, e.prov_evidence_kind,
                        LEFT(e.evidence, 200) AS evidence,
-                       e.evidence_locator
+                       e.evidence_locator, e.esito, e.legislatura
                 FROM {tabella} e
                 LEFT JOIN nodes n ON n.id = e.{other}
                 {join_rt}
@@ -681,6 +681,8 @@ def _impl_neighbors(
                     "prov_evidence_kind": r[12],
                     "evidence": r[13],
                     "evidence_locator": r[14],
+                    "esito": r[15],
+                    "legislatura": r[16],
                 }
                 for r in rows
             ]

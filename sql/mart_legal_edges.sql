@@ -892,6 +892,40 @@ itercost_proposta AS (
       AND i.atto_num IS NOT NULL
 ),
 
+-- H2 (review #76): la legislatura non è un anno, ma è un dato vero.
+-- Colonna additiva accanto a `source_year` (NULL) per le relazioni procedurali.
+legislatura_edge AS (
+    SELECT source_id, relation, target_id, MAX(legislatura) AS legislatura
+    FROM (
+        SELECT
+            'deputato:' || CAST(f.persona_id AS VARCHAR) AS source_id,
+            'firmatario' AS relation,
+            'camera:' || CAST(f.legislatura AS VARCHAR) || ':'
+                || CAST(f.atto_id AS VARCHAR) AS target_id,
+            CAST(f.legislatura AS INTEGER) AS legislatura
+        FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true) f
+        WHERE f.persona_id IS NOT NULL AND f.atto_id IS NOT NULL
+        UNION ALL
+        SELECT
+            'votazione:' || v.votazione_id,
+            'vota',
+            'senato:' || CAST(v.ddl_id AS VARCHAR),
+            TRY_CAST(v.legislatura AS INTEGER)
+        FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true) v
+        WHERE NULLIF(v.votazione_id, '') IS NOT NULL AND v.ddl_id IS NOT NULL
+        UNION ALL
+        SELECT p.source_id, 'proposta_cost', p.target_id, TRY_CAST(p.legislatura AS INTEGER)
+        FROM itercost_proposta p
+        UNION ALL
+        SELECT p.source_id, 'diventa_revisione',
+               'revisione:' || p.rev_urn, TRY_CAST(p.legislatura AS INTEGER)
+        FROM itercost_proposta p
+        WHERE p.ha_legge = 1 AND NULLIF(p.rev_urn, '') IS NOT NULL
+    )
+    GROUP BY 1, 2, 3
+),
+
+
 edges_itercost_atto AS (
     SELECT
         p.source_id,
@@ -1161,6 +1195,7 @@ SELECT
     l.locators AS evidence_locator,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
+    le.legislatura AS legislatura,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
           OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
@@ -1204,6 +1239,10 @@ FROM grouped g
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
   AND ce.atto_id = g.target_id
+LEFT JOIN legislatura_edge le
+  ON  le.source_id = g.source_id
+  AND le.relation = g.relation
+  AND le.target_id = g.target_id
 LEFT JOIN akn_locator l
   ON  l.fonte_urn = g.source_id
   AND l.target_urn = g.target_id
