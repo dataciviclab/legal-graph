@@ -4,6 +4,8 @@ Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
 ## 2026-11-13
 
+- **costo di build — anteprima del testo** — il compose legge `text_preview` (clean `senato-akn` #51) invece di `text_integrale`/`text_intervento` per i titoli dei nodi di processo e per l'evidenza degli archi: colonna 158,0 → **35,0 MB** (emendamenti) e 82,2 → **10,9 MB** (dibattito); lettura 7,66 s → **2,45 s** in A/B sulla stessa sessione fredda. `emend_target` non usa più `e.*`: colonne esplicite, così la lettura è quella dichiarata. Output verificato identico al build precedente: 495.357 edge `emendamento` e 687.714 titoli con **0 differenze** di valore. Test: `tests/test_build_cost.py` (guardia sul testo del SQL — la regressione non lascia segnale nell'output, solo nel tempo — più il contratto "evidenza e titoli ≤100 char").
+
 - **H2 — `source_year` non è la legislatura** — le CTE Camera (`firmatario`, `vota`, `proposta_cost`, `diventa_revisione`) mettevano `legislatura` in `source_year`: **344.316 edge** con anni 1..30. Ora `source_year` è NULL per quelle relazioni procedurali (il Senato lo faceva già); `conf_temporal` passa da `weak` a `unknown` su quegli archi. Edge modificati nel valore, non nel conteggio.
 - **C3 — esito della conversione** — nuova colonna additiva **`esito`** su `edges` per `converte_decreto_legge` (933): `convertito` 693, `decaduto` 194, `in_esame` 28, `restituito` 18. I **240/933** edge che non erano conversioni ora sono distinguibili senza leggere l'evidenza. Test: `tests/test_data_quality.py`.
 

@@ -381,8 +381,15 @@ ddl_fase AS (
 ),
 
 emend_target AS (
+    -- Colonne esplicite, non `e.*`: l'anteprima (`text_preview`, ≤240 char)
+    -- basta a costruire gli archi. Il testo integrale pesa 158 MB su 211 MB
+    -- del clean (emendamenti) e non va letto per 100 caratteri di evidenza.
     SELECT
-        e.*,
+        e.legislatura,
+        e.fase,
+        e.emend_id,
+        e.work_date,
+        e.text_preview,
         COALESCE(
             'senato:' || CAST(df.id_ddl AS VARCHAR),
             CASE WHEN e.n_atti_fase = 1
@@ -403,7 +410,7 @@ edges_emend AS (
         1 AS weight,
         YEAR(t.work_date) AS source_year,
         NULL::INTEGER AS target_year,
-        LEFT(t.text_integrale, 100) AS evidence
+        LEFT(t.text_preview, 100) AS evidence
     FROM emend_target t
     WHERE t.emend_id IS NOT NULL
       AND t.target_id IS NOT NULL
