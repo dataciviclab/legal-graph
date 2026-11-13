@@ -174,12 +174,17 @@ def _top_edges(
     """Top edge in uscita (source_id) o in entrata (target_id)."""
     join_col = "target_id" if column == "source_id" else "source_id"
     tabella = _tabella_in(con) if column == "target_id" else "edges"
+    # Colonne additive: server nuovo + mart vecchio non deve dare binder error.
+    esito_expr = "e.esito" if _has_col(con, tabella, "esito") else "NULL::VARCHAR"
+    leg_expr = (
+        "e.legislatura" if _has_col(con, tabella, "legislatura") else "NULL::INTEGER"
+    )
     try:
         rows = con.execute(
         f"""
         SELECT e.relation, e.{join_col}, e.weight, e.source_year, e.target_year,
                n.tipo, LEFT(n.title, 90), e.evidence_locator,
-               e.esito, e.legislatura
+               {esito_expr} AS esito, {leg_expr} AS legislatura
         FROM {tabella} e
         LEFT JOIN nodes n ON n.id = e.{join_col}
         WHERE e.{column} = ?

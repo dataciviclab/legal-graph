@@ -88,3 +88,25 @@ def test_chain_espone_esito(con):
     ]
     assert fwd, node.get("error") or "nessun converte nella chain"
     assert fwd[0]["esito"] in _ESITI
+
+
+def test_top_edges_tollera_mart_senza_colonne_nuove():
+    """Review #76: server nuovo + mart vecchio = NULL, non binder error."""
+    import duckdb
+
+    from legal_graph.mcp.node_views import _top_edges
+
+    c = duckdb.connect()
+    c.execute("CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)")
+    c.execute(
+        "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+        "weight BIGINT, source_year INTEGER, target_year INTEGER, "
+        "evidence VARCHAR, evidence_locator VARCHAR)"
+    )
+    c.execute("INSERT INTO nodes VALUES ('a', 'LEGGE', 'x', 2020)")
+    c.execute(
+        "INSERT INTO edges VALUES ('a', 'riferimento', 'b', 1, 2020, NULL, 'e', NULL)"
+    )
+    out = _top_edges(c, column="source_id", actual_id="a")
+    c.close()
+    assert out and out[0]["esito"] is None and out[0]["legislatura"] is None

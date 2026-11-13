@@ -1222,6 +1222,8 @@ SELECT
     END AS conf_semantic,
     CASE
         WHEN g.source_year BETWEEN 1 AND 30 THEN 'weak'
+        -- Review #76: un solo lato datato non è confidenza "strong".
+        WHEN g.source_year IS NULL AND g.target_year IS NOT NULL THEN 'weak'
         WHEN g.relation = 'riferimento'
           AND g.source_year IS NOT NULL AND g.target_year IS NOT NULL
           AND g.source_year < g.target_year - 1 THEN 'weak'
@@ -1239,6 +1241,7 @@ FROM grouped g
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
   AND ce.atto_id = g.target_id
+  AND g.relation = 'converte_decreto_legge'
 LEFT JOIN legislatura_edge le
   ON  le.source_id = g.source_id
   AND le.relation = g.relation
