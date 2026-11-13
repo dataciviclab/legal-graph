@@ -653,7 +653,9 @@ def _impl_neighbors(
                 LEFT JOIN nodes n ON n.id = e.{other}
                 {join_rt}
                 WHERE {' AND '.join(where)}
-                ORDER BY e.weight DESC, e.{other}, e.relation
+                ORDER BY e.weight DESC,
+                         (e.evidence_locator IS NOT NULL) DESC,
+                         e.{other}, e.relation
                 LIMIT ?
             """
             params.append(limit)

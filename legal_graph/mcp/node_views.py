@@ -457,8 +457,8 @@ def _bfs(
             return (
                 _pos[r[0]],
                 trust,
-                -r[3],
                 0 if r[11] else 1,
+                -r[3],
                 -(r[6] or 0),
                 r[1],
                 r[2],
@@ -578,7 +578,8 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
             "`evidence`: per `attua_delega`, `method='title'` = delega letta "
             "dal titolo dell'atto (estratta, locator), `regex` = dedotta da "
             "una citazione (inferita, debole). "
-            "truncated = archi oltre il limite di 8 per nodo (per direzione). "
+            "truncated = candidati oltre il limite di 8 per nodo, calcolati "
+            "prima del filtro dei nodi già visitati (per direzione). "
             "top_riferimenti_* = campione riferimento se la chain è vuota. "
             "attua_delega_hint = legge-base citata nel titolo (stessa euristica "
             "dell'edge `method='title'`)."

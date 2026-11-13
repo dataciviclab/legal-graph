@@ -197,3 +197,44 @@ class TestAttuaDelega:
         assert trovate[0][10] == "art_1"
         assert meta["hidden"] == 2
         c.close()
+
+
+    def test_bfs_locator_prima_del_peso(self):
+        """Il locator precede il peso, come nell'ORDER BY SQL (review #75).
+
+        Un edge leggero con locator deve stare davanti a uno pesante senza.
+        """
+        import duckdb
+
+        from legal_graph.mcp.node_views import _bfs
+
+        c = duckdb.connect()
+        c.execute(
+            "CREATE TABLE nodes (id VARCHAR, tipo VARCHAR, title VARCHAR, anno INTEGER)"
+        )
+        c.execute(
+            "CREATE TABLE edges (source_id VARCHAR, relation VARCHAR, target_id VARCHAR, "
+            "weight BIGINT, method VARCHAR, assertion_type VARCHAR, "
+            "prov_evidence_kind VARCHAR, evidence VARCHAR, evidence_locator VARCHAR)"
+        )
+        c.execute("INSERT INTO nodes VALUES ('x', 'DECRETO', 'atto', 2020)")
+        c.execute("INSERT INTO nodes VALUES ('pesante', 'DECRETO', 'senza locator', 2000)")
+        c.execute("INSERT INTO nodes VALUES ('evidenza', 'DECRETO', 'con locator', 2001)")
+        c.execute(
+            "INSERT INTO edges VALUES ('x', 'abroga', 'pesante', 100, 'akn_lifecycle', "
+            "'extracted', 'locator', 'x', NULL)"
+        )
+        c.execute(
+            "INSERT INTO edges VALUES ('x', 'abroga', 'evidenza', 1, 'akn_lifecycle', "
+            "'extracted', 'locator', 'x', 'art_9')"
+        )
+        for i in range(7):
+            c.execute("INSERT INTO nodes VALUES (?, 'DECRETO', ?, 1999)", [f"f{i}", f"f{i}"])
+            c.execute(
+                "INSERT INTO edges VALUES ('x', 'abroga', ?, 10, 'akn_lifecycle', "
+                "'extracted', 'locator', 'x', NULL)",
+                [f"f{i}"],
+            )
+        trovate = _bfs(c, "x", 1, outbound=True)
+        assert trovate[0][1] == "evidenza", trovate
+        c.close()
