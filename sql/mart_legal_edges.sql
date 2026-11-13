@@ -656,7 +656,8 @@ edges_firmatario AS (
         'firmatario' AS relation,
         'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR) AS target_id,
         1 AS weight,
-        f.legislatura AS source_year,
+        -- H2 (feedback 2026-11-13): `legislatura` non è un anno.
+        NULL::INTEGER AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(f.ruolo, ''), 200) AS evidence
     FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true) f
@@ -739,6 +740,13 @@ conversione_dl AS (
      AND d.dl_anno = a.dl_anno
     WHERE a.dl_numero IS NOT NULL
       AND a.dl_anno IS NOT NULL
+),
+
+-- Esito per coppia DL→atto, univoco: serve alla colonna additiva `esito`.
+conversione_esito AS (
+    SELECT source_id, atto_id, MAX(esito) AS esito
+    FROM conversione_dl
+    GROUP BY 1, 2
 ),
 
 edges_converte_dl AS (
@@ -844,7 +852,7 @@ edges_votazione AS (
         'vota' AS relation,
         'senato:' || CAST(v.ddl_id AS VARCHAR) AS target_id,
         1 AS weight,
-        v.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         NULL::INTEGER AS target_year,
         COALESCE(v.esito, '') || ' | ' || COALESCE(v.tipo_votazione, '') AS evidence
     FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true) v
@@ -890,7 +898,7 @@ edges_itercost_atto AS (
         'proposta_cost' AS relation,
         p.target_id,
         1 AS weight,
-        p.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(p.stato, p.proponente, ''), 200) AS evidence
     FROM itercost_proposta p
@@ -915,7 +923,7 @@ edges_itercost_rev AS (
         'diventa_revisione' AS relation,
         'revisione:' || p.rev_urn AS target_id,
         1 AS weight,
-        p.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         YEAR(p.rev_data) AS target_year,
         LEFT(COALESCE(p.rev_titolo, p.rev_urn, ''), 200) AS evidence
     FROM itercost_proposta p
@@ -1151,6 +1159,8 @@ SELECT
         ELSE 'unknown'
     END AS method,
     l.locators AS evidence_locator,
+    -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
+    ce.esito AS esito,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
           OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
@@ -1191,6 +1201,9 @@ SELECT
     'unreviewed' AS review_status,
     NULL::VARCHAR AS snapshot_id
 FROM grouped g
+LEFT JOIN conversione_esito ce
+  ON  ce.source_id = g.source_id
+  AND ce.atto_id = g.target_id
 LEFT JOIN akn_locator l
   ON  l.fonte_urn = g.source_id
   AND l.target_urn = g.target_id

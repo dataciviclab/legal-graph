@@ -2,6 +2,11 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-13
+
+- **H2 — `source_year` non è la legislatura** — le CTE Camera (`firmatario`, `vota`, `proposta_cost`, `diventa_revisione`) mettevano `legislatura` in `source_year`: **344.316 edge** con anni 1..30. Ora `source_year` è NULL per quelle relazioni procedurali (il Senato lo faceva già); `conf_temporal` passa da `weak` a `unknown` su quegli archi. Edge modificati nel valore, non nel conteggio.
+- **C3 — esito della conversione** — nuova colonna additiva **`esito`** su `edges` per `converte_decreto_legge` (933): `convertito` 693, `decaduto` 194, `in_esame` 28, `restituito` 18. I **240/933** edge che non erano conversioni ora sono distinguibili senza leggere l'evidenza. Test: `tests/test_data_quality.py`.
+
 ## 2026-11-10
 
 - **P1.1 — ranking "appalti pubblici"** — il peso del titolo nell'indice scende da 3x a 2x: la legge 1909/422 (titolo corto, poche citazioni) non batte più il Codice dei contratti pubblici 36/2023. Eval temi invariata (21/24), "appalti pubblici" → 36/2023 primo.
