@@ -19,6 +19,9 @@ from pathlib import Path
 
 import pytest
 
+from legal_graph.paths import resolve_texts_file
+from legal_graph.resolve import sql_quote
+
 SQL_DIR = Path(__file__).resolve().parents[1] / "sql"
 
 # Colonne del clean `senato-akn` che costano 157,5 MB e 81,5 MB: il compose
@@ -76,3 +79,28 @@ def test_titoli_di_processo_restano_anteprime(con) -> None:
         """
     ).fetchone()[0]
     assert lunghi == 0, f"{lunghi} titoli > 100 char"
+
+
+def test_texts_ha_row_group_piccoli_per_il_lookup(con) -> None:
+    """`mart_legal_texts` è letto solo per `id`: un row group grande costa caro.
+
+    Il parquet è l'unità di lettura di DuckDB: con UN row group (il default,
+    122.880 righe) un `legal_text` da GCS legge 77 MB — il file intero — per
+    una riga. `row_group_size: 2048` in dataset.yml lo spezza in 12 gruppi e
+    il lookup scende a ~6 MB. Se il campo sparisce, la tabella resta corretta
+    e il file torna monolitico: nessun test sui dati se ne accorgerebbe.
+    """
+    path = sql_quote(str(resolve_texts_file()))
+    righe_max = con.execute(
+        f"SELECT MAX(row_group_num_rows) FROM parquet_metadata('{path}')"
+    ).fetchone()[0]
+    gruppi = con.execute(
+        f"SELECT COUNT(DISTINCT row_group_id) FROM parquet_metadata('{path}')"
+    ).fetchone()[0]
+
+    assert righe_max is not None, "mart_legal_texts senza row group"
+    assert righe_max <= 2048, (
+        f"row group da {righe_max} righe: un lookup per id legge troppo. "
+        "Imposta mart.tables[mart_legal_texts].row_group_size: 2048"
+    )
+    assert gruppi > 1, f"{gruppi} row group: la tabella sta in un blocco solo"
