@@ -320,21 +320,31 @@ _ARTICLE_HEADING = re.compile(
 
 
 def resolve_node(node_id: str) -> NodeResolution:
-    """Lookup nodo nei mart compose. Parziale solo se unico; alias sentenza/ECLI."""
+    """Lookup nodo nei mart compose. Parziale solo se unico; alias sentenza/ECLI.
+
+    Legge dalla connessione condivisa del server (`nodes` è una VIEW sul
+    parquet), non da una nuova: la cache esterna di DuckDB vive nella
+    connessione, e una connessione per chiamata la azzera. Da GCS la
+    risoluzione costava ~2 s a ogni `legal_text` — più della lettura del
+    testo stesso (misurato dopo il fix: 2,07 s → ~0,1 s a cache calda).
+    """
     nodes_file = resolve_nodes_file()
     if not source_exists(nodes_file):
         return NodeResolution()
-    con = duckdb.connect(":memory:")
-    try:
+    with db_lock():
+        con = db._get_con()
+        source = (
+            "nodes"
+            if db._view_exists(con, "nodes")
+            else f"read_parquet('{sql_quote(str(nodes_file))}')"
+        )
         res = resolve_row(
             con,
-            source=f"read_parquet('{sql_quote(str(nodes_file))}')",
+            source=source,
             cols=_NODE_COLS,
             node_id=node_id,
             ecli_alias=True,
         )
-    finally:
-        con.close()
     node = dict(zip(_NODE_KEYS, res.row)) if res.row is not None else None
     return NodeResolution(node=node, candidates=res.candidates, match=res.match)
 

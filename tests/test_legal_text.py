@@ -266,3 +266,30 @@ def test_fetch_mart_text_riusa_la_connessione_del_server(con, monkeypatch):
 
     assert "error" not in out, out
     assert out["text"].strip(), "testo vuoto dall'articolo 3"
+
+
+def test_resolve_node_riusa_la_connessione_del_server(con, monkeypatch):
+    """`resolve_node` non apre una connessione propria (stessa ragione di
+    `fetch_mart_text`): da GCS la risoluzione costava ~2 s a ogni chiamata,
+    più della lettura del testo che serviva a trovare.
+    """
+    from legal_graph import legal_text as lt
+
+    class _Vietato:
+        Error = lt.duckdb.Error
+
+        def __getattr__(self, name):
+            return getattr(lt.duckdb, name)
+
+        def connect(self, *args, **kwargs):
+            raise AssertionError(
+                "resolve_node ha aperto una connessione propria: la cache "
+                "esterna non viene riusata e il lookup ripaga la rete"
+            )
+
+    monkeypatch.setattr(lt, "duckdb", _Vietato())
+
+    found = resolve_node("costituzione:art:3")
+
+    assert found.node is not None, found
+    assert found.node["id"] == "costituzione:art:3"
