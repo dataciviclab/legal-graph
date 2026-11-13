@@ -631,6 +631,13 @@ def _impl_neighbors(
         join_rt, canon_expr, family_expr = _rt_columns(con)
 
         def fetch(tabella: str, anchor: str, other: str, verso: str):
+            # Colonne additive: stessa guardia di `_bfs`/`_top_edges`.
+            esito_expr = "e.esito" if _has_col(con, tabella, "esito") else "NULL::VARCHAR"
+            leg_expr = (
+                "e.legislatura"
+                if _has_col(con, tabella, "legislatura")
+                else "NULL::INTEGER"
+            )
             where = [f"e.{anchor} = ?"]
             params: list[Any] = [actual_id]
             if relation:
@@ -648,7 +655,8 @@ def _impl_neighbors(
                        n.tipo, n.anno, LEFT(n.title, 120) AS title,
                        e.method, e.assertion_type, e.prov_evidence_kind,
                        LEFT(e.evidence, 200) AS evidence,
-                       e.evidence_locator
+                       e.evidence_locator,
+                       {esito_expr} AS esito, {leg_expr} AS legislatura
                 FROM {tabella} e
                 LEFT JOIN nodes n ON n.id = e.{other}
                 {join_rt}
@@ -681,6 +689,8 @@ def _impl_neighbors(
                     "prov_evidence_kind": r[12],
                     "evidence": r[13],
                     "evidence_locator": r[14],
+                    "esito": r[15],
+                    "legislatura": r[16],
                 }
                 for r in rows
             ]

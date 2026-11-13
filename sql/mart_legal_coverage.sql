@@ -177,7 +177,11 @@ SELECT
     f.natural_pairs,
     COALESCE(e.edges, 0) AS edges,
     ROUND(100.0 * COALESCE(e.edges, 0) / NULLIF(f.natural_pairs, 0), 1) AS edge_pct,
-    COALESCE(f.note, '1:1: una riga upstream produce un edge') AS note,
+    CASE
+        WHEN COALESCE(e.relation, f.relation) = 'converte_decreto_legge'
+            THEN '1:1; `esito` distingue convertito da tentata (decaduto/in_esame/restituito)'
+        ELSE COALESCE(f.note, '1:1: una riga upstream produce un edge')
+    END AS note,
     COALESCE(e.formulaic_edges, 0) AS formulaic_edges,
     ROUND(
         100.0 * COALESCE(e.formulaic_edges, 0) / NULLIF(e.edges, 0), 1

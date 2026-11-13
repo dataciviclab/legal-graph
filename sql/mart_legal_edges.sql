@@ -656,7 +656,8 @@ edges_firmatario AS (
         'firmatario' AS relation,
         'camera:' || CAST(f.legislatura AS VARCHAR) || ':' || CAST(f.atto_id AS VARCHAR) AS target_id,
         1 AS weight,
-        f.legislatura AS source_year,
+        -- H2 (feedback 2026-11-13): `legislatura` non è un anno.
+        NULL::INTEGER AS source_year,
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(f.ruolo, ''), 200) AS evidence
     FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true) f
@@ -739,6 +740,13 @@ conversione_dl AS (
      AND d.dl_anno = a.dl_anno
     WHERE a.dl_numero IS NOT NULL
       AND a.dl_anno IS NOT NULL
+),
+
+-- Esito per coppia DL→atto, univoco: serve alla colonna additiva `esito`.
+conversione_esito AS (
+    SELECT source_id, atto_id, MAX(esito) AS esito
+    FROM conversione_dl
+    GROUP BY 1, 2
 ),
 
 edges_converte_dl AS (
@@ -844,7 +852,7 @@ edges_votazione AS (
         'vota' AS relation,
         'senato:' || CAST(v.ddl_id AS VARCHAR) AS target_id,
         1 AS weight,
-        v.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         NULL::INTEGER AS target_year,
         COALESCE(v.esito, '') || ' | ' || COALESCE(v.tipo_votazione, '') AS evidence
     FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true) v
@@ -884,13 +892,47 @@ itercost_proposta AS (
       AND i.atto_num IS NOT NULL
 ),
 
+-- H2 (review #76): la legislatura non è un anno, ma è un dato vero.
+-- Colonna additiva accanto a `source_year` (NULL) per le relazioni procedurali.
+legislatura_edge AS (
+    SELECT source_id, relation, target_id, MAX(legislatura) AS legislatura
+    FROM (
+        SELECT
+            'deputato:' || CAST(f.persona_id AS VARCHAR) AS source_id,
+            'firmatario' AS relation,
+            'camera:' || CAST(f.legislatura AS VARCHAR) || ':'
+                || CAST(f.atto_id AS VARCHAR) AS target_id,
+            CAST(f.legislatura AS INTEGER) AS legislatura
+        FROM read_parquet({support.camera_firmatari.outputs}, union_by_name = true) f
+        WHERE f.persona_id IS NOT NULL AND f.atto_id IS NOT NULL
+        UNION ALL
+        SELECT
+            'votazione:' || v.votazione_id,
+            'vota',
+            'senato:' || CAST(v.ddl_id AS VARCHAR),
+            TRY_CAST(v.legislatura AS INTEGER)
+        FROM read_parquet({support.senato_votazioni_oggetto.outputs}, union_by_name = true) v
+        WHERE NULLIF(v.votazione_id, '') IS NOT NULL AND v.ddl_id IS NOT NULL
+        UNION ALL
+        SELECT p.source_id, 'proposta_cost', p.target_id, TRY_CAST(p.legislatura AS INTEGER)
+        FROM itercost_proposta p
+        UNION ALL
+        SELECT p.source_id, 'diventa_revisione',
+               'revisione:' || p.rev_urn, TRY_CAST(p.legislatura AS INTEGER)
+        FROM itercost_proposta p
+        WHERE p.ha_legge = 1 AND NULLIF(p.rev_urn, '') IS NOT NULL
+    )
+    GROUP BY 1, 2, 3
+),
+
+
 edges_itercost_atto AS (
     SELECT
         p.source_id,
         'proposta_cost' AS relation,
         p.target_id,
         1 AS weight,
-        p.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         NULL::INTEGER AS target_year,
         LEFT(COALESCE(p.stato, p.proponente, ''), 200) AS evidence
     FROM itercost_proposta p
@@ -915,7 +957,7 @@ edges_itercost_rev AS (
         'diventa_revisione' AS relation,
         'revisione:' || p.rev_urn AS target_id,
         1 AS weight,
-        p.legislatura AS source_year,
+        NULL::INTEGER AS source_year,  -- H2: legislatura ≠ anno
         YEAR(p.rev_data) AS target_year,
         LEFT(COALESCE(p.rev_titolo, p.rev_urn, ''), 200) AS evidence
     FROM itercost_proposta p
@@ -1151,6 +1193,9 @@ SELECT
         ELSE 'unknown'
     END AS method,
     l.locators AS evidence_locator,
+    -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
+    ce.esito AS esito,
+    le.legislatura AS legislatura,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
           OR g.target_id LIKE 'norma:%' OR g.target_id LIKE 'dl:%' THEN 'weak'
@@ -1177,6 +1222,8 @@ SELECT
     END AS conf_semantic,
     CASE
         WHEN g.source_year BETWEEN 1 AND 30 THEN 'weak'
+        -- Review #76: un solo lato datato non è confidenza "strong".
+        WHEN g.source_year IS NULL AND g.target_year IS NOT NULL THEN 'weak'
         WHEN g.relation = 'riferimento'
           AND g.source_year IS NOT NULL AND g.target_year IS NOT NULL
           AND g.source_year < g.target_year - 1 THEN 'weak'
@@ -1191,6 +1238,14 @@ SELECT
     'unreviewed' AS review_status,
     NULL::VARCHAR AS snapshot_id
 FROM grouped g
+LEFT JOIN conversione_esito ce
+  ON  ce.source_id = g.source_id
+  AND ce.atto_id = g.target_id
+  AND g.relation = 'converte_decreto_legge'
+LEFT JOIN legislatura_edge le
+  ON  le.source_id = g.source_id
+  AND le.relation = g.relation
+  AND le.target_id = g.target_id
 LEFT JOIN akn_locator l
   ON  l.fonte_urn = g.source_id
   AND l.target_urn = g.target_id
