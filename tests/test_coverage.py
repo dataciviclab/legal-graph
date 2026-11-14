@@ -187,9 +187,10 @@ class TestFunnel:
             # 2026-11: denominatore = coppie URN del mart (stesso spazio degli
             # edge), non più righe del clean filename-based.
             ("riferimento", 267_447),
-            # 4.198 era il valore prima che il funnel includesse i `repeal`
-            # AKN (#3.2, IC 2026-11-13): ora regex + AKN = 70.190.
-            ("abroga", 70_190),
+            # Il funnel legge il solo mart URN: dal 2026-11 include anche i
+            # `repeal` AKN (prima letti da akn_relations), quindi regex + AKN
+            # arrivano dalla stessa sorgente e deduplicati = 69.385.
+            ("abroga", 69_385),
             ("diventa_legge", 7_478),
             ("emendamento", 763_690),
         ],

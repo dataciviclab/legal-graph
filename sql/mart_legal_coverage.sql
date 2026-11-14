@@ -50,14 +50,6 @@ abro_raw AS (
     WHERE rel_type = 'abroga'
 ),
 
-abro_akn AS (
-    SELECT
-        count(*) AS upstream_rows,
-        count(DISTINCT (fonte_urn, target_urn)) AS natural_pairs
-    FROM read_parquet('{support.akn_relations.path}')
-    WHERE rel_type = 'repeal'
-),
-
 ddl_legge AS (
     -- Una legge può comparire sia come DDL Senato sia come legge Camera:
     -- upstream_rows conta le righe, natural_pairs gli URN distinti.
@@ -124,10 +116,10 @@ funnel AS (
         ),
         (
             'abroga',
-            'italia-corpus.riferimenti(mart, rel_type=abroga) + akn_relations(repeal)',
-            (SELECT upstream_rows FROM abro_raw) + (SELECT upstream_rows FROM abro_akn),
-            (SELECT natural_pairs FROM abro_raw) + (SELECT natural_pairs FROM abro_akn),
-            'Abroga regex: coppie URN dal mart (risoluzione e guardia in IC). AKN repeal: URN→URN dal corpus. Si perde per target senza nodo e guardia temporale.'
+            'italia-corpus.riferimenti(mart, rel_type=abroga: regex + akn)',
+            (SELECT upstream_rows FROM abro_raw),
+            (SELECT natural_pairs FROM abro_raw),
+            'Regex (abrogations_raw) e AKN repeal (lifecycle) arrivano entrambi dal mart URN: la risoluzione e la guardia vivono in IC. `origine` distingue l''estrattore. Si perde per target senza nodo e guardia temporale.'
         ),
         (
             'diventa_legge',
@@ -171,7 +163,7 @@ funnel AS (
 rif_pairs AS (
     SELECT
         r.fonte_urn, r.bersaglio_urn, r.bersaglio_celex, r.esito,
-        r.fonte_anno, r.bersaglio_anno, r.da_regex, r.peso
+        r.fonte_anno, r.fonte_anno_espressione, r.bersaglio_anno, r.da_regex, r.peso
     FROM read_parquet('{support.riferimenti_urn.path}') r
     WHERE r.rel_type = 'citation'
 ),
@@ -192,9 +184,9 @@ rif_class AS (
             p.*,
             n.id AS target_id,
             (
-                p.fonte_anno IS NULL
+                p.fonte_anno_espressione IS NULL
                 OR p.bersaglio_anno IS NULL
-                OR p.fonte_anno >= p.bersaglio_anno - 1
+                OR p.fonte_anno_espressione >= p.bersaglio_anno - 1
                 OR (p.da_regex AND p.peso < 5)
             ) AS tempo_ok
         FROM rif_pairs p
