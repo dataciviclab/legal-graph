@@ -758,11 +758,28 @@ def _impl_coverage(
         if relation:
             where.append("c.relation = ?")
             params.append(relation)
+        # Perdite per causa: additive dal 2026-11. Proiezione difensiva — il
+        # mart pubblicato può essere anteriori al cambio, e in quel caso i
+        # campi restano NULL invece di rompere `legal_coverage`.
+        lost_cols = [
+            "lost_temporal",
+            "lost_in_catalogo",
+            "lost_dominio_ue",
+            "lost_fuori_perimetro",
+            "lost_in_corpus",
+            "lost_altro",
+            "collapsed",
+        ]
+        lost_expr = ", ".join(
+            f"c.{c}" if _has_col(con, "coverage", c) else f"NULL::BIGINT AS {c}"
+            for c in lost_cols
+        )
         sql = f"""
             SELECT c.relation, {_canon if join_rt else 'NULL::VARCHAR'} AS canonical_relation,
                    {_family if join_rt else 'NULL::VARCHAR'} AS family,
                    c.upstream_rows, c.natural_pairs, c.edges, c.edge_pct,
-                   c.formulaic_pct, c.missing_evidence_pct, c.note
+                   c.formulaic_pct, c.missing_evidence_pct, c.note,
+                   {lost_expr}
             FROM coverage c
             {join_c}
             {('WHERE ' + ' AND '.join(where)) if where else ''}
@@ -787,6 +804,8 @@ def _impl_coverage(
                 "formulaic_pct": r[7],
                 "missing_evidence_pct": r[8],
                 "note": r[9],
+                # Cause della perdita: valorizzate solo su `riferimento`.
+                **{nome: r[10 + i] for i, nome in enumerate(lost_cols)},
             }
             for r in rows
         ]

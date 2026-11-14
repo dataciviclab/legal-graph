@@ -82,7 +82,11 @@ class TestNodiCatalogo:
         n = con.execute("""
             SELECT COUNT(*) FROM nodes WHERE source = 'catalogo'
         """).fetchone()[0]
-        assert n > 10_000, f"nodi catalogo attesi >10k, trovati {n}"
+        # Soglia abbassata nel 2026-11: il cleanup di italia-corpus ha
+        # rimosso ~58k citazioni fantasma, e i nodi catalogo nascono dai
+        # bersagli citati. 9.207 oggi; la soglia resta una guardia contro
+        # il collasso, non un target.
+        assert n > 9_000, f"nodi catalogo attesi >9k, trovati {n}"
 
     def test_nessun_doppione_con_normativa(self, con):
         n = con.execute("""

@@ -153,6 +153,75 @@ funnel AS (
     ) AS t(relation, upstream, upstream_rows, natural_pairs, note)
 ),
 
+-- Perdite di `riferimento` **per causa**: prima erano un numero solo
+-- (`100 - edge_pct`), che mescolava tre lavori diversi. Il denominatore conta
+-- coppie URN, quindi qui si spiega perché una coppia non arriva nel grafo:
+--
+--   temporal              nodo presente, guardia temporale che scarta
+--   senza_nodo_in_catalogo atto noto a `atti_index` senza nodo → stub
+--   senza_nodo_ue         direttiva UE con CELEX ma senza nodo
+--   senza_nodo_fuori_perimetro  fuori da ogni perimetro: si dichiara
+--   senza_nodo_in_corpus  dovrebbe essere 0: se non lo è, gli alias URN di
+--                         `mart_legal_edges.sql` sono divergenti da qui
+--   collapsed             la coppia produce edge ma due URN cadono sullo
+--                         stesso nodo (non è una perdita)
+--
+-- Replica i filtri di `edges_riferimenti` (nodo + guardia temporale): è una
+-- misura, non una logica. Se cambi quei filtri là, aggiorna anche qui.
+rif_pairs AS (
+    SELECT
+        r.fonte_urn, r.bersaglio_urn, r.bersaglio_celex, r.esito,
+        r.fonte_anno, r.bersaglio_anno, r.da_regex, r.peso
+    FROM read_parquet('{support.riferimenti_urn.path}') r
+    WHERE r.rel_type = 'citation'
+),
+
+rif_class AS (
+    SELECT
+        CASE
+            WHEN target_id IS NOT NULL AND tempo_ok THEN 'edge'
+            WHEN target_id IS NOT NULL THEN 'temporal'
+            WHEN esito = 'in_catalogo' THEN 'senza_nodo_in_catalogo'
+            WHEN esito = 'dominio_ue' THEN 'senza_nodo_ue'
+            WHEN esito = 'fuori_perimetro' THEN 'senza_nodo_fuori_perimetro'
+            WHEN esito = 'in_corpus' THEN 'senza_nodo_in_corpus'
+            ELSE 'senza_nodo_altro'
+        END AS causa
+    FROM (
+        SELECT
+            p.*,
+            n.id AS target_id,
+            (
+                p.fonte_anno IS NULL
+                OR p.bersaglio_anno IS NULL
+                OR p.fonte_anno >= p.bersaglio_anno - 1
+                OR (p.da_regex AND p.peso < 5)
+            ) AS tempo_ok
+        FROM rif_pairs p
+        -- Stesso alias di `edges_riferimenti` (una riga, la Costituzione come
+        -- atto intero): se diverge, `senza_nodo_in_corpus` lo segnala.
+        LEFT JOIN (VALUES (
+            'urn:nir:stato:costituzione:1947-12-27;const', 'costituzione:atto'
+        )) AS ua(urn, node_id) ON ua.urn = p.bersaglio_urn
+        LEFT JOIN mart_legal_nodes n
+          ON n.id = COALESCE('celex:' || NULLIF(p.bersaglio_celex, ''), ua.node_id, p.bersaglio_urn)
+    )
+),
+
+rif_lost AS (
+    SELECT
+        count(*) FILTER (WHERE causa = 'temporal') AS lost_temporal,
+        count(*) FILTER (WHERE causa = 'senza_nodo_in_catalogo') AS lost_in_catalogo,
+        count(*) FILTER (WHERE causa = 'senza_nodo_ue') AS lost_dominio_ue,
+        count(*) FILTER (WHERE causa = 'senza_nodo_fuori_perimetro') AS lost_fuori_perimetro,
+        count(*) FILTER (WHERE causa = 'senza_nodo_in_corpus') AS lost_in_corpus,
+        count(*) FILTER (WHERE causa = 'senza_nodo_altro') AS lost_altro,
+        count(*) FILTER (WHERE causa = 'edge') - (
+            SELECT count(*) FROM mart_legal_edges WHERE relation = 'riferimento'
+        ) AS collapsed
+    FROM rif_class
+),
+
 all_edges AS (
     SELECT
         relation,
@@ -190,7 +259,17 @@ SELECT
     COALESCE(e.missing_evidence_edges, 0) AS missing_evidence_edges,
     ROUND(
         100.0 * COALESCE(e.missing_evidence_edges, 0) / NULLIF(e.edges, 0), 1
-    ) AS missing_evidence_pct
+    ) AS missing_evidence_pct,
+    -- Perdite per causa: valorizzate solo per `riferimento` (le altre
+    -- relazioni hanno funnel propri o sono 1:1).
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_temporal END AS lost_temporal,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_in_catalogo END AS lost_in_catalogo,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_dominio_ue END AS lost_dominio_ue,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_fuori_perimetro END AS lost_fuori_perimetro,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_in_corpus END AS lost_in_corpus,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.lost_altro END AS lost_altro,
+    CASE WHEN COALESCE(e.relation, f.relation) = 'riferimento' THEN lc.collapsed END AS collapsed
 FROM all_edges e
 FULL OUTER JOIN funnel f ON f.relation = e.relation
+CROSS JOIN rif_lost lc
 ORDER BY edges DESC, relation

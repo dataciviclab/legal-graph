@@ -33,6 +33,13 @@ class TestCoverageContract:
             "reading_clause_edges",
             "missing_evidence_edges",
             "missing_evidence_pct",
+            "lost_temporal",
+            "lost_in_catalogo",
+            "lost_dominio_ue",
+            "lost_fuori_perimetro",
+            "lost_in_corpus",
+            "lost_altro",
+            "collapsed",
         } <= cols
 
     def test_one_row_per_relation(self, con):
@@ -180,7 +187,9 @@ class TestFunnel:
             # 2026-11: denominatore = coppie URN del mart (stesso spazio degli
             # edge), non più righe del clean filename-based.
             ("riferimento", 267_447),
-            ("abroga", 4_198),
+            # 4.198 era il valore prima che il funnel includesse i `repeal`
+            # AKN (#3.2, IC 2026-11-13): ora regex + AKN = 70.190.
+            ("abroga", 70_190),
             ("diventa_legge", 7_478),
             ("emendamento", 763_690),
         ],
@@ -203,3 +212,38 @@ class TestFunnel:
             f"{relation}: upstream_rows {valore} fuori banda [{basso:.0f}, {alto:.0f}] "
             f"(baseline {baseline}) — il filtro del funnel è cambiato nel compose?"
         )
+
+
+class TestPerditeRiferimento:
+    """Le perdite di `riferimento` attribuite per causa (2026-11).
+
+    Prima erano un numero solo (`100 - edge_pct`) e mescolavano tre lavori
+    diversi: guardia temporale, atto noto senza nodo, direttiva UE senza nodo.
+    """
+
+    def test_bilancio_quadra(self, con):
+        """edges + collapsed + perdite = coppie distinte. Nessun residuo ignoto."""
+        row = con.execute("""
+            SELECT natural_pairs, edges, lost_temporal, lost_in_catalogo,
+                   lost_dominio_ue, lost_fuori_perimetro, lost_in_corpus,
+                   lost_altro, collapsed
+            FROM coverage WHERE relation = 'riferimento'
+        """).fetchone()
+        natural, edges, *rest = row
+        assert all(v is not None for v in rest), f"bucket NULL: {row}"
+        assert edges + sum(rest) == natural, (
+            f"perdite non quadrano: edges {edges} + perdite/collassati {sum(rest)} "
+            f"!= coppie {natural}"
+        )
+
+    def test_alias_allineati(self, con):
+        """`senza_nodo_in_corpus` deve essere 0.
+
+        Una coppia con `esito='in_corpus'` ha il nodo per costruzione: se
+        manca, gli alias URN di `mart_legal_edges.sql` sono divergenti da
+        quelli replicati in `mart_legal_coverage.sql`.
+        """
+        n = con.execute(
+            "SELECT lost_in_corpus FROM coverage WHERE relation = 'riferimento'"
+        ).fetchone()[0]
+        assert n == 0, f"{n} coppie in_corpus senza nodo: alias divergenti"
