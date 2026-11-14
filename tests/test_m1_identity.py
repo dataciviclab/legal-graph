@@ -149,6 +149,26 @@ def test_legal_coverage_relations_and_levels(con):
     assert all(r["canonical_relation"] in _CANONICAL for r in out["relations"])
     assert {r["level"] for r in out["levels"]} == {"L1", "L2"}
     assert out["families"]
+    # Perdite per causa esposte dal tool (2026-11): il bilancio interpretabile
+    # deve essere leggibile da un agente, non solo via SQL.
+    rif = next(r for r in out["relations"] if r["relation"] == "riferimento")
+    for campo in (
+        "lost_temporal",
+        "lost_in_catalogo",
+        "lost_dominio_ue",
+        "lost_fuori_perimetro",
+        "lost_in_corpus",
+        "lost_altro",
+        "collapsed",
+    ):
+        assert campo in rif, f"{campo} assente dal payload di legal_coverage"
+    assert rif["lost_in_corpus"] == 0
+    assert rif["edges"] + rif["collapsed"] + sum(
+        rif[c] for c in (
+            "lost_temporal", "lost_in_catalogo", "lost_dominio_ue",
+            "lost_fuori_perimetro", "lost_in_corpus", "lost_altro",
+        )
+    ) == rif["natural_pairs"]
 
 
 def test_legal_coverage_relation_filter(con):
