@@ -96,16 +96,10 @@ urn_aliases AS (
     SELECT * FROM (VALUES
         ('urn:nir:stato:costituzione:1947-12-27;const', 'costituzione:atto')
     ) AS t(urn, node_id)
-    -- Direttive UE: le due grafie URN di Normattiva (`direttivaue` e
-    -- `direttiva.ue`) puntano allo stesso nodo CELEX. La lista arriva dal
-    -- dataset italia-corpus `direttive_ue` (una riga per direttiva).
-    UNION ALL
-    SELECT trim(u) AS urn, 'celex:' || d.celex AS node_id
-    FROM read_parquet('{support.direttive_ue.path}') d,
-         -- `urn_varianti` è separato da `|`: gli URN contengono `;`.
-         UNNEST(string_split(d.urn_varianti, '|')) AS t(u)
-    WHERE NULLIF(trim(u), '') IS NOT NULL
-      AND d.stato = 'risolto'
+    -- Le direttive UE **non** stanno qui: italia-corpus pubblica già
+    -- `bersaglio_celex` nel mart URN (risolto su `direttive_ue.urn_varianti`
+    -- a monte, con le due grafie collassate). La mappa URN→CELEX duplicata in
+    -- questo file è stata rimossa il 2026-11: una sola fonte di verità.
 ),
 
 -- Citation: `mart_riferimenti_urn` porta già la URN canonica su entrambi i
@@ -123,8 +117,10 @@ edges_riferimenti AS (
     FROM read_parquet('{support.riferimenti_urn.path}') r
     LEFT JOIN urn_aliases ua
       ON ua.urn = r.bersaglio_urn
+    -- Priorità: CELEX dell'artefatto upstream, poi alias URN→nodo, poi URN
+    -- grezza. Il `celex:` porta il nodo UE senza rimappare le grafie qui.
     JOIN mart_legal_nodes n
-      ON n.id = COALESCE(ua.node_id, r.bersaglio_urn)
+      ON n.id = COALESCE('celex:' || NULLIF(r.bersaglio_celex, ''), ua.node_id, r.bersaglio_urn)
     WHERE r.rel_type = 'citation'
       -- Temporal guard: un atto non può riferire un atto pubblicato dopo di
       -- esso (tolleranza 1 anno). L'eccezione per gli edge regex deboli
@@ -1085,8 +1081,10 @@ reading_clause_edges AS (
     FROM read_parquet('{support.riferimenti_urn.path}') r
     LEFT JOIN urn_aliases ua
       ON ua.urn = r.bersaglio_urn
+    -- Priorità: CELEX dell'artefatto upstream, poi alias URN→nodo, poi URN
+    -- grezza. Il `celex:` porta il nodo UE senza rimappare le grafie qui.
     JOIN mart_legal_nodes n
-      ON n.id = COALESCE(ua.node_id, r.bersaglio_urn)
+      ON n.id = COALESCE('celex:' || NULLIF(r.bersaglio_celex, ''), ua.node_id, r.bersaglio_urn)
     WHERE r.rel_type = 'citation'
       AND r.clausola_lettura
 ),

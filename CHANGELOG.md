@@ -2,6 +2,14 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-14
+
+- **recompose dopo il cleanup di italia-corpus** — `riferimento` 222.079 → **195.813** edge (−26.266) ma resa **81,8% → 89,8%**: delle 53.179 coppie upstream sparite a monte, solo 26.266 erano edge. `missing_evidence` **19% → 0**: erano le righe senza contesto (`akn:ref`), cioè proprio quelle fantasma. Nodi 859.990 → **858.357**; nodi `catalogo` → **9.207**. `abroga` invariata (14,8% → 14,5%): la resa bassa è **strutturale**, non un artefatto del doppione.
+- **perdite di `riferimento` per causa** — sette colonne additive su `coverage` al posto del numero unico `100 − edge_pct`: `lost_temporal` 6.410, `lost_fuori_perimetro` **13.775**, `lost_in_catalogo` 704, `lost_dominio_ue` 527, `lost_in_corpus` **0** (sensore di drift degli alias), `collapsed` 929 (due URN sullo stesso nodo: non è una perdita). Invariante testato: `edges + collapsed + Σ lost = coppie`.
+  Lettura: il 62% della perdita è **fuori perimetro**, non un nodo mancante. Solo 1.231 coppie (704 + 527) sono recuperabili creando un nodo.
+- **URN→CELEX non più rimappato in LG** — `mart_legal_edges` legge `bersaglio_celex` dal mart URN (risolto a monte su `direttive_ue.urn_varianti`, dove le due grafie collassano). La `unnest(urn_varianti)` duplicata è rimossa: una sola fonte di verità. Effetto: **+68** edge `riferimento`.
+- **baseline di test aggiornate** — 4 test erano già rossi con l'SQL di `main` dopo il rebuild (verificato con stash): `abroga` 4.198 → 70.190 (il funnel include i `repeal` AKN dal #3.2), `evidence_kind` (`missing` può essere 0), `impact_level` del DPR 1092 (critical → important), soglia nodi catalogo 10k → 9k.
+
 ## 2026-11-13
 
 - **`legal_text`: risoluzione del nodo sulla connessione condivisa** — `resolve_node` apriva una connessione DuckDB per chiamata come `fetch_mart_text` (stessa cache esterna azzerata). Da GCS la sola risoluzione costava **2,07 s**; ora ~0,1 s a cache calda. Effetto su `legal_text` con `LEGAL_GRAPH_SOURCE=gcs`: chiamate ripetute **2,31 s → 0,52 s**; prima chiamata su un id nuovo ~3 s (resta il costo di leggere due row group da GCS: `nodes` e `texts`).
