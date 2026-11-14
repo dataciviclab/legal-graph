@@ -524,7 +524,10 @@ class TestCardinality:
         count = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
         # include deputati, votazioni, iter cost e un nodo per emendamento
         # (legislatura, fase, numero): ~561k emendamenti distinti.
-        assert 750_000 <= count <= 900_000, f"Node count {count} outside expected range"
+        # Dal 2026-11 il tetto sale: `cited` crea i nodi catalogo anche per i
+        # bersagli di **abrogazione** (~58k), che prima restavano dangling.
+        # La banda resta una guardia: sotto = collasso, sopra = esplosione.
+        assert 750_000 <= count <= 1_000_000, f"Node count {count} outside expected range"
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]

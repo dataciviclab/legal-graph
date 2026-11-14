@@ -2,6 +2,23 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-14 (parte 2)
+
+- **guardia temporale sull'anno dell'espressione** — `edges_riferimenti` (e la
+  replica in `mart_legal_coverage`) confrontava `fonte_anno` (emanazione) col
+  bersaglio. Il testo letto è però l'espressione **consolidata**: un atto del
+  1874 con snapshot 2025 cita legittimamente atti del 2010. Ora usa
+  `fonte_anno_espressione` (pubblicata da italia-corpus): recupera **6.379
+  coppie** e i **704** nodi catalogo che la stessa guardia impediva di creare.
+- **abroga dal solo mart URN** — italia-corpus pubblica i `repeal` AKN come
+  `rel_type='abroga'` con `origine='akn'`: la CTE `edges_akn_abroga` (che
+  leggeva `akn_relations` e richiedeva entrambi i nodi) è rimossa, e `cited`
+  include i bersagli di abrogazione così i nodi catalogo esistono (60.774 su
+  64.215 erano già in `atti_index`). Atteso: `abroga` 10.169 → **~68k**.
+- **coverage: funnel abroga semplificato** — regex + AKN dalla stessa sorgente
+  (mart), deduplicati: `upstream_rows` 70.190 → 69.385, baseline del test
+  aggiornata.
+
 ## 2026-11-14
 
 - **recompose dopo il cleanup di italia-corpus** — `riferimento` 222.079 → **195.813** edge (−26.266) ma resa **81,8% → 89,8%**: delle 53.179 coppie upstream sparite a monte, solo 26.266 erano edge. `missing_evidence` **19% → 0**: erano le righe senza contesto (`akn:ref`), cioè proprio quelle fantasma. Nodi 859.990 → **858.357**; nodi `catalogo` → **9.207**. `abroga` invariata (14,8% → 14,5%): la resa bassa è **strutturale**, non un artefatto del doppione.
