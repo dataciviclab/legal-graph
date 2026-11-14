@@ -283,7 +283,10 @@ class TestEvidenzaFormulaica:
         # (IC 2026-11-10) le citazioni non hanno più evidenza-URL, quindi il
         # set effettivo è {missing, quote}. La partizione è il contratto.
         assert set(kinds) <= {"missing", "locator", "quote"}, kinds
-        assert {"missing", "quote"} <= set(kinds), kinds
+        # `quote` è garantito; `missing` no: dal cleanup IC 2026-11 tutte le
+        # citation AKN hanno contesto, quindi il segnaposto può essere 0
+        # (prima era il 19% delle evidenze).
+        assert "quote" in kinds, kinds
 
         mismatch = con.execute("""
             SELECT COUNT(*) FROM edges
@@ -327,7 +330,9 @@ class TestEvidenzaFormulaica:
         assert formulaic > 2_000, f"formulaic_by={formulaic}"
         assert ref + formulaic > 4_000, "il lordo deve restare visibile"
         assert ref < formulaic, "il D.P.R. 1092 vive di citazioni formulaiche"
-        assert level == "critical", "resta critical, ma con un conteggio onesto"
+        # Sceso da critical a important col cleanup IC 2026-11: tolti i
+        # riferimenti fantasma, i netti sono 59 su 4.237 formulaici.
+        assert level == "important", "sceso da critical dopo il cleanup IC 2026-11"
 
 
 class TestIdentitaNorme:
