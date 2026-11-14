@@ -105,24 +105,22 @@ normativa AS (
 -- restavano senza edge. La guardia temporale è replicata qui perché un nodo
 -- catalogo senza edge non serve a nessun consumer.
 cited AS (
-    SELECT DISTINCT
-        regexp_replace(
-            regexp_replace(
-                regexp_extract(r.bersaglio_urn, '^urn:nir:[^:]+:([^:]+):', 1),
-                '[.\-]', '', 'g'
-            ),
-            'della|delle|dello|degli|dei|del', '', 'g'
-        ) AS tipo_slug,
-        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 1) AS anno,
-        regexp_extract(r.bersaglio_urn, ':(\d{4})(?:-\d{2}-\d{2})?;(\d+)$', 2) AS numero
+    -- Insieme dei bersagli citati che devono avere un nodo.
+    --
+    -- Match **esatto di URN**: italia-corpus canonicalizza il bersaglio a monte
+    -- (`_urn_canonico` → URN del catalogo quando la chiave è univoca), quindi
+    -- la vecchia ricostruzione di (tipo, anno, numero) era ridondante e, sulle
+    -- chiavi ambigue, creava nodi orfani. `abroga` incluso dal 2026-11: i
+    -- bersagli delle abrogazioni sono 60.774 su 64.215 nel catalogo e senza
+    -- nodo l'arco restava dangling.
+    SELECT DISTINCT r.bersaglio_urn AS urn
     FROM read_parquet('{support.riferimenti_urn.path}') r
-    WHERE r.rel_type = 'citation'
+    WHERE r.rel_type IN ('citation', 'abroga')
       AND r.bersaglio_urn LIKE 'urn:nir:%'
-      -- stessa guardia di edges_riferimenti
       AND (
-          r.fonte_anno IS NULL
+          r.fonte_anno_espressione IS NULL
           OR r.bersaglio_anno IS NULL
-          OR r.fonte_anno >= r.bersaglio_anno - 1
+          OR r.fonte_anno_espressione >= r.bersaglio_anno - 1
           OR (r.da_regex AND r.peso < 5)
       )
 ),
@@ -163,14 +161,7 @@ nodes_catalogo AS (
             NULL::INTEGER AS sunsetting_score,
             ROW_NUMBER() OVER (PARTITION BY i.urn ORDER BY i.data_gu) AS _rn
         FROM read_parquet('{support.atti_index.path}') i
-        JOIN cited c
-          ON  c.anno = CAST(i.anno AS VARCHAR)
-          AND c.numero = CAST(i.numero AS VARCHAR)
-          -- stessa normalizzazione del tipo usata in mart_legal_edges.sql
-          AND c.tipo_slug = regexp_replace(
-                  regexp_replace(lower(i.denominazione), '[^a-z]', '', 'g'),
-                  'della|delle|dello|degli|dei|del', '', 'g'
-              )
+        JOIN cited c ON c.urn = i.urn
         WHERE NULLIF(i.urn, '') IS NOT NULL
           AND NOT i.in_corpus
     ) WHERE _rn = 1

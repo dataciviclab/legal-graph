@@ -126,9 +126,12 @@ edges_riferimenti AS (
       -- esso (tolleranza 1 anno). L'eccezione per gli edge regex deboli
       -- (peso < 5) resta: anni anomali lì sono rumore di metadati.
       AND (
-          r.fonte_anno IS NULL
+          -- anno dell'**espressione** letta (snapshot per le VIGENZA): con
+          -- l'anno dell'atto un testo consolidato del 2025 che cita il 2010
+          -- veniva scartato come impossibile (6.379 coppie su legal-graph).
+          r.fonte_anno_espressione IS NULL
           OR r.bersaglio_anno IS NULL
-          OR r.fonte_anno >= r.bersaglio_anno - 1
+          OR r.fonte_anno_espressione >= r.bersaglio_anno - 1
           OR (r.da_regex AND r.peso < 5)
       )
 ),
@@ -510,32 +513,23 @@ edges_abro AS (
         r.bersaglio_anno AS target_year,
         LEFT(r.contesto, 200) AS evidence
     FROM read_parquet('{support.riferimenti_urn.path}') r
+    -- Il nodo deve esistere su entrambi i lati: un arco verso un id senza
+    -- nodo è dangling (il test d'integrità lo blocca) e inutile al consumer.
+    JOIN mart_legal_nodes ns ON ns.id = r.fonte_urn
+    JOIN mart_legal_nodes nt ON nt.id = r.bersaglio_urn
     WHERE r.rel_type = 'abroga'
-),
-
--- Repeal AKN (italia-corpus akn_relations): URN→URN, più preciso di
--- abrogations_raw (regex su anno/numero). Stessa semantica di edges_abro:
--- fonte abroga target (activeModification). Dedup finale con edges_abro
--- via GROUP BY (source_id, relation, target_id).
--- Guard anno: esclude archi temporalmente impossibili (source < target,
--- ~30 casi da rumore passiveModification AKN).
-edges_akn_abroga AS (
-    SELECT
-        a.fonte_urn AS source_id,
-        'abroga' AS relation,
-        a.target_urn AS target_id,
-        1 AS weight,
-        ns.anno AS source_year,
-        nt.anno AS target_year,
-        'akn:' || a.origin AS evidence
-    FROM read_parquet('{support.akn_relations.path}') a
-    JOIN mart_legal_nodes ns ON ns.id = a.fonte_urn
-    JOIN mart_legal_nodes nt ON nt.id = a.target_urn
-    WHERE a.rel_type = 'repeal'
-      AND NULLIF(a.fonte_urn, '') IS NOT NULL
-      AND NULLIF(a.target_urn, '') IS NOT NULL
-      AND a.fonte_urn != a.target_urn
-      AND (ns.anno IS NULL OR nt.anno IS NULL OR ns.anno >= nt.anno)
+      -- Dal 2026-11 il mart porta anche i `repeal` AKN (origine='akn'), non
+      -- più letti da `akn_relations`: la CTE `edges_akn_abroga` è stata
+      -- rimossa. Per l'abrogazione contano gli anni degli **atti** (i nodi
+      -- portano quelli), non l'espressione: un testo consolidato non
+      -- "abroga", l'atto sì.
+      AND (
+          r.da_regex
+          OR r.fonte_anno IS NULL
+          OR r.bersaglio_anno IS NULL
+          OR r.fonte_anno >= r.bersaglio_anno
+      )
+      AND r.fonte_urn IS DISTINCT FROM r.bersaglio_urn
 ),
 
 -- Substitution AKN: atto sostituisce porzione di altro atto (URN→URN)
@@ -1021,8 +1015,6 @@ grouped AS (
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_dib
     UNION ALL
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_abro
-    UNION ALL
-    SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_abroga
     UNION ALL
     SELECT *, NULL::BOOLEAN AS from_title FROM edges_akn_sost
     UNION ALL
