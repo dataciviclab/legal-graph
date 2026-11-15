@@ -2,6 +2,26 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-15
+
+- **`granularita` + `n_locator` dell'abroga** — due colonne additive in coda a
+  `edges` (solo `abroga`): `granularita` ∈ `parziale` (ha locator) / `totale`
+  (AKN senza locator) / `ignota` (regex senza locator), e `n_locator` = quanti
+  articoli elenca il locator. Sul build 2026-11-14: **64.544 parziali, 697
+  totali, 2.636 ignote**; quota parziale **95,1%** sul totale abroga e
+  **98,9%** sui soli AKN.
+  Perché due campi: `parziale` descrive la **presenza** di un locator, non la
+  copertura. **1.230 archi elencano ≥50 articoli** (massimo 2.209) — cioè
+  abrogazioni dell'atto intero enumerate articolo per articolo. Senza
+  `n_locator`, `parziale` verrebbe letto come "un articolo modificato",
+  l'errore simmetrico a quello del Codice privacy (che risultava abrogato 98
+  volte: 5 liste di articoli AKN + 93 regex).
+  Contraddizioni con lo stato ufficiale, **con il filtro**:
+  `granularita='totale' AND nodes.source='normativa' AND nodes.stato='vigente'`
+  → **64 atti / 138 archi** (leggi finanziarie in testa: L. 296/2006 con 9
+  abroganti). Senza `source='normativa'` si contano anche i 58k nodi catalogo e
+  il numero non è comparabile.
+
 ## 2026-11-14 (parte 2)
 
 - **guardia temporale sull'anno dell'espressione** — `edges_riferimenti` (e la
