@@ -800,3 +800,45 @@ class TestChiaveAttoNeiTarget:
         """).fetchall())
         assert rami.get("camera", 0) >= 1_200, f"proposta_cost Camera: {rami.get('camera', 0)}"
         assert rami.get("senato", 0) >= 1_400, f"proposta_cost Senato: {rami.get('senato', 0)}"
+
+
+class TestGranularitaAbroga:
+    """`granularita` rende esplicito totale / parziale / ignota (2026-11).
+
+    Senza, un `regex` senza locator verrebbe letto come "atto abrogato": è
+    l'errore del Codice privacy (98 "abrogazioni" = 5 liste di articoli + 93
+    regex). Il 94% degli abroga AKN ha un locator, quindi è parziale.
+    """
+
+    def test_solo_abroga(self, con):
+        altre = con.execute(
+            "SELECT DISTINCT relation FROM edges WHERE granularita IS NOT NULL AND relation <> 'abroga'"
+        ).fetchall()
+        assert not altre, f"granularita su relazioni non previste: {altre}"
+
+    def test_valori_ammessi_e_partizione(self, con):
+        rows = con.execute(
+            "SELECT granularita, COUNT(*) FROM edges WHERE relation = 'abroga' GROUP BY 1"
+        ).fetchall()
+        vals = {r[0] for r in rows}
+        assert vals <= {"totale", "parziale", "ignota"}, vals
+        assert None not in vals, f"abroga senza granularità: {rows}"
+        assert sum(r[1] for r in rows) == con.execute(
+            "SELECT COUNT(*) FROM edges WHERE relation = 'abroga'"
+        ).fetchone()[0]
+
+    def test_akn_senza_locator_e_totale(self, con):
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'akn_lifecycle'
+              AND evidence_locator IS NULL AND granularita <> 'totale'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} abroga AKN senza locator non marcate 'totale'"
+
+    def test_regex_senza_locator_e_ignota(self, con):
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'regex'
+              AND evidence_locator IS NULL AND granularita <> 'ignota'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} abroga regex senza locator non marcate 'ignota'"

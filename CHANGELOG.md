@@ -2,6 +2,20 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-15
+
+- **`granularita` dell'abroga** — nuova colonna su `edges` (solo `abroga`):
+  `parziale` (ha `evidence_locator`), `totale` (AKN senza locator), `ignota`
+  (regex senza locator). Sul build 2026-11-14: **64.544 parziali, 697 totali,
+  2.636 ignote**. Rende leggibile il dato: il grafo delle abrogazioni è per il
+  **94% una mappa di abrogazioni di articolo**, non di atti. Senza il campo, un
+  `regex` senza locator verrebbe letto come "atto abrogato" — l'errore del
+  Codice privacy, che risultava abrogato 98 volte mentre erano 5 liste di
+  articoli (AKN) + 93 regex.
+  Le abrogazioni **totali** su atti marcati vigenti sono 64 atti / 138 archi
+  (in gran parte leggi finanziarie): una lista verificabile a mano, non un
+  numero da citare.
+
 ## 2026-11-14 (parte 2)
 
 - **guardia temporale sull'anno dell'espressione** — `edges_riferimenti` (e la

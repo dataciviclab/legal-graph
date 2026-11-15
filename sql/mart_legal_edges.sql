@@ -1190,6 +1190,17 @@ SELECT
         ELSE 'unknown'
     END AS method,
     l.locators AS evidence_locator,
+    -- Granularità dell'abrogazione, esplicita. Senza, un `regex` senza
+    -- locator (2.636 archi) verrebbe letto come "atto abrogato" mentre la
+    -- grana è ignota: è l'errore del Codice privacy (98 "abrogazioni" che
+    -- erano 5 liste di articoli + 93 regex). Il 94% degli abroga AKN ha un
+    -- locator → è un'abrogazione **parziale**; solo l'1% è totale.
+    CASE
+        WHEN g.relation <> 'abroga' THEN NULL
+        WHEN l.locators IS NOT NULL THEN 'parziale'
+        WHEN g.evidence LIKE 'akn:%' THEN 'totale'
+        ELSE 'ignota'
+    END AS granularita,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
     le.legislatura AS legislatura,
