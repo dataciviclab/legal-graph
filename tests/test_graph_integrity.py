@@ -816,18 +816,31 @@ class TestGranularitaAbroga:
         ).fetchall()
         assert not altre, f"granularita su relazioni non previste: {altre}"
 
-    def test_valori_ammessi_e_partizione(self, con):
-        rows = con.execute(
+    # Soglie: bastano a distinguere il dato reale da un ramo vuoto o collassato,
+    # senza fissare il valore esatto a ogni run.
+    PARZIALE_MIN = 55_000
+    TOTALE_RANGE = (300, 2_000)
+    IGNOTA_RANGE = (1_000, 6_000)
+
+    def test_valori_ammessi_e_rami_non_vuoti(self, con):
+        rows = dict(con.execute(
             "SELECT granularita, COUNT(*) FROM edges WHERE relation = 'abroga' GROUP BY 1"
-        ).fetchall()
-        vals = {r[0] for r in rows}
-        assert vals <= {"totale", "parziale", "ignota"}, vals
-        assert None not in vals, f"abroga senza granularità: {rows}"
-        assert sum(r[1] for r in rows) == con.execute(
-            "SELECT COUNT(*) FROM edges WHERE relation = 'abroga'"
-        ).fetchone()[0]
+        ).fetchall())
+        assert set(rows) == {"parziale", "totale", "ignota"}, rows
+        assert rows["parziale"] >= self.PARZIALE_MIN, rows
+        assert self.TOTALE_RANGE[0] <= rows["totale"] <= self.TOTALE_RANGE[1], rows
+        assert self.IGNOTA_RANGE[0] <= rows["ignota"] <= self.IGNOTA_RANGE[1], rows
+        # partizione completa: nessun arco senza classificazione
+        assert con.execute(
+            "SELECT COUNT(*) FROM edges WHERE relation = 'abroga' AND granularita IS NULL"
+        ).fetchone()[0] == 0
 
     def test_akn_senza_locator_e_totale(self, con):
+        base = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'akn_lifecycle' AND evidence_locator IS NULL
+        """).fetchone()[0]
+        assert base > 0, "nessun abroga AKN senza locator: il ramo non è esercitato"
         bad = con.execute("""
             SELECT COUNT(*) FROM edges
             WHERE relation = 'abroga' AND method = 'akn_lifecycle'
@@ -836,9 +849,34 @@ class TestGranularitaAbroga:
         assert bad == 0, f"{bad} abroga AKN senza locator non marcate 'totale'"
 
     def test_regex_senza_locator_e_ignota(self, con):
+        base = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND method = 'regex' AND evidence_locator IS NULL
+        """).fetchone()[0]
+        assert base > 0, "nessun abroga regex senza locator: il ramo non è esercitato"
         bad = con.execute("""
             SELECT COUNT(*) FROM edges
             WHERE relation = 'abroga' AND method = 'regex'
               AND evidence_locator IS NULL AND granularita <> 'ignota'
         """).fetchone()[0]
         assert bad == 0, f"{bad} abroga regex senza locator non marcate 'ignota'"
+
+    def test_n_locator_espone_la_copertura(self, con):
+        """`parziale` non vuol dire "un articolo": serve il conteggio."""
+        nulli = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND granularita = 'parziale' AND n_locator IS NULL
+        """).fetchone()[0]
+        assert nulli == 0, f"{nulli} abroga parziali senza n_locator"
+        fuori = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'abroga' AND granularita <> 'parziale' AND n_locator IS NOT NULL
+        """).fetchone()[0]
+        assert fuori == 0, f"{fuori} abroga non-parziali con n_locator"
+        uno, massimo = con.execute("""
+            SELECT COUNT(*) FILTER (WHERE n_locator = 1), MAX(n_locator)
+            FROM edges WHERE relation = 'abroga'
+        """).fetchone()
+        assert uno > 10_000, f"attesi molti archi con un solo articolo, trovati {uno}"
+        # l'atto intero enumerato articolo per articolo esiste ed è visibile
+        assert massimo > 50, f"n_locator massimo {massimo}: il caso 'atto intero' non comparirebbe"

@@ -1190,17 +1190,6 @@ SELECT
         ELSE 'unknown'
     END AS method,
     l.locators AS evidence_locator,
-    -- Granularità dell'abrogazione, esplicita. Senza, un `regex` senza
-    -- locator (2.636 archi) verrebbe letto come "atto abrogato" mentre la
-    -- grana è ignota: è l'errore del Codice privacy (98 "abrogazioni" che
-    -- erano 5 liste di articoli + 93 regex). Il 94% degli abroga AKN ha un
-    -- locator → è un'abrogazione **parziale**; solo l'1% è totale.
-    CASE
-        WHEN g.relation <> 'abroga' THEN NULL
-        WHEN l.locators IS NOT NULL THEN 'parziale'
-        WHEN g.evidence LIKE 'akn:%' THEN 'totale'
-        ELSE 'ignota'
-    END AS granularita,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
     le.legislatura AS legislatura,
@@ -1244,7 +1233,24 @@ SELECT
         ELSE 'strong'
     END AS conf_temporal,
     'unreviewed' AS review_status,
-    NULL::VARCHAR AS snapshot_id
+    NULL::VARCHAR AS snapshot_id,
+    -- Granularità dell'abrogazione, esplicita e in coda (additiva per nome e
+    -- per posizione). `parziale` **non** vuol dire "un articolo": 1.230 archi
+    -- elencano ≥50 articoli (max 2.209), cioè abrogazioni dell'intero atto
+    -- enumerate articolo per articolo. Per questo c'è `n_locator`.
+    CASE
+        WHEN g.relation <> 'abroga' THEN NULL
+        WHEN l.locators IS NOT NULL THEN 'parziale'
+        WHEN g.evidence LIKE 'akn:%' THEN 'totale'
+        ELSE 'ignota'
+    END AS granularita,
+    -- Quanti articoli elenca il locator (NULL se assente): 1 = un articolo,
+    -- 50+ = verosimilmente l'intero atto. Espone la copertura che
+    -- `granularita` da sola non racconta.
+    CASE
+        WHEN l.locators IS NULL THEN NULL
+        ELSE CAST(array_length(string_split(l.locators, ',')) AS INTEGER)
+    END AS n_locator
 FROM grouped g
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id

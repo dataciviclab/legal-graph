@@ -104,6 +104,21 @@ For every important node/edge:
 - `verified` requires `reviewed_by`/`reviewed_at`; an inference cannot become a fact without a documented review.
 - `inferred`/`weak`/`unverifiable` are visible in responses.
 
+Sugli archi `abroga`, due campi aggiuntivi (2026-11) dicono **quanto** è
+coperta l'abrogazione, perché `evidence_locator` da solo non basta:
+
+| campo | valori | significato |
+|---|---|---|
+| `granularita` | `parziale` / `totale` / `ignota` | presenza di locator + estrattore |
+| `n_locator` | 1..N (NULL se assente) | quanti articoli elenca il locator |
+
+`parziale` **non** significa "un articolo": 1.230 archi elencano ≥50 articoli
+(max 2.209), cioè abrogazioni dell'**intero atto enumerate articolo per
+articolo**. `ignota` = regex senza locator: la grana non è determinata, non è
+equivalente a `totale`. `evidence_locator` può arrivare dal join con
+`akn_relations` anche su un arco `regex`: è corretto per la granularità, ma non
+è prova dell'estrattore.
+
 ---
 
 ## 8. Abrogation and status

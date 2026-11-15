@@ -175,7 +175,26 @@ Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: der
 
 Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
 
-**`abroga` (2026-11-10)** — 3.733 edge, tutti `assertion_type='extracted'`: le abrogazioni regex del mart IC portano il contesto citante (`method='regex'`, 3.364), quelle AKN il locator (`method='akn_lifecycle'`, 369). Prima 3.364 erano marcati `inferred` pur avendo la quote (mappatura per prefisso `akn:` invece che per presenza di evidenza). Resta il buco di fonte: **7.668 atti `stato=abrogato` non hanno un arco in ingresso** (l'AKN non emette il lifecycle per la maggior parte degli atti).
+**`abroga` (2026-11-15)** — **67.877 edge**: 64.523 `akn_lifecycle` e 3.354
+`regex`. Dal 2026-11 italia-corpus pubblica i `repeal` AKN nel mart URN con il
+bersaglio canonicalizzato, e LG crea il nodo catalogo: prima 57.708 archi
+restavano fuori perché il target non aveva un nodo (resa 14,5% → **97,8%**).
+
+La granularità è esplicita (campo `granularita`, vedi `MODEL_CORE.md`) perché
+il grafo è per il **95,1%** una mappa di abrogazioni **di articolo**:
+`parziale` 64.544 (di cui 1.230 con ≥50 articoli, massimo 2.209: l'atto intero
+enumerato), `totale` 697, `ignota` 2.636 (regex senza locator, grana non
+determinata).
+
+Contraddizioni con lo stato ufficiale, leggibili solo sulle abrogazioni
+**totali** (`granularita='totale' AND nodes.source='normativa' AND
+nodes.stato='vigente'`): **64 atti / 138 archi**, in gran parte leggi
+finanziarie (L. 296/2006 con 9 abroganti). Il filtro `source='normativa'` è
+essenziale: senza, si contano anche i 58k nodi catalogo e il numero cambia
+ordine di grandezza.
+
+**Buco di fonte noto**: ~7.668 atti `stato=abrogato` non hanno un arco in
+ingresso (l'AKN non emette il lifecycle per la maggior parte degli atti).
 
 **`attua_delega` (2026-11-10)** — Due livelli, esposti su ogni edge: `method='title'` (471 edge: 290 dal corpus normativa + 181 da `atti_api`) = il titolo del D.Lgs nomina la legge delegante («in attuazione dell'articolo 1 della legge …»), `assertion_type='extracted'`, `prov_evidence_kind='locator'`; `method='regex'` (2.221) = la legge bersaglio ha «delega al Governo» nel titolo ed è citata dall'atto, `assertion_type='inferred'`, evidenza = snippet citante (o `none` se AKN non dà contesto). Il metodo è un flag esplicito dei due CTE, non il peso: il peso regex è il conteggio delle citazioni e può essere ≥5. La vista `chain` mette davanti le deleghe `title` e chiude con le `regex`: non spariscono, ma non si spacciano per catena verificata. Solo 471/2.692 (17,5%) hanno la delega nominata nell'atto.
 
