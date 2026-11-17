@@ -44,10 +44,13 @@ invisibile: il test di integrità vedeva **0 dangling**, perché gli edge non
 risolti non vengono proprio emessi. Ora il funnel è un mart:
 
 ```sql
+-- mart PUBBLICATO (non out/ locale: i due divergono di ~90 archi)
 SELECT relation, upstream_rows, natural_pairs, edges, edge_pct, note
-FROM read_parquet('out/data/mart/legal_graph/2026/mart_legal_coverage.parquet')
+FROM read_parquet('https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/2026/mart_legal_coverage.parquet')
 WHERE upstream IS NOT NULL;
 ```
+
+**Build 2026-11-16, mart pubblicato su GCS** (vedi la nota in testa).
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
