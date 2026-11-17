@@ -3,6 +3,7 @@
 Data: 2026-10-08 · aggiornata 2026-11-17 · Fonte: mart pubblicato 2026-11-16
 
 > 2026-11-17 — build con **916.355 nodi / 1.411.497 archi**, direttive UE incluse.
+> I numeri vengono dal mart **pubblicato su GCS** (`dataciviclab-mart/legal-graph/legal_graph/2026/`), non da `out/` locale: il MCP `legal_coverage` legge il locale quando esiste, e i due divergono di ~90 archi. Per citare "il pubblicato" usare i path GCS.
 
 **Cosa è cambiato dal 2026-11-11** — tre cause indipendenti, quindi i numeri
 precedenti **non sono comparabili**:
