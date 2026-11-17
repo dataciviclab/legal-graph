@@ -51,7 +51,7 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.775 fuori perimetro, 527 direttive non risolte, 23 guardia temporale, 929 coppie collassate su un nodo |
+| `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.778 fuori perimetro, 528 direttive non risolte, 23 guardia temporale, 929 collassate: somma **15.258** = 218.249 − 202.991 |
 | `emendamento` | 764.941 | 562.368 | 495.357 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
 | `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
@@ -80,8 +80,9 @@ identità: nessun testo, ma con `materia` dal classificatore IC). **Tutti** hann
 almeno un edge dal 2026-11-14: il match è sull'**URN esatto** (italia-corpus
 canonicalizza a monte) e `cited` include i bersagli di abrogazione, quindi non
 si creano più nodi da una chiave (tipo, anno, numero) che poteva essere ambigua.
-Le citazioni all'atto-Costituzione (`...;const`, **4.487 edge**) hanno un nodo
-proprio `costituzione:atto`, non un articolo: sono citazioni all'atto intero.
+Le citazioni all'atto-Costituzione (**4.488 edge**) hanno un nodo proprio
+`costituzione:atto`, non un articolo: sono citazioni all'atto intero. L'alias
+`...;const` non compare più come target (0 edge): lo risolve l'alias.
 Le direttive UE non sono nel catalogo italiano: hanno un nodo dedicato
 `celex:*` dal dataset `direttive_ue` (identità CELEX, non testo), con **2.343
 direttive risolte su 2.672**. Restano fuori **329 direttive non in Cellar**,
@@ -90,9 +91,9 @@ bersagli non risolti al file: di questi ~11.400 esistono comunque in
 `atti_index` e diventano nodi catalogo, gli altri non identificano un atto del
 catalogo. Gli URN malformati restano **esclusi per scelta**.
 
-> Direttive UE incluse dal 2026-11-09: **2.343 nodi `celex:*`** (su 2.672) e
-> **28.128 edge** `riferimento`. Il mart pubblico si aggiorna al prossimo run
-> della pipeline.
+> Direttive UE: **2.343 nodi `celex:*`** (su 2.672) e **23.696 archi**
+> `riferimento` verso **2.278** di essi (65 direttive non hanno citazioni in
+> ingresso).
 
 Limiti dichiarati:
 
@@ -201,7 +202,7 @@ restavano fuori perché il target non aveva un nodo (resa 14,5% → **97,8%**).
 La granularità è esplicita (campo `granularita`, vedi `MODEL_CORE.md`) perché
 il grafo è per il **95,1%** una mappa di abrogazioni **di articolo**:
 `parziale` 64.544 (di cui 1.230 con ≥50 articoli, massimo 2.209: l'atto intero
-enumerato), `totale` 697, `ignota` 2.636 (regex senza locator, grana non
+enumerato), `totale` 697, `ignota` 2.638 (regex senza locator, grana non
 determinata).
 
 Contraddizioni con lo stato ufficiale, leggibili solo sulle abrogazioni
