@@ -1,8 +1,23 @@
 # Copertura legal-graph — mappa onesta
 
-Data: 2026-10-08 · aggiornata 2026-11-11 · Fonte: mart pubblicato 2026-11-11
+Data: 2026-10-08 · aggiornata 2026-11-17 · Fonte: mart pubblicato 2026-11-16
 
-> 2026-11-11 — build con **857.938 nodi / 1.369.447 archi**, direttive UE incluse. Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
+> 2026-11-17 — build con **916.355 nodi / 1.411.497 archi**, direttive UE incluse.
+> I numeri vengono dal mart **pubblicato su GCS** (`dataciviclab-mart/legal-graph/legal_graph/2026/`), non da `out/` locale: il MCP `legal_coverage` legge il locale quando esiste, e i due divergono di ~90 archi. Per citare "il pubblicato" usare i path GCS.
+
+**Cosa è cambiato dal 2026-11-11** — tre cause indipendenti, quindi i numeri
+precedenti **non sono comparabili**:
+
+- **citazioni rimosse a monte** (italia-corpus 2026-11-14): rispetto al build
+  2026-11-11 le righe upstream passano da **267.961 a 218.249** (−49.712) e gli
+  archi `riferimento` da **221.292 a 202.991** (−18.301). La differenza tra i
+  due delta è perché gran parte delle citazioni rimosse non diventava edge
+  (bersaglio senza nodo);
+- **abroga completata** (stessa data): 3.990 → **67.879**; il campo
+  `granularita` dice se l'abrogazione è di articolo (`parziale`, 95,1%),
+  dell'atto (`totale`, 1,0%) o di grana ignota (`ignota`, 3,9%);
+- **nodi catalogo** 10.852 → **67.281** (i bersagli delle abrogazioni ora
+  ricevono un nodo; prima 223 restavano orfani). Le correzioni di semantica del 2026-11-01 restano valide: `invoca_parametro` tiene solo i parametri costituzionali (`parametro_codice=25`) e solo articoli 1..139 · i documenti AKN Senato senza omologo open-politica diventano il nodo canonico dell'atto (un oggetto, un nodo) · 0 target dangling.
 
 ## Cosa è (in sintesi)
 
@@ -14,7 +29,7 @@ Data: 2026-10-08 · aggiornata 2026-11-11 · Fonte: mart pubblicato 2026-11-11
 
 > **Ricerca (2026-11-10)** — `legal_search` per tema usa un indice BM25
 > (`mart_legal_search_terms`) costruito su `italia-corpus/testi`: copre il
-> testo dei **20.790 atti** del corpus e il titolo di tutti gli atti
+> testo dei **20.807 atti** del corpus e il titolo di tutti gli atti
 > navigabili. Gli atti senza testo nel corpus (es. L. 241/1990) restano
 > cercabili per titolo, ma non per contenuto. Il ranking somma il punteggio
 > testuale al log delle citazioni in ingresso: un codice molto citato batte
@@ -29,41 +44,48 @@ invisibile: il test di integrità vedeva **0 dangling**, perché gli edge non
 risolti non vengono proprio emessi. Ora il funnel è un mart:
 
 ```sql
+-- mart PUBBLICATO (non out/ locale: i due divergono di ~90 archi)
 SELECT relation, upstream_rows, natural_pairs, edges, edge_pct, note
-FROM read_parquet('out/data/mart/legal_graph/2026/mart_legal_coverage.parquet')
+FROM read_parquet('https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/2026/mart_legal_coverage.parquet')
 WHERE upstream IS NOT NULL;
 ```
 
+**Build 2026-11-16, mart pubblicato su GCS** (vedi la nota in testa).
+
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 267.961 | 267.961 | 221.292 | 82,6% | bersagli senza nodo (URN ambigui/malformati), guardia temporale; direttive UE incluse |
-| `emendamento` | 763.690 | 561.270 | 494.259 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
+| `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.778 fuori perimetro, 528 direttive non risolte, 23 guardia temporale, 929 collassate: somma **15.258** = 218.249 − 202.991 |
+| `emendamento` | 764.941 | 562.368 | 495.357 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
-| `diventa_legge` | 7.520 | 4.496 | 3.574 | 79,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
-| `abroga` | 4.199 | 4.199 | 3.990 | 95% | target senza nodo, guardia temporale |
+| `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
+| `abroga` | 69.387 | 69.387 | 67.879 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
 
-**Locator articolo (`evidence_locator`, 2026-11-11).** L'edge dice *quale articolo*, non solo quale atto:
+**Locator articolo (`evidence_locator`, 2026-11-16).** L'edge dice *quale articolo*, non solo quale atto:
 
 | Relazione | Edge | Con locator |
 |---|---:|---:|
-| `riferimento` | 221.292 | **91.134** (41,2%) |
-| `modifica` | 28.402 | **12.479** (43,9%) |
-| `sostituisce` | 591 | **203** (34,3%) |
-| `abroga` | 3.990 | **151** (3,8%) |
+| `riferimento` | 202.991 | **93.534** (46,1%) |
+| `abroga` | 67.879 | **64.544** (95,1%) |
+| `modifica` | 23.351 | **13.770** (59,0%) |
+| `sostituisce` | 407 | **405** (99,5%) |
 
-Codice civile: **1.632/2.059** edge con locator. `abroga`/`sostituisce` bassi perché **956 righe** stanno nelle 4 collezioni con pin `V` (dato IC assente, non limite del grafo). Con più articoli il valore è una lista: `(',' || evidence_locator || ',') LIKE '%,art_3,%'`.
+Codice civile: **1.648/1.917** edge con locator (86,0%). Con più articoli il
+valore è una lista: `(',' || evidence_locator || ',') LIKE '%,art_3,%'`. Dal
+2026-11-15 `abroga` porta anche `n_locator`: 1.230 edge elencano ≥50 articoli
+(max 2.209), cioè abrogazioni dell'atto intero enumerate articolo per articolo.
 
 Le altre 20 relazioni sono 1:1 (una riga upstream → un edge): il bilancio le
 elenca con `upstream` NULL invece di inventare un denominatore.
 
 **Nodi catalogo (2026-11).** I bersagli fuori corpus che esistono nel catalogo
-Normattiva hanno un nodo `source='catalogo'` (**10.852 nodi** da `atti_index`, solo
-identità: nessun testo, ma con `materia` dal classificatore IC). **10.629** hanno
-almeno un edge; i 223 restanti (2,1%) sono citazioni ad atti che il catalogo non
-contiene nella stessa forma o che cadono nella guardia temporale. I `riferimento`
-puntano a **10.594** nodi catalogo e **130** nodi `atti_api`.
-Le citazioni all'atto-Costituzione (`...;const`, **4.966 edge**) hanno un nodo
-proprio `costituzione:atto`, non un articolo: sono citazioni all'atto intero.
+Normattiva hanno un nodo `source='catalogo'` (**67.281 nodi** da `atti_index`, solo
+identità: nessun testo, ma con `materia` dal classificatore IC). **Tutti** hanno
+almeno un edge dal 2026-11-14: il match è sull'**URN esatto** (italia-corpus
+canonicalizza a monte) e `cited` include i bersagli di abrogazione, quindi non
+si creano più nodi da una chiave (tipo, anno, numero) che poteva essere ambigua.
+Le citazioni all'atto-Costituzione (**4.488 edge**) hanno un nodo proprio
+`costituzione:atto`, non un articolo: sono citazioni all'atto intero. L'alias
+`...;const` non compare più come target (0 edge): lo risolve l'alias.
 Le direttive UE non sono nel catalogo italiano: hanno un nodo dedicato
 `celex:*` dal dataset `direttive_ue` (identità CELEX, non testo), con **2.343
 direttive risolte su 2.672**. Restano fuori **329 direttive non in Cellar**,
@@ -72,9 +94,9 @@ bersagli non risolti al file: di questi ~11.400 esistono comunque in
 `atti_index` e diventano nodi catalogo, gli altri non identificano un atto del
 catalogo. Gli URN malformati restano **esclusi per scelta**.
 
-> Direttive UE incluse dal 2026-11-09: **2.343 nodi `celex:*`** (su 2.672) e
-> **28.128 edge** `riferimento`. Il mart pubblico si aggiorna al prossimo run
-> della pipeline.
+> Direttive UE: **2.343 nodi `celex:*`** (su 2.672) e **23.696 archi**
+> `riferimento` verso **2.278** di essi (65 direttive non hanno citazioni in
+> ingresso).
 
 Limiti dichiarati:
 
@@ -175,7 +197,7 @@ Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: der
 
 Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
 
-**`abroga` (2026-11-15)** — **67.877 edge**: 64.523 `akn_lifecycle` e 3.354
+**`abroga` (2026-11-15)** — **67.879 edge**: 64.523 `akn_lifecycle` e 3.354
 `regex`. Dal 2026-11 italia-corpus pubblica i `repeal` AKN nel mart URN con il
 bersaglio canonicalizzato, e LG crea il nodo catalogo: prima 57.708 archi
 restavano fuori perché il target non aveva un nodo (resa 14,5% → **97,8%**).
@@ -183,7 +205,7 @@ restavano fuori perché il target non aveva un nodo (resa 14,5% → **97,8%**).
 La granularità è esplicita (campo `granularita`, vedi `MODEL_CORE.md`) perché
 il grafo è per il **95,1%** una mappa di abrogazioni **di articolo**:
 `parziale` 64.544 (di cui 1.230 con ≥50 articoli, massimo 2.209: l'atto intero
-enumerato), `totale` 697, `ignota` 2.636 (regex senza locator, grana non
+enumerato), `totale` 697, `ignota` 2.638 (regex senza locator, grana non
 determinata).
 
 Contraddizioni con lo stato ufficiale, leggibili solo sulle abrogazioni
