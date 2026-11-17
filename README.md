@@ -1,6 +1,6 @@
 # Legal Knowledge Graph — il diritto italiano come sistema
 
-**916.355 nodi e 1.411.404 relazioni tra leggi, decreti, disegni di legge, sentenze e Costituzione (build 2026-11-16).**
+**916.355 nodi e 1.411.497 relazioni tra leggi, decreti, disegni di legge, sentenze e Costituzione (build 2026-11-16).**
 
 Una legge non nasce da sola. Un disegno di legge diventa legge, un decreto legislativo attua una delega, una sentenza della Corte costituzionale impugna una norma, un articolo della Costituzione viene citato migliaia di volte. Il Legal Graph mette in un unico grafo interrogabile queste relazioni, raccolte da cinque fonti del Lab: italia-corpus, costituzione-italiana, senato-akn, open-politica e gu-monitor.
 
@@ -11,7 +11,7 @@ Non è un'enciclopedia del diritto né un motore di ricerca normativo. È una **
 | | |
 |---|---|
 | **Nodi** | 916.355 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
-| **Relazioni** | 1.411.404 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
+| **Relazioni** | 1.411.497 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
 | **Bersagli fuori corpus** | **67.281** atti citati che non sono nel corpus testuale, ricostruiti dal catalogo Normattiva (tutti collegati al grafo dal 2026-11-14, 0 orfani) |
 | **Tabelle pubblicate** | 13 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, **indice full-text (BM25)**, relazioni pre-aggregate, emendamenti, testi, massime |
 | **Fonti** | 5 repo del Lab, lette da rete |
@@ -90,7 +90,7 @@ Legal Graph è un **motore di contesto relazionale** sul processo legislativo, s
 - **Coperto bene**: catene legislative, attuazione delle deleghe, modifiche e abrogazioni, Corte costituzionale, firmatari e relatori, decreti legislativi di sistema.
 - **Scoperto**: corpus normativo completo (20.807 atti contro i 205.125 del catalogo), codici articolo per articolo, giurisprudenza ordinaria, EUR-Lex, PNRR come dataset.
 - **Citazioni**: derivano dai riferimenti Akoma Ntoso di Normattiva, non sono rinvii verificati. Sui titoli generici la fonte può sbagliare bersaglio. Le relazioni tipizzate (`abroga`, `sostituisce`) sono più precise del `riferimento` generico; per `attua_delega` la forza dipende da `method`: `title` (la delega è nominata nel titolo dell'atto, estratta con locator) batte `regex` (dedotta da una citazione, inferita).
-- **Copertura dichiarata**: **202.904 riferimenti su 218.158 coppie (93,0%)** e **67.877 abrogazioni su 69.385 (97,8%)**. Le direttive UE citate **hanno un nodo** `celex:*` da `direttive_ue` (24.205 archi, 24.204 con CELEX): il testo resta fuori, l'identità no.
+- **Copertura dichiarata**: **202.991 riferimenti su 218.249 coppie (93,0%)** e **67.879 abrogazioni su 69.387 (97,8%)**. Le direttive UE citate **hanno un nodo** `celex:*` da `direttive_ue` (24.205 archi, 24.204 con CELEX): il testo resta fuori, l'identità no.
 - **Vigenza e abrogazioni**: `stato` è lo status formale di Normattiva, a livello di atto; non cattura abrogazioni implicite. Gli archi `abroga` dicono **quanto** è coperto con `granularita` (`parziale` 95,1% / `totale` 1,0% / `ignota` 3,9%) e `n_locator`: il grafo è per la gran parte una mappa di abrogazioni **di articolo**, e un arco in ingresso non significa "l'atto è abrogato".
 - **Testo**: `legal_text` restituisce il documento o il singolo articolo, non l'atto consolidato. Per gli atti fuori dal corpus risponde con il link a Normattiva; per le **direttive UE** con il link EUR-Lex (`note`, non `error`).
 - **Sempre**: i dati vengono dal mart legal-graph, non da Normattiva in tempo reale.

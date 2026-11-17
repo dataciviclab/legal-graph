@@ -2,14 +2,17 @@
 
 Data: 2026-10-08 · aggiornata 2026-11-17 · Fonte: mart pubblicato 2026-11-16
 
-> 2026-11-17 — build con **916.355 nodi / 1.411.404 archi**, direttive UE incluse.
+> 2026-11-17 — build con **916.355 nodi / 1.411.497 archi**, direttive UE incluse.
 
 **Cosa è cambiato dal 2026-11-11** — tre cause indipendenti, quindi i numeri
 precedenti **non sono comparabili**:
 
-- **58.894 citazioni fantasma rimosse a monte** (italia-corpus 2026-11-14):
-  `riferimento` 221.292 → **202.904**;
-- **abroga completata** (stessa data): 3.990 → **67.877**; il campo
+- **citazioni rimosse a monte** (italia-corpus 2026-11-14): rispetto al build
+  2026-11-11 le righe upstream passano da **267.961 a 218.249** (−49.712) e gli
+  archi `riferimento` da **221.292 a 202.991** (−18.301). La differenza tra i
+  due delta è perché gran parte delle citazioni rimosse non diventava edge
+  (bersaglio senza nodo);
+- **abroga completata** (stessa data): 3.990 → **67.879**; il campo
   `granularita` dice se l'abrogazione è di articolo (`parziale`, 95,1%),
   dell'atto (`totale`, 1,0%) o di grana ignota (`ignota`, 3,9%);
 - **nodi catalogo** 10.852 → **67.281** (i bersagli delle abrogazioni ora
@@ -47,22 +50,22 @@ WHERE upstream IS NOT NULL;
 
 | Relazione | Righe upstream | Coppie distinte | Edge | Copertura | Cosa si perde |
 |---|---:|---:|---:|---:|---|
-| `riferimento` | 218.158 | 218.158 | 202.904 | 93,0% | 13.775 fuori perimetro, 527 direttive non risolte, 23 guardia temporale, 929 coppie collassate su un nodo |
+| `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.775 fuori perimetro, 527 direttive non risolte, 23 guardia temporale, 929 coppie collassate su un nodo |
 | `emendamento` | 764.941 | 562.368 | 495.357 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
 | `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
-| `abroga` | 69.385 | 69.385 | 67.877 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
+| `abroga` | 69.387 | 69.387 | 67.879 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
 
 **Locator articolo (`evidence_locator`, 2026-11-11).** L'edge dice *quale articolo*, non solo quale atto:
 
 | Relazione | Edge | Con locator |
 |---|---:|---:|
-| `riferimento` | 202.904 | **93.498** (46,1%) |
-| `abroga` | 67.877 | **64.544** (95,1%) |
+| `riferimento` | 202.991 | **93.534** (46,1%) |
+| `abroga` | 67.879 | **64.544** (95,1%) |
 | `modifica` | 23.351 | **13.770** (59,0%) |
 | `sostituisce` | 407 | **405** (99,5%) |
 
-Codice civile: **1.647/1.916** edge con locator (86,0%). Con più articoli il
+Codice civile: **1.648/1.917** edge con locator (86,0%). Con più articoli il
 valore è una lista: `(',' || evidence_locator || ',') LIKE '%,art_3,%'`. Dal
 2026-11-15 `abroga` porta anche `n_locator`: 1.230 edge elencano ≥50 articoli
 (max 2.209), cioè abrogazioni dell'atto intero enumerate articolo per articolo.
@@ -189,7 +192,7 @@ Gli archi `riferimento` (citazioni tra atti) **non sono rinvii verificati**: der
 
 Conseguenza: analisi basate sulle citazioni (es. "norme vigenti che citano norme abrogate") sono **sovrastimate** e vanno qualificate. Le relazioni **tipizzate** (`abroga`, `modifica` — da AKN `lifecycle`) sono più affidabili del `riferimento` generico. Verificato 2026-10-26.
 
-**`abroga` (2026-11-15)** — **67.877 edge**: 64.523 `akn_lifecycle` e 3.354
+**`abroga` (2026-11-15)** — **67.879 edge**: 64.523 `akn_lifecycle` e 3.354
 `regex`. Dal 2026-11 italia-corpus pubblica i `repeal` AKN nel mart URN con il
 bersaglio canonicalizzato, e LG crea il nodo catalogo: prima 57.708 archi
 restavano fuori perché il target non aveva un nodo (resa 14,5% → **97,8%**).
