@@ -29,7 +29,7 @@ precedenti **non sono comparabili**:
 
 > **Ricerca (2026-11-10)** — `legal_search` per tema usa un indice BM25
 > (`mart_legal_search_terms`) costruito su `italia-corpus/testi`: copre il
-> testo dei **20.806 atti** del corpus e il titolo di tutti gli atti
+> testo dei **20.807 atti** del corpus e il titolo di tutti gli atti
 > navigabili. Gli atti senza testo nel corpus (es. L. 241/1990) restano
 > cercabili per titolo, ma non per contenuto. Il ranking somma il punteggio
 > testuale al log delle citazioni in ingresso: un codice molto citato batte
@@ -57,7 +57,7 @@ WHERE upstream IS NOT NULL;
 | `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 69.387 | 69.387 | 67.879 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
 
-**Locator articolo (`evidence_locator`, 2026-11-11).** L'edge dice *quale articolo*, non solo quale atto:
+**Locator articolo (`evidence_locator`, 2026-11-16).** L'edge dice *quale articolo*, non solo quale atto:
 
 | Relazione | Edge | Con locator |
 |---|---:|---:|
