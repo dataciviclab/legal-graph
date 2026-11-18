@@ -119,6 +119,22 @@ equivalente a `totale`. `evidence_locator` può arrivare dal join con
 `akn_relations` anche su un arco `regex`: è corretto per la granularità, ma non
 è prova dell'estrattore.
 
+Sugli archi `attua_delega` c'è una quinta confidenza, additiva (2026-11-18):
+`conf_evidence`, che misura **quanto il quote sostiene la relazione**.
+`conf_extraction` è un flag di **metodo** (`title` → `strong`, `regex` →
+`weak`): non va letto come forza dell'evidenza, e non è stato riscritto.
+
+| campo | valori | significato |
+|---|---|---|
+| `conf_evidence` | `strong` / `medium` / `weak` / `review` | citazione completa + marker ⇒ `strong`; citazione completa senza marker ⇒ `medium`; solo numero/anno ⇒ `weak`; nessuna citazione ⇒ `review` |
+
+Popolato **solo** su `attua_delega` (NULL altrove: per le altre relazioni non
+esiste una regola misurata). La citazione completa si riconosce da anno e
+numero della legge bersaglio; il marker è lessicale e conservativo («delega al
+Governo», «attuazione della delega», «ai sensi», «a norma dell'articolo»…).
+Dice che il quote *nomina* la delega, non che la delega sia giuridicamente
+quella: per quello servono locator + testo.
+
 ---
 
 ## 8. Abrogation and status

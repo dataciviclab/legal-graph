@@ -24,6 +24,15 @@ Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
   edge restano identici; cambia solo la provenienza.
   Perché non basta il peso: `weight` è il conteggio delle citazioni, non la
   confidenza — una legge delega citata 94 volte non è 94 volte più delegante.
+- **`attua_delega`: nuova colonna `conf_evidence`** (additiva, in coda). Dice
+  **quanto il quote sostiene la relazione**, non come è stato estratto:
+  `strong` = citazione completa + marker (1.336), `medium` = citazione completa
+  senza marker (857), `weak` = solo numero/anno (0), `review` = nessuna
+  citazione (54). Popolata solo su `attua_delega`, NULL altrove.
+  `conf_extraction` **non cambia** e resta il flag di metodo: riscriverlo
+  cambierebbe il significato di una colonna già consumata. La differenza è il
+  punto: 884 archi con `conf_extraction='weak'` hanno una citazione completa con
+  marker, quindi il metodo non era una misura di forza.
 
 ## 2026-11-15
 

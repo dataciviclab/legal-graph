@@ -1105,6 +1105,60 @@ delega_locator AS (
     FROM delega_clausola
 ),
 
+-- Forza dell'evidenza della delega, **distinta dal metodo**: `conf_extraction`
+-- dice come l'arco è stato estratto (lo snippet è un titolo o una citazione),
+-- questa dice quanto l'evidenza sostiene la relazione. Popolata solo per
+-- `attua_delega` (NULL altrove: per le altre relazioni non esiste una regola
+-- misurata). Classi:
+--   strong = citazione completa della legge bersaglio **e** marker di delega;
+--   medium = citazione completa, senza marker nel quote;
+--   weak   = solo numero/anno («L. 124/2015»);
+--   review = nessuna citazione: il quote non basta, va letto il testo.
+-- La citazione completa si riconosce da **anno e numero** del target, non dal
+-- giorno: servirebbe una mappa dei mesi e il giorno non aggiunge informazione.
+-- Il marker è lessicale e conservativo: dice che il quote nomina la delega,
+-- non che la delega sia giuridicamente quella.
+delega_conf_evidenza AS (
+    SELECT
+        g.source_id,
+        g.target_id,
+        CASE
+            WHEN regexp_extract(g.target_id, ':(\d{4})-\d{2}-\d{2};', 1) = ''
+              OR regexp_extract(g.target_id, ';(\d+)$', 1) = '' THEN 'review'
+            WHEN regexp_matches(
+                    LOWER(g.evidence),
+                    '(?:legge|l\.)\s+(?:\d{1,2}\s*°?\s+[a-zà-ù]+\s+)?'
+                    || regexp_extract(g.target_id, ':(\d{4})-\d{2}-\d{2};', 1)
+                    || '\s*,?\s*n\.\s*' || regexp_extract(g.target_id, ';(\d+)$', 1)
+                 )
+              OR regexp_matches(
+                    LOWER(g.evidence),
+                    '(?:legge|l\.)\s+n\.\s*' || regexp_extract(g.target_id, ';(\d+)$', 1)
+                    || '\s+del\s+\d{1,2}\s*°?\s+[a-zà-ù]+\s+'
+                    || regexp_extract(g.target_id, ':(\d{4})-\d{2}-\d{2};', 1)
+                 )
+                THEN CASE
+                    WHEN regexp_matches(
+                        LOWER(g.evidence),
+                        'delega al governo|recante delega|esercizio della delega'
+                        || '|attuazione della delega|attuazione della legge|in attuazione'
+                        || '|delega conferita|delega di cui|ai sensi'
+                        || '|a norma dell''articolo|in conformit'
+                        || '|principi e criteri direttivi|secondo i principi'
+                    ) THEN 'strong'
+                    ELSE 'medium'
+                END
+            WHEN regexp_matches(
+                    LOWER(g.evidence),
+                    '(?:legge|l\.)\s+' || regexp_extract(g.target_id, ';(\d+)$', 1)
+                    || '/' || regexp_extract(g.target_id, ':(\d{4})-\d{2}-\d{2};', 1)
+                 ) THEN 'weak'
+            ELSE 'review'
+        END AS conf_evidence
+    FROM grouped g
+    WHERE g.relation = 'attua_delega'
+),
+
 -- Evidenza formulaica o non informativa: lo **stesso** snippet usato da più di
 -- 50 atti distinti per citare lo stesso target. Caso tipico: la clausola di
 -- pubblicazione in ogni preambolo ("…pubblicazioni ufficiali… D.P.R.
@@ -1314,7 +1368,10 @@ SELECT
     CASE
         WHEN l.locators IS NULL THEN NULL
         ELSE CAST(array_length(string_split(l.locators, ',')) AS INTEGER)
-    END AS n_locator
+    END AS n_locator,
+    -- Forza dell'evidenza (solo `attua_delega`): vedi il CTE
+    -- `delega_conf_evidenza`. Additiva in coda, come `granularita`/`n_locator`.
+    de.conf_evidence
 FROM grouped g
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
@@ -1342,6 +1399,9 @@ LEFT JOIN akn_locator l
 LEFT JOIN delega_locator dl
   ON  dl.source_id = g.source_id
   AND dl.target_id = g.target_id
+LEFT JOIN delega_conf_evidenza de
+  ON  de.source_id = g.source_id
+  AND de.target_id = g.target_id
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
 -- con i parquet ordinati il row-group pruning salta la maggior parte del file
