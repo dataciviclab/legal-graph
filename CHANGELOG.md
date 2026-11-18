@@ -7,9 +7,8 @@ Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 - **`attua_delega`: `evidence_locator` su entrambi i rami** — la relazione
   diceva *quale* legge ha delegato, non *quale articolo*; su 2.247 edge il
   campo era `NULL` in tutti. Ora:
-  - ramo `title` (472): **466** locator estratti + **5** che ricadono sulla
-    citazione AKN, **1** resta `NULL` (nessun articolo nel titolo). **239**
-    portano anche il comma. L'articolo è quello **più vicino alla citazione
+  - ramo `title` (472): **471** con locator, **1** `NULL` (nessun articolo nel
+    titolo). **242** portano anche il comma. L'articolo è quello **più vicino alla citazione
     della legge bersaglio**, non il primo della stringa: senza l'ancoraggio
     usciva un locator impossibile (`art_55` per la L. 124/2015, che un
     articolo 55 non ce l'ha) quando il titolo cita prima l'articolo di un
