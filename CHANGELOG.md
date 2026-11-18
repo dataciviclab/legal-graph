@@ -2,6 +2,29 @@
 
 Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 
+## 2026-11-18
+
+- **`attua_delega`: `evidence_locator` su entrambi i rami** — la relazione
+  diceva *quale* legge ha delegato, non *quale articolo*; su 2.247 edge il
+  campo era `NULL` in tutti. Ora:
+  - ramo `title` (472): **471** con locator, **1** `NULL` (nessun articolo nel
+    titolo). **242** portano anche il comma. L'articolo è quello **più vicino alla citazione
+    della legge bersaglio**, non il primo della stringa: senza l'ancoraggio
+    usciva un locator impossibile (`art_55` per la L. 124/2015, che un
+    articolo 55 non ce l'ha) quando il titolo cita prima l'articolo di un
+    altro atto. Se il titolo nomina più deleghe si tiene la più vicina;
+  - ramo `regex` (1.775): il locator è quello della citazione AKN sulla
+    **stessa coppia** (`rel_type='citation'`), presente per **1.235** archi
+    (69,6%). Il CTE della delega non inventa un locator: se la citazione
+    non ha articolo, resta `NULL`. Attenzione: è un **insieme** di citazioni
+    — **437** edge (35,4%) ne elencano 2 o più, massimo 25 — non «l'articolo
+    che delega».
+  Totale: **1.706 edge (75,9%) dichiarano l'articolo**. Nessun cambio di
+  semantica: `method`, `assertion_type`, `prov_evidence_kind` e il numero di
+  edge restano identici; cambia solo la provenienza.
+  Perché non basta il peso: `weight` è il conteggio delle citazioni, non la
+  confidenza — una legge delega citata 94 volte non è 94 volte più delegante.
+
 ## 2026-11-15
 
 - **`granularita` + `n_locator` dell'abroga** — due colonne additive in coda a

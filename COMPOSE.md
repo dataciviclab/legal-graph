@@ -75,6 +75,12 @@ make test             # integrità + golden + E2E di contratto
 make lint
 ```
 
+> **Memoria**: `make run` usa `DUCKDB_MEMORY_LIMIT=4GB` (serve all'indice
+> lessicale). Su una macchina con meno di ~8GB liberi il compose va in OOM e
+> porta giù la sessione, non solo il processo. Lì la build va lasciata alla CI
+> (`pipeline.yml`, ~3 minuti); in locale si eseguono solo `make test` sul mart
+> già pubblicato (`make download-gcs`).
+
 Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
 ## MCP (thin)
