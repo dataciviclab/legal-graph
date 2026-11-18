@@ -7,19 +7,24 @@ Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
 - **`attua_delega`: `evidence_locator` su entrambi i rami** — la relazione
   diceva *quale* legge ha delegato, non *quale articolo*; su 2.247 edge il
   campo era `NULL` in tutti. Ora:
-  - ramo `title` (472): l'articolo è quello **nominato nel titolo** del D.Lgs
-    («a norma dell'articolo 2, comma 22, della legge …») → `art_2-com22`
-    (247 con comma, 471 su 472 estraibili);
-  - ramo `regex` (1.775): l'articolo viene dalla citazione AKN della **stessa
-    coppia** (`rel_type='citation'`), non da un'euristica nuova → presente per
-    **1.235** archi (69,6%) sul mart 2026-11-16. Il CTE della delega non
-    inventa un locator: se la citazione non ha articolo, resta `NULL`.
-  Nessun cambio di semantica: `assertion_type` resta `extracted`/`inferred`,
-  `method` invariato, il numero di edge non cambia (2.247). Cambia solo la
-  provenienza: **1.707 edge (76,0%) ora dichiarano l'articolo**.
+  - ramo `title` (472): **466** locator estratti + **5** che ricadono sulla
+    citazione AKN, **1** resta `NULL` (nessun articolo nel titolo). **239**
+    portano anche il comma. L'articolo è quello **più vicino alla citazione
+    della legge bersaglio**, non il primo della stringa: senza l'ancoraggio
+    usciva un locator impossibile (`art_55` per la L. 124/2015, che un
+    articolo 55 non ce l'ha) quando il titolo cita prima l'articolo di un
+    altro atto. Se il titolo nomina più deleghe si tiene la più vicina;
+  - ramo `regex` (1.775): il locator è quello della citazione AKN sulla
+    **stessa coppia** (`rel_type='citation'`), presente per **1.235** archi
+    (69,6%). Il CTE della delega non inventa un locator: se la citazione
+    non ha articolo, resta `NULL`. Attenzione: è un **insieme** di citazioni
+    — **437** edge (35,4%) ne elencano 2 o più, massimo 25 — non «l'articolo
+    che delega».
+  Totale: **1.706 edge (75,9%) dichiarano l'articolo**. Nessun cambio di
+  semantica: `method`, `assertion_type`, `prov_evidence_kind` e il numero di
+  edge restano identici; cambia solo la provenienza.
   Perché non basta il peso: `weight` è il conteggio delle citazioni, non la
   confidenza — una legge delega citata 94 volte non è 94 volte più delegante.
-  Con `evidence_locator` un consumer può verificare *dove* l'atto la invoca.
 
 ## 2026-11-15
 

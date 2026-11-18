@@ -7,6 +7,12 @@ Controlla la semantica dell'euristica D.Lgs -> legge delega sui dati:
 
 Le soglie nel SQL non sono asserite sul testo del file: `test_weak_edges_preserved`
 e `test_no_future_edges` verificano l'effetto, che è ciò che conta.
+
+I test che leggono il mart (`con`) riflettono il mart **pubblicato**: su un
+build precedente al cambiamento che stanno verificando falliscono per
+costruzione. Non è un test rotto — è atteso che passino solo dopo il build
+che le porta in produzione (`pipeline.yml`, non la CI delle PR che fa solo
+preflight + lint).
 """
 
 from __future__ import annotations
@@ -162,12 +168,12 @@ class TestAttuaDelega:
         """).fetchone()[0]
         assert bad == 0, f"{bad} locator attua_delega fuori formato"
 
-    def test_espressione_locator_titolo(self):
-        """L'espressione di `evidence_locator` del ramo titolo, sui casi limite.
+    def test_locator_titolo_ancorato_al_bersaglio(self):
+        """I tre CTE reali del locator da titolo, sui casi che sbagliavano.
 
-        Estratta dal SQL reale (come `test_locator_akn`) e fatta girare su
-        tabelle sintetiche: protegge la finestra `[^;]{0,120}` e il plurale
-        「commi」 senza dipendere dal mart.
+        Titoli veri (dal mart) in cui l'articolo nominato **prima** è di un
+        altro atto: senza l'ancoraggio alla citazione della legge bersaglio
+        usciva un locator impossibile (`art_55` per la L. 124/2015).
         """
         import re
         from pathlib import Path
@@ -177,81 +183,106 @@ class TestAttuaDelega:
         sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
             encoding="utf-8"
         )
-        match = re.search(
-            r"(CASE\s+WHEN g\.relation <> 'attua_delega'.*?\n    END)\s+AS evidence_locator",
-            sql,
-            re.DOTALL,
+
+        def cte(nome: str) -> str:
+            m = re.search(rf"{nome} AS \((.*?)\n\),", sql, re.DOTALL)
+            assert m, f"CTE {nome} non trovata nel SQL"
+            return m.group(1)
+
+        query = (
+            f"WITH delega_citazione AS ({cte('delega_citazione')}),"
+            f" delega_clausola AS ({cte('delega_clausola')}),"
+            f" delega_locator AS ({cte('delega_locator')})"
+            " SELECT locator FROM delega_locator"
         )
-        assert match, "espressione evidence_locator non trovata nel SQL"
-        expr = match.group(1)
+
+        casi = [
+            # (target, titolo, atteso)
+            (
+                "urn:nir:stato:legge:2015-08-07;124",
+                (
+                    "Modifiche all'articolo 55-quater del decreto legislativo 30 marzo 2001, "
+                    "n. 165, ai sensi dell'articolo 17, comma 1, lettera s), della legge 7 agosto "
+                    "2015, n. 124, in materia di licenziamento disciplinare. (16G00127)"
+                ),
+                "art_17-com1",
+            ),
+            (
+                "urn:nir:stato:legge:2015-08-07;124",
+                "Disposizioni integrative e correttive, a norma dell'articolo 1, commi 2 e 3, "
+                "della legge 1\u00b0 dicembre 2018, n. 132, al decreto legislativo 29 maggio 2017, "
+                "n. 95, recante: " + "\u00ab" + "Disposizioni in materia di revisione dei ruoli "
+                "delle Forze di polizia, ai sensi dell'articolo 8, comma 1, lettera a), della legge "
+                "7 agosto 2015, n. 124" + "\u00bb" + ". (20G00012)",
+                "art_8-com1",
+            ),
+            (
+                "urn:nir:stato:legge:2024-03-05;21",
+                (
+                    "Attuazione della delega di cui all'articolo 19-bis della legge 5 marzo 2024, "
+                    "n. 21, per la riforma organica e il riordino delle carriere"
+                ),
+                "art_19-bis",
+            ),
+            (
+                "urn:nir:stato:legge:2012-12-24;243",
+                (
+                    "Attuazione della delega conferita dall'articolo 2, comma 22, della legge "
+                    "24 dicembre 2012, n. 243"
+                ),
+                "art_2-com22",
+            ),
+            # plurale: si tiene il primo comma elencato
+            (
+                "urn:nir:stato:legge:1997-03-15;59",
+                (
+                    "Disposizioni integrative emanate a norma dell'articolo 3, commi 1 e 2, "
+                    "della legge 15 marzo 1997, n. 59"
+                ),
+                "art_3-com1",
+            ),
+            # nessun articolo nominato: nessun locator inventato
+            (
+                "urn:nir:stato:legge:2022-04-28;46",
+                "Disposizioni per il riassetto della legge 28 aprile 2022, n. 46",
+                None,
+            ),
+        ]
 
         con = duckdb.connect()
         try:
-            con.execute("CREATE TABLE g(relation VARCHAR, from_title BOOLEAN, evidence VARCHAR)")
-            con.execute("CREATE TABLE l(locators VARCHAR)")
-            con.execute("INSERT INTO l VALUES (NULL)")
-            casi = [
-                # (relation, from_title, evidence, locator della citazione, atteso)
-                (
-                    "attua_delega",
-                    True,
-                    (
-                        "Attuazione della delega conferita dall'articolo 2, comma 22, "
-                        "della legge 24 dicembre 2012, n. 243"
-                    ),
-                    None,
-                    "art_2-com22",
-                ),
-                (
-                    "attua_delega",
-                    True,
-                    (
-                        "Riordino della disciplina sanitaria, a norma dell'articolo 1 "
-                        "della legge 23 dicembre 1978, n. 833"
-                    ),
-                    None,
-                    "art_1",
-                ),
-                # 「commi」 plurale: la parte è la prima elencata
-                (
-                    "attua_delega",
-                    True,
-                    (
-                        "Disposizioni integrative emanate a norma dell'articolo 3, commi 1 e 2, "
-                        "della legge 15 marzo 1997, n. 59"
-                    ),
-                    None,
-                    "art_3-com1",
-                ),
-                # nessun articolo nominato e nessuna citazione: nessun locator inventato
-                (
-                    "attua_delega",
-                    True,
-                    "Disposizioni per il riassetto della legge 28 aprile 2022, n. 46",
-                    None,
-                    None,
-                ),
-                # nessun articolo nel titolo, ma la citazione ne ha uno: fallback
-                (
-                    "attua_delega",
-                    True,
-                    "Disposizioni per il riassetto della legge 28 aprile 2022, n. 46",
-                    "art_4",
-                    "art_4",
-                ),
-                # ramo citazione: il locator viene dalla citazione AKN
-                ("attua_delega", False, "snippet citante", "art_9", "art_9"),
-                ("riferimento", None, "akn:ref", "art_9", "art_9"),
-            ]
-            for relation, from_title, evidence, locators, atteso in casi:
-                con.execute("DELETE FROM g")
-                con.execute("DELETE FROM l")
-                con.execute("INSERT INTO g VALUES (?, ?, ?)", [relation, from_title, evidence])
-                con.execute("INSERT INTO l VALUES (?)", [locators])
-                got = con.execute(f"SELECT {expr} FROM g, l").fetchone()[0]
-                assert got == atteso, (evidence[:50], got, atteso)
+            con.execute(
+                "CREATE TABLE grouped(source_id VARCHAR, target_id VARCHAR, relation VARCHAR,"
+                " evidence VARCHAR, from_title BOOLEAN)"
+            )
+            for target, titolo, atteso in casi:
+                con.execute("DELETE FROM grouped")
+                con.execute(
+                    "INSERT INTO grouped VALUES ('src', ?, 'attua_delega', ?, TRUE)",
+                    [target, titolo],
+                )
+                got = con.execute(query).fetchone()
+                got = got[0] if got else None
+                assert got == atteso, (titolo[:60], got, atteso)
         finally:
             con.close()
+
+    def test_locator_titolo_casi_note(self, con):
+        """Regressione sui quattro edge reali che sbagliavano l'articolo."""
+        attesi = {
+            "urn:nir:stato:decreto.legislativo:2016-06-20;116": "art_17-com1",
+            "urn:nir:stato:decreto.legislativo:2017-07-20;118": "art_17-com1",
+            "urn:nir:stato:decreto.legislativo:2019-12-27;172": "art_8-com1",
+            "urn:nir:stato:decreto.legislativo:2026-06-25;128": "art_19-bis",
+        }
+        for source, atteso in attesi.items():
+            got = con.execute(
+                "SELECT evidence_locator FROM edges WHERE relation = 'attua_delega'"
+                " AND source_id = ? AND method = 'title'",
+                [source],
+            ).fetchone()
+            assert got, f"edge attua_delega 'title' mancante per {source}"
+            assert got[0] == atteso, (source, got[0], atteso)
 
     def test_join_locator_mappa_la_citazione(self):
         """Il ramo regex usa il locator della citazione (`citation`) e non

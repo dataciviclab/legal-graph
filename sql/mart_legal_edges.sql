@@ -1050,6 +1050,61 @@ grouped AS (
     GROUP BY source_id, relation, target_id
 ),
 
+-- Locator della delega letta dal titolo: l'articolo più vicino alla citazione
+-- della legge **bersaglio**, non il primo «articolo N» della stringa.
+-- Controesempio reale (D.Lgs 116/2016 → L. 124/2015): «Modifiche
+-- all'articolo 55-quater del D.Lgs 165/2001, ai sensi dell'articolo 17, comma
+-- 1, lettera s), della legge 124/2015» — il primo articolo è di un altro atto,
+-- e la L. 124/2015 un articolo 55 non ce l'ha.
+-- Tre passi: trovare la citazione della legge bersaglio nel titolo, prendere
+-- il testo che la precede, leggere l'ultima clausola
+-- «articolo N[-suffisso][, comma M]». Se il titolo nomina più deleghe si
+-- tiene la più vicina: un locator puntuale, non un elenco incompleto.
+delega_citazione AS (
+    SELECT
+        g.source_id,
+        g.target_id,
+        g.evidence,
+        regexp_extract(
+            LOWER(g.evidence),
+            'legge\s+\d{1,2}\s+[a-zà-ù]+\s+'
+            || regexp_extract(g.target_id, ':(\d{4})-\d{2}-\d{2};', 1)
+            || '\s*,?\s*n\.\s*'
+            || regexp_extract(g.target_id, ';(\d+)$', 1),
+            0
+        ) AS citazione
+    FROM grouped g
+    WHERE g.relation = 'attua_delega' AND COALESCE(g.from_title, FALSE)
+),
+
+delega_clausola AS (
+    SELECT
+        source_id,
+        target_id,
+        CASE WHEN citazione = '' THEN NULL ELSE
+            regexp_extract_all(
+                LEFT(LOWER(evidence), strpos(LOWER(evidence), citazione) - 1),
+                'articolo\s+\d+(?:\s*-\s*[a-z]+)?(?:\s*,\s*comm[ai]\s+\d+)?',
+                0
+            )[-1]
+        END AS clausola
+    FROM delega_citazione
+),
+
+delega_locator AS (
+    SELECT
+        source_id,
+        target_id,
+        CASE WHEN clausola IS NULL THEN NULL ELSE
+            'art_' || regexp_extract(clausola, '(\d+)', 1)
+            || CASE WHEN regexp_extract(clausola, '-([a-z]+)', 1) = '' THEN ''
+                    ELSE '-' || regexp_extract(clausola, '-([a-z]+)', 1) END
+            || CASE WHEN regexp_extract(clausola, 'comm[ai]\s+(\d+)', 1) = '' THEN ''
+                    ELSE '-com' || regexp_extract(clausola, 'comm[ai]\s+(\d+)', 1) END
+        END AS locator
+    FROM delega_clausola
+),
+
 -- Evidenza formulaica o non informativa: lo **stesso** snippet usato da più di
 -- 50 atti distinti per citare lo stesso target. Caso tipico: la clausola di
 -- pubblicazione in ogni preambolo ("…pubblicazioni ufficiali… D.P.R.
@@ -1190,25 +1245,14 @@ SELECT
         ELSE 'unknown'
     END AS method,
     -- `attua_delega` da titolo: il locator è l'articolo **nominato nel titolo**
-    -- del D.Lgs («a norma dell'articolo 2, comma 22, della legge …»), non una
-    -- citazione AKN. `evidence` porta il titolo, quindi si estrae da lì: 471
-    -- dei 472 edge titolo danno `art_N` (247 anche `-comM`). Da citazione:
-    -- resta il locator AKN della stessa coppia (rel_type `citation`), cioè
-    -- l'articolo con cui il decreto cita la legge delega.
+    -- del D.Lgs, ancorato alla citazione della legge bersaglio (CTE
+    -- `delega_locator`). Da citazione: il locator AKN della stessa coppia
+    -- (`rel_type='citation'`), cioè l'articolo con cui il decreto la invoca.
+    -- Se il titolo non nomina un articolo, si usa comunque la citazione.
     CASE
         WHEN g.relation <> 'attua_delega' THEN l.locators
         WHEN NOT COALESCE(g.from_title, FALSE) THEN l.locators
-        WHEN regexp_extract(
-            LOWER(g.evidence), 'articolo\s+(\d+)[^;]{0,120}?della\s+legge', 1
-        ) = '' THEN l.locators
-        ELSE
-            'art_' || regexp_extract(
-                LOWER(g.evidence), 'articolo\s+(\d+)[^;]{0,120}?della\s+legge', 1
-            )
-            || CASE
-                   WHEN regexp_extract(LOWER(g.evidence), 'comm[ai]\s+(\d+)', 1) = '' THEN ''
-                   ELSE '-com' || regexp_extract(LOWER(g.evidence), 'comm[ai]\s+(\d+)', 1)
-               END
+        ELSE COALESCE(dl.locator, l.locators)
     END AS evidence_locator,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
@@ -1287,14 +1331,17 @@ LEFT JOIN akn_locator l
         WHEN 'riferimento' THEN 'citation'
         -- La delega da citazione non ha un rel_type AKN proprio: l'evidenza
         -- utile è la citazione con cui il D.Lgs nomina la legge delega, quindi
-        -- si riusa `citation`. Il ramo da titolo non passa di qui (il suo
-        -- locator viene dal titolo, vedi `evidence_locator`).
+        -- si riusa `citation`. Vale anche come fallback per il ramo da titolo
+        -- quando il titolo non nomina l'articolo.
         WHEN 'attua_delega' THEN 'citation'
         WHEN 'abroga' THEN 'repeal'
         WHEN 'modifica' THEN 'insertion'
         WHEN 'sostituisce' THEN 'substitution'
         ELSE g.relation
       END
+LEFT JOIN delega_locator dl
+  ON  dl.source_id = g.source_id
+  AND dl.target_id = g.target_id
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
 -- con i parquet ordinati il row-group pruning salta la maggior parte del file
