@@ -218,7 +218,10 @@ ordine di grandezza.
 **Buco di fonte noto**: ~7.668 atti `stato=abrogato` non hanno un arco in
 ingresso (l'AKN non emette il lifecycle per la maggior parte degli atti).
 
-**`attua_delega` (2026-11-10)** — Due livelli, esposti su ogni edge: `method='title'` (471 edge: 290 dal corpus normativa + 181 da `atti_api`) = il titolo del D.Lgs nomina la legge delegante («in attuazione dell'articolo 1 della legge …»), `assertion_type='extracted'`, `prov_evidence_kind='locator'`; `method='regex'` (2.221) = la legge bersaglio ha «delega al Governo» nel titolo ed è citata dall'atto, `assertion_type='inferred'`, evidenza = snippet citante (o `none` se AKN non dà contesto). Il metodo è un flag esplicito dei due CTE, non il peso: il peso regex è il conteggio delle citazioni e può essere ≥5. La vista `chain` mette davanti le deleghe `title` e chiude con le `regex`: non spariscono, ma non si spacciano per catena verificata. Solo 471/2.692 (17,5%) hanno la delega nominata nell'atto.
+**`attua_delega` (mart 2026-11-16; `evidence_locator` dal 2026-11-18)** — Due livelli, esposti su ogni edge: `method='title'` (**472** edge: 291 dal corpus normativa + 181 da `atti_api`) = il titolo del D.Lgs nomina la legge delegante («in attuazione dell'articolo 1 della legge …»), `assertion_type='extracted'`, `prov_evidence_kind='locator'`; `method='regex'` (**1.775**) = la legge bersaglio ha «delega al Governo» nel titolo ed è citata dall'atto, `assertion_type='inferred'`, evidenza = snippet citante. Il metodo è un flag esplicito dei due CTE, non il peso: il peso regex è il conteggio delle citazioni e può essere ≥5. La vista `chain` mette davanti le deleghe `title` e chiude con le `regex`: non spariscono, ma non si spacciano per catena verificata. Solo **472/2.247 (21,0%)** hanno la delega nominata nell'atto, e **2.192 dei 2.247** (97,6%) sono già un `riferimento`: la relazione **etichetta** un arco che esisteva, non ne aggiunge uno nuovo.
+
+`evidence_locator` dice **quale articolo** della legge delega, su entrambi i rami: dal titolo (`art_2-com22`, l'articolo che il D.Lgs nomina) e, per le deleghe da citazione, dalla citazione AKN della stessa coppia (`rel_type='citation'`). Sul mart 2026-11-16 l'articolo della citazione esiste per **1.235 dei 1.775** archi regex; dove la citazione non porta articolo il campo resta `NULL`.
+
 
 ## Ponti open-politica
 

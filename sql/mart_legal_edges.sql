@@ -1189,7 +1189,27 @@ SELECT
         ) THEN 'join'
         ELSE 'unknown'
     END AS method,
-    l.locators AS evidence_locator,
+    -- `attua_delega` da titolo: il locator è l'articolo **nominato nel titolo**
+    -- del D.Lgs («a norma dell'articolo 2, comma 22, della legge …»), non una
+    -- citazione AKN. `evidence` porta il titolo, quindi si estrae da lì: 471
+    -- dei 472 edge titolo danno `art_N` (247 anche `-comM`). Da citazione:
+    -- resta il locator AKN della stessa coppia (rel_type `citation`), cioè
+    -- l'articolo con cui il decreto cita la legge delega.
+    CASE
+        WHEN g.relation <> 'attua_delega' THEN l.locators
+        WHEN NOT COALESCE(g.from_title, FALSE) THEN l.locators
+        WHEN regexp_extract(
+            LOWER(g.evidence), 'articolo\s+(\d+)[^;]{0,120}?della\s+legge', 1
+        ) = '' THEN l.locators
+        ELSE
+            'art_' || regexp_extract(
+                LOWER(g.evidence), 'articolo\s+(\d+)[^;]{0,120}?della\s+legge', 1
+            )
+            || CASE
+                   WHEN regexp_extract(LOWER(g.evidence), 'comm[ai]\s+(\d+)', 1) = '' THEN ''
+                   ELSE '-com' || regexp_extract(LOWER(g.evidence), 'comm[ai]\s+(\d+)', 1)
+               END
+    END AS evidence_locator,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
     le.legislatura AS legislatura,
@@ -1265,6 +1285,11 @@ LEFT JOIN akn_locator l
   AND l.target_urn = g.target_id
   AND l.rel_type = CASE g.relation
         WHEN 'riferimento' THEN 'citation'
+        -- La delega da citazione non ha un rel_type AKN proprio: l'evidenza
+        -- utile è la citazione con cui il D.Lgs nomina la legge delega, quindi
+        -- si riusa `citation`. Il ramo da titolo non passa di qui (il suo
+        -- locator viene dal titolo, vedi `evidence_locator`).
+        WHEN 'attua_delega' THEN 'citation'
         WHEN 'abroga' THEN 'repeal'
         WHEN 'modifica' THEN 'insertion'
         WHEN 'sostituisce' THEN 'substitution'

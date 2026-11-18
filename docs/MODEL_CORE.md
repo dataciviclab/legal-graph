@@ -236,7 +236,7 @@ equivalente a `totale`. `evidence_locator` può arrivare dal join con
 
 **Compatibilità (M1)**
 - Gli id storici `camera:atto:*` risolvono via `entity_alias`, ma la riga risolta è il nodo canonico: `tipo='DDL'`, `source='camera_ddl'`, `anno` valorizzato. Chi filtra `tipo='ATTO CAMERA'` non trova più quei 2.590 atti: il filtro corretto è sull'id canonico o via alias.
-- `evidence_locator` è popolato sui **nodi** (da `source_filename`) e, dal 2026-11-11, anche sugli **edge** dove il dato esiste: 91.134 `riferimento`, 12.479 `modifica`, 151 `abroga`, 203 `sostituisce`. La forma resta descritta da `prov_evidence_kind`; il locator non sostituisce `evidence` ma lo qualifica (`art_N[-suffisso][-comM]`, lista se l'edge copre più articoli).
+- `evidence_locator` è popolato sui **nodi** (da `source_filename`) e, dal 2026-11-11, anche sugli **edge** dove il dato esiste (mart 2026-11-16): **93.534** `riferimento`, **13.770** `modifica`, **64.544** `abroga`, **405** `sostituisce`; dal 2026-11-18 anche **`attua_delega`** (l'articolo nominato nel titolo del D.Lgs o, per le deleghe da citazione, quello della citazione AKN sulla stessa coppia). La forma resta descritta da `prov_evidence_kind`; il locator non sostituisce `evidence` ma lo qualifica (`art_N[-suffisso][-comM]`, lista se l'edge copre più articoli).
 
 **Limiti noti (non finti)**
 - `impugna` copre solo gli esiti `illegittimo|misto`: mancano `infondato`/`inammissibile` e `id_massima`. È lavoro dati/modello di M2 (C3.5), non di vocabolario.

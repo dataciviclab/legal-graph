@@ -106,6 +106,165 @@ class TestAttuaDelega:
         """).fetchone()[0]
         assert bad == 0, f"{bad} attua_delega con evidenza = titolo del bersaglio"
 
+    def test_title_locator_e_l_articolo_del_titolo(self, con):
+        """La delega letta dal titolo porta l'articolo che il titolo nomina.
+
+        `evidence` è il titolo del D.Lgs: se il locator non ne deriva, il
+        consumer non sa *quale articolo* della legge delega è invocato.
+        """
+        rows = con.execute("""
+            SELECT COUNT(*),
+                   COUNT(evidence_locator),
+                   COUNT(*) FILTER (WHERE evidence_locator IS NOT NULL
+                                      AND evidence_locator NOT LIKE 'art_%')
+            FROM edges
+            WHERE relation = 'attua_delega' AND method = 'title'
+        """).fetchone()
+        total, with_loc, bad = rows
+        assert total > 0
+        assert bad == 0, f"{bad} locator titolo fuori formato"
+        assert with_loc / total > 0.99, f"locator dal titolo: {with_loc}/{total}"
+
+    def test_regex_locator_viene_dalla_citazione(self, con):
+        """L'articolo del ramo regex è quello della citazione AKN sulla stessa
+        coppia, non un valore inventato dal CTE della delega."""
+        total, with_loc = con.execute("""
+            SELECT COUNT(*), COUNT(evidence_locator) FROM edges
+            WHERE relation = 'attua_delega' AND method = 'regex'
+        """).fetchone()
+        assert with_loc > total * 0.5, f"locator sulle deleghe da citazione: {with_loc}/{total}"
+
+        orfani = con.execute("""
+            SELECT COUNT(*) FROM edges a
+            WHERE a.relation = 'attua_delega'
+              AND a.method = 'regex'
+              AND a.evidence_locator IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM edges r
+                  WHERE r.relation = 'riferimento'
+                    AND r.source_id = a.source_id
+                    AND r.target_id = a.target_id
+                    AND r.evidence_locator = a.evidence_locator
+              )
+        """).fetchone()[0]
+        assert orfani == 0, f"{orfani} locator senza la citazione corrispondente"
+
+    def test_locator_format(self, con):
+        """Un solo formato, lista inclusa: `art_N`, `art_N-comM`, `art_47-bis`."""
+        bad = con.execute(r"""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega'
+              AND evidence_locator IS NOT NULL
+              AND NOT regexp_matches(
+                  evidence_locator,
+                  '^(art_[0-9]+(-[a-z]+)?(-com[0-9]+)?)(,art_[0-9]+(-[a-z]+)?(-com[0-9]+)?)*$'
+              )
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} locator attua_delega fuori formato"
+
+    def test_espressione_locator_titolo(self):
+        """L'espressione di `evidence_locator` del ramo titolo, sui casi limite.
+
+        Estratta dal SQL reale (come `test_locator_akn`) e fatta girare su
+        tabelle sintetiche: protegge la finestra `[^;]{0,120}` e il plurale
+        「commi」 senza dipendere dal mart.
+        """
+        import re
+        from pathlib import Path
+
+        import duckdb
+
+        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(
+            r"(CASE\s+WHEN g\.relation <> 'attua_delega'.*?\n    END)\s+AS evidence_locator",
+            sql,
+            re.DOTALL,
+        )
+        assert match, "espressione evidence_locator non trovata nel SQL"
+        expr = match.group(1)
+
+        con = duckdb.connect()
+        try:
+            con.execute("CREATE TABLE g(relation VARCHAR, from_title BOOLEAN, evidence VARCHAR)")
+            con.execute("CREATE TABLE l(locators VARCHAR)")
+            con.execute("INSERT INTO l VALUES (NULL)")
+            casi = [
+                # (relation, from_title, evidence, locator della citazione, atteso)
+                (
+                    "attua_delega",
+                    True,
+                    (
+                        "Attuazione della delega conferita dall'articolo 2, comma 22, "
+                        "della legge 24 dicembre 2012, n. 243"
+                    ),
+                    None,
+                    "art_2-com22",
+                ),
+                (
+                    "attua_delega",
+                    True,
+                    (
+                        "Riordino della disciplina sanitaria, a norma dell'articolo 1 "
+                        "della legge 23 dicembre 1978, n. 833"
+                    ),
+                    None,
+                    "art_1",
+                ),
+                # 「commi」 plurale: la parte è la prima elencata
+                (
+                    "attua_delega",
+                    True,
+                    (
+                        "Disposizioni integrative emanate a norma dell'articolo 3, commi 1 e 2, "
+                        "della legge 15 marzo 1997, n. 59"
+                    ),
+                    None,
+                    "art_3-com1",
+                ),
+                # nessun articolo nominato e nessuna citazione: nessun locator inventato
+                (
+                    "attua_delega",
+                    True,
+                    "Disposizioni per il riassetto della legge 28 aprile 2022, n. 46",
+                    None,
+                    None,
+                ),
+                # nessun articolo nel titolo, ma la citazione ne ha uno: fallback
+                (
+                    "attua_delega",
+                    True,
+                    "Disposizioni per il riassetto della legge 28 aprile 2022, n. 46",
+                    "art_4",
+                    "art_4",
+                ),
+                # ramo citazione: il locator viene dalla citazione AKN
+                ("attua_delega", False, "snippet citante", "art_9", "art_9"),
+                ("riferimento", None, "akn:ref", "art_9", "art_9"),
+            ]
+            for relation, from_title, evidence, locators, atteso in casi:
+                con.execute("DELETE FROM g")
+                con.execute("DELETE FROM l")
+                con.execute("INSERT INTO g VALUES (?, ?, ?)", [relation, from_title, evidence])
+                con.execute("INSERT INTO l VALUES (?)", [locators])
+                got = con.execute(f"SELECT {expr} FROM g, l").fetchone()[0]
+                assert got == atteso, (evidence[:50], got, atteso)
+        finally:
+            con.close()
+
+    def test_join_locator_mappa_la_citazione(self):
+        """Il ramo regex usa il locator della citazione (`citation`) e non
+        `attua_delega`, che in AKN non esiste."""
+        from pathlib import Path
+
+        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+            encoding="utf-8"
+        )
+        blocco = sql[sql.index("LEFT JOIN akn_locator l") :]
+        blocco = blocco[: blocco.index("ORDER BY g.source_id")]
+        assert "WHEN 'attua_delega' THEN 'citation'" in blocco
+
     def test_chain_espone_la_provenienza(self, con):
         """`view=chain` porta method/assertion/evidence e mette davanti la
         delega letta dal titolo (36/2023 → L. 78/2022)."""
