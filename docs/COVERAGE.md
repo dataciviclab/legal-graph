@@ -224,6 +224,22 @@ ingresso (l'AKN non emette il lifecycle per la maggior parte degli atti).
 
 Attenzione al ramo da citazione: il locator è un **insieme di citazioni**, non «l'articolo che delega». Esiste per **1.235 dei 1.775** archi regex, e **437** (35,4%) ne elencano 2 o più — massimo **25**. L'ordine è lessicografico (`art_10` prima di `art_2`), non di rilevanza: non usare «il primo» come primario. Un locator con 25 articoli è un pagliaio utile a verificare, non un indirizzo. In totale **1.706 edge su 2.247 (75,9%)** dichiarano l'articolo.
 
+**`conf_evidence` (dal 2026-11-18)** — quinta confidenza, additiva, solo su `attua_delega`: dice **quanto il quote sostiene la relazione**, non come è stato estratto. `conf_extraction` resta il flag di metodo (`title` → `strong`, `regex` → `weak`) e **non è stato riscritto**: cambiargli significato sotto i piedi romperebbe i consumer (l'MCP, la vista `chain`, i classificatori a valle) che oggi filtrano su quel campo.
+
+| valore | regola | archi |
+|---|---|---:|
+| `strong` | citazione completa della legge bersaglio **e** marker di delega | **1.336** |
+| `medium` | citazione completa, senza marker nel quote | **857** |
+| `weak` | solo numero/anno (`L. 124/2015`) | **0** |
+| `review` | nessuna citazione: serve il testo | **54** |
+
+Per ramo: `title` 452 `strong` + 20 `medium`; `regex` 884 `strong` + 837 `medium` + 54 `review`. Il numero dice che `conf_extraction` **non è una misura di forza**: 884 archi etichettati `weak` hanno una citazione completa con marker. I 54 `review` sono i candidati da leggere, non da eliminare.
+
+Due limiti da leggere accanto ai numeri:
+
+- **`strong` non significa «delega verificata»**: dice che il quote cita l'articolo della legge con una formula di richiamo, e **733 dei 1.336 (54,9%) non contengono la parola «delega»** («a norma dell'articolo» 359, «ai sensi» 180, «in attuazione» 158). Di conseguenza `medium` non è «evidenza inutile»: è «citazione senza formula delegante» — come L. 120/2025, che *modifica* la legge di delega invece di attuarla.
+- **Il quote è troncato a 200 caratteri** (`LEFT(contesto, 200)` nell'artifact): 1.063 archi su 2.247, di cui **445 `medium`** e **27 `review`**. `review` va letto come «i primi 200 caratteri non bastano», non «non c'è citazione». La classe `weak` è nel vocabolario con incidenza **0** su questo build: chi filtra `='weak'` ottiene l'insieme vuoto.
+
 
 ## Ponti open-politica
 

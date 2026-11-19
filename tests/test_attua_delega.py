@@ -428,3 +428,145 @@ class TestAttuaDelega:
         trovate = _bfs(c, "x", 1, outbound=True)
         assert trovate[0][1] == "evidenza", trovate
         c.close()
+
+
+class TestDelegaConfEvidenza:
+    """`conf_evidence` misura l'evidenza; `conf_extraction` resta il metodo.
+
+    Il campo è additivo e popolato solo su `attua_delega`: per le altre
+    relazioni non esiste una regola misurata. I test sul mart riflettono il
+    build pubblicato (vedi il docstring del modulo).
+    """
+
+    CASI = (
+        "urn:nir:stato:legge:2026-03-17;36",
+        "urn:nir:stato:legge:2025-08-08;120",
+        "urn:nir:stato:legge:2024-07-04;102",
+        "urn:nir:stato:legge:2024-02-21;15",
+    )
+
+    def test_ogni_delega_ha_un_valore_ammesso(self, con):
+        total, with_value, bad = con.execute("""
+            SELECT COUNT(*),
+                   COUNT(conf_evidence),
+                   COUNT(*) FILTER (
+                       WHERE conf_evidence NOT IN ('strong', 'medium', 'weak', 'review')
+                   )
+            FROM edges
+            WHERE relation = 'attua_delega'
+        """).fetchone()
+        assert total > 0
+        assert bad == 0, f"{bad} conf_evidence fuori vocabolario"
+        assert with_value == total, f"conf_evidence mancante su {total - with_value} archi"
+
+    def test_le_altre_relazioni_restano_null(self, con):
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation <> 'attua_delega' AND conf_evidence IS NOT NULL
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} archi non-delega con conf_evidence"
+
+    def test_non_e_una_copia_del_metodo(self, con):
+        """Se `conf_evidence` ripetesse `conf_extraction` non aggiungerebbe nulla.
+
+        Il ramo regex è `weak` per metodo, ma la maggior parte dei suoi quote ha
+        una citazione completa: la colonna deve dire quello, non il metodo.
+        """
+        n = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega'
+              AND conf_extraction = 'weak'
+              AND conf_evidence IN ('strong', 'medium')
+        """).fetchone()[0]
+        assert n > 1_000, f"solo {n} archi 'weak' con citazione: la regola non gira?"
+
+    def test_i_quattro_casi_w3(self, con):
+        placeholders = ",".join("?" for _ in self.CASI)
+        rows = {
+            target: (strong, medium, review)
+            for target, strong, medium, review in con.execute(
+                f"""
+                SELECT target_id,
+                       COUNT(*) FILTER (WHERE conf_evidence = 'strong'),
+                       COUNT(*) FILTER (WHERE conf_evidence = 'medium'),
+                       COUNT(*) FILTER (WHERE conf_evidence = 'review')
+                FROM edges
+                WHERE relation = 'attua_delega' AND target_id IN ({placeholders})
+                GROUP BY 1
+                """,
+                list(self.CASI),
+            ).fetchall()
+        }
+        assert len(rows) == 4, rows
+        # Tre leggi hanno solo citazioni complete con marker.
+        for urn in self.CASI[:1] + self.CASI[2:]:
+            assert rows[urn][2] == 0, (urn, rows[urn])
+        assert rows["urn:nir:stato:legge:2026-03-17;36"][0] > 0
+        # L. 120/2025: un arco cita la legge che *modifica* la delega, senza
+        # marker nel quote → medium, ed è il caso che resta da leggere.
+        assert rows["urn:nir:stato:legge:2025-08-08;120"][1] >= 1, rows
+
+    def test_espressione_conf_evidenza(self):
+        """Il CTE reale sui quote limite, senza dipendere dal mart."""
+        import re
+        from pathlib import Path
+
+        import duckdb
+
+        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(r"delega_conf_evidenza AS \((.*?)\n\),", sql, re.DOTALL)
+        assert match, "CTE delega_conf_evidenza non trovata nel SQL"
+
+        target = "urn:nir:stato:legge:2015-08-07;124"
+        casi = [
+            # (target, quote, atteso)
+            (
+                target,
+                (
+                    "Attuazione della delega di cui all'articolo 17, comma 1, della legge "
+                    "7 agosto 2015, n. 124"
+                ),
+                "strong",
+            ),
+            (
+                target,
+                "Modifiche alla legge 7 agosto 2015, n. 124 in materia di organizzazione",
+                "medium",
+            ),
+            (target, "come previsto dalla L. 124/2015", "weak"),
+            (target, "akn:ref", "review"),
+            # un'altra legge citata per esteso non basta
+            (
+                target,
+                "a norma dell'articolo 1 della legge 1° dicembre 2018, n. 132",
+                "review",
+            ),
+            # forma inversa, con marker
+            (
+                target,
+                "in attuazione della legge n. 124 del 7 agosto 2015",
+                "strong",
+            ),
+            (target, None, "review"),
+        ]
+
+        con = duckdb.connect()
+        try:
+            con.execute(
+                "CREATE TABLE grouped(source_id VARCHAR, target_id VARCHAR, "
+                "relation VARCHAR, evidence VARCHAR)"
+            )
+            for law, quote, atteso in casi:
+                con.execute("DELETE FROM grouped")
+                con.execute(
+                    "INSERT INTO grouped VALUES ('src', ?, 'attua_delega', ?)", [law, quote]
+                )
+                got = con.execute(
+                    f"WITH delega_conf_evidenza AS ({match.group(1)}) "
+                    "SELECT conf_evidence FROM delega_conf_evidenza"
+                ).fetchone()
+                assert got and got[0] == atteso, (quote, got, atteso)
+        finally:
+            con.close()
