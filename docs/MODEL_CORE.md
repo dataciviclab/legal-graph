@@ -135,6 +135,17 @@ Governo», «attuazione della delega», «ai sensi», «a norma dell'articolo»�
 Dice che il quote *nomina* la delega, non che la delega sia giuridicamente
 quella: per quello servono locator + testo.
 
+Due avvertenze di lettura:
+
+- `strong` = citazione dell'articolo con **formula di richiamo**, non «delega
+  verificata»: **733 dei 1.336 (54,9%)** non contengono la parola «delega»
+  («a norma dell'articolo», «ai sensi», «in attuazione»). `medium` quindi è
+  «citazione senza formula delegante», non «evidenza inutile».
+- il campo lavora su `evidence`, troncato a **200 caratteri** nell'artifact
+  (1.063 archi su 2.247): `review` significa «i primi 200 caratteri non
+  bastano», non «nessuna citazione». `weak` è nel vocabolario con incidenza
+  **0** su questo build (nessun arco cita solo `L. N/anno`).
+
 ---
 
 ## 8. Abrogation and status

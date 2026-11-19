@@ -235,6 +235,11 @@ Attenzione al ramo da citazione: il locator è un **insieme di citazioni**, non 
 
 Per ramo: `title` 452 `strong` + 20 `medium`; `regex` 884 `strong` + 837 `medium` + 54 `review`. Il numero dice che `conf_extraction` **non è una misura di forza**: 884 archi etichettati `weak` hanno una citazione completa con marker. I 54 `review` sono i candidati da leggere, non da eliminare.
 
+Due limiti da leggere accanto ai numeri:
+
+- **`strong` non significa «delega verificata»**: dice che il quote cita l'articolo della legge con una formula di richiamo, e **733 dei 1.336 (54,9%) non contengono la parola «delega»** («a norma dell'articolo» 359, «ai sensi» 180, «in attuazione» 158). Di conseguenza `medium` non è «evidenza inutile»: è «citazione senza formula delegante» — come L. 120/2025, che *modifica* la legge di delega invece di attuarla.
+- **Il quote è troncato a 200 caratteri** (`LEFT(contesto, 200)` nell'artifact): 1.063 archi su 2.247, di cui **445 `medium`** e **27 `review`**. `review` va letto come «i primi 200 caratteri non bastano», non «non c'è citazione». La classe `weak` è nel vocabolario con incidenza **0** su questo build: chi filtra `='weak'` ottiene l'insieme vuoto.
+
 
 ## Ponti open-politica
 
