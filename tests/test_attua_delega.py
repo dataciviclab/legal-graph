@@ -524,8 +524,10 @@ class TestDelegaConfEvidenza:
             # (target, quote, atteso)
             (
                 target,
-                "Attuazione della delega di cui all'articolo 17, comma 1, della legge "
-                "7 agosto 2015, n. 124",
+                (
+                    "Attuazione della delega di cui all'articolo 17, comma 1, della legge "
+                    "7 agosto 2015, n. 124"
+                ),
                 "strong",
             ),
             (
