@@ -1371,7 +1371,10 @@ SELECT
     END AS n_locator,
     -- Forza dell'evidenza (solo `attua_delega`): vedi il CTE
     -- `delega_conf_evidenza`. Additiva in coda, come `granularita`/`n_locator`.
-    de.conf_evidence
+    -- La guardia sulla relazione è nel `CASE` **e** nel join: la stessa coppia
+    -- esiste anche come `riferimento`/`abroga` (2.338 archi), e senza guardia
+    -- si prenderebbero il valore della delega.
+    CASE WHEN g.relation = 'attua_delega' THEN de.conf_evidence END AS conf_evidence
 FROM grouped g
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
@@ -1402,6 +1405,7 @@ LEFT JOIN delega_locator dl
 LEFT JOIN delega_conf_evidenza de
   ON  de.source_id = g.source_id
   AND de.target_id = g.target_id
+  AND g.relation = 'attua_delega'
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
 -- con i parquet ordinati il row-group pruning salta la maggior parte del file
