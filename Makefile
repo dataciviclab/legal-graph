@@ -10,8 +10,10 @@ PYTHON ?= python3
 # passa da env, letta da info lab-connectors.safe_connect.
 GRAPH_CONFIG ?= compose/legal-graph/dataset.yml
 INDEX_CONFIG ?= compose/legal-index/dataset.yml
-GRAPH_MEMORY ?= 2GB
-INDEX_MEMORY ?= 4GB
+# `DUCKDB_MEMORY_LIMIT` da ambiente vince su entrambi (utile in locale per
+# provare il tetto senza toccare il Makefile): make importa le env var.
+GRAPH_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),2GB)
+INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),4GB)
 
 .PHONY: run run-graph run-index check lint clean clean-cache test download-gcs help
 
