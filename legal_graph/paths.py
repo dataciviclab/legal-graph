@@ -31,9 +31,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 YEAR = "2026"
 
 DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
+# L'indice lessicale vive nel dataset fratello `legal_index` (compose/legal-index/):
+# isolato per memoria, non per semantica. Stesso prefix GCS, slug diverso.
+DEFAULT_INDEX_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_index" / YEAR
 
 SOURCE_ENV = "LEGAL_GRAPH_SOURCE"
 SOURCE_MODES = ("auto", "local", "gcs")
+
+# Tabelle pubblicate dal dataset `legal_index` invece che da `legal_graph`.
+INDEX_TABLES = frozenset({"mart_legal_search_terms"})
 
 # Tabelle coperte dal publish GCS (dal 2026-11: anche texts/massime)
 GCS_MART_TABLES = frozenset(
@@ -63,6 +69,24 @@ def mart_dir() -> Path:
     return DEFAULT_MART_DIR
 
 
+def index_dir() -> Path:
+    """Directory locale dell'indice lessicale (dataset `legal_index`)."""
+    env = os.environ.get("LEGAL_GRAPH_INDEX_DIR")
+    if env:
+        return Path(env)
+    return DEFAULT_INDEX_DIR
+
+
+def dataset_of(table: str) -> str:
+    """Dataset che pubblica la tabella: `legal_graph` o `legal_index`."""
+    return "legal_index" if table in INDEX_TABLES else "legal_graph"
+
+
+def table_dir(table: str) -> Path:
+    """Directory locale della tabella, nel dataset che la produce."""
+    return index_dir() if table in INDEX_TABLES else mart_dir()
+
+
 def source_mode() -> str:
     """Sorgente richiesta: `auto` | `local` | `gcs` (default `auto`)."""
     raw = os.environ.get(SOURCE_ENV, "").strip().lower()
@@ -83,7 +107,7 @@ def gcs_url(table: str) -> str:
         "mart",
         "mart_parquet",
         prefix="legal-graph/",
-        slug="legal_graph",
+        slug=dataset_of(table),
         year=int(YEAR),
         table=table,
     )
@@ -97,7 +121,7 @@ def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:
     `gcs`: solo GCS (None se la tabella non è pubblicata o `allow_gcs=False`).
     """
     mode = source_mode()
-    local = mart_dir() / f"{table}.parquet"
+    local = table_dir(table) / f"{table}.parquet"
     if mode in ("auto", "local") and local.exists():
         return local
     if mode in ("auto", "gcs") and allow_gcs and table in GCS_MART_TABLES:

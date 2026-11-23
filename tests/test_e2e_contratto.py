@@ -10,8 +10,8 @@ documentati.
 Nasce da una passata E2E manuale che ha trovato: filtri che annullavano le
 query testuali (#32), risultati vuoti spuri in concorrenza (#33), 171 atti
 fuori collezione senza `materia` (italia-corpus #83 + fix in
-`sql/mart_legal_nodes.sql`). Se il mart manca, i test skippano con hint
-`make run`.
+`compose/legal-graph/sql/mart_legal_nodes.sql`). Se il mart manca, i test
+skippano con hint `make run`.
 """
 
 from __future__ import annotations

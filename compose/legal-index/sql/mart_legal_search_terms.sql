@@ -1,5 +1,10 @@
 -- mart_legal_search_terms.sql — indice lessicale per `legal_search`
 --
+-- Dataset `legal_index` (fratello di `legal_graph`): isolato perché
+-- l'aggregazione UNNEST + GROUP BY su ~62M token è il picco di memoria
+-- del compose. Input: `search_keys` dal compose `legal-graph` (path
+-- locale, via support type: dataset) + `testi` da italia-corpus.
+--
 -- Una riga per (id, termine) sugli atti navigabili da `legal_search`
 -- (stessi tipi della view `act`: niente emendamenti, sommari, votazioni,
 -- persone). Il termine è lo **stem conservativo** — minuscolo, accenti
@@ -25,7 +30,7 @@
 
 WITH docs AS (
     SELECT id, title_folded
-    FROM mart_legal_search_keys
+    FROM read_parquet('{support.graph.mart.mart_legal_search_keys}')
     WHERE tipo NOT IN (
         'EMENDAMENTO', 'SOMMARIO', 'RISOLUZIONE', 'VOTAZIONE',
         'DEPUTATO', 'SENATORE', 'GIUDICE', 'PNRR'

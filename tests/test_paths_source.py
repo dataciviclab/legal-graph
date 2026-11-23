@@ -17,7 +17,23 @@ def _env_pulita(monkeypatch, tmp_path):
     """Isola ogni test da env e da `out/` reali."""
     monkeypatch.delenv(paths.SOURCE_ENV, raising=False)
     monkeypatch.setenv("LEGAL_GRAPH_MART_DIR", str(tmp_path))
+    monkeypatch.setenv("LEGAL_GRAPH_INDEX_DIR", str(tmp_path / "index"))
     return tmp_path
+
+
+def test_search_terms_viene_da_legal_index(_env_pulita):
+    """L'indice BM25 è nel dataset fratello `legal_index` (split per memoria)."""
+    assert paths.dataset_of("mart_legal_search_terms") == "legal_index"
+    assert paths.dataset_of("mart_legal_nodes") == "legal_graph"
+
+    url = paths.gcs_url("mart_legal_search_terms")
+    assert "/legal_index/2026/mart_legal_search_terms.parquet" in str(url)
+    assert "/legal_graph/2026/" in str(paths.gcs_url("mart_legal_nodes"))
+
+    index_dir = _env_pulita / "index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    local = _touch(index_dir, "mart_legal_search_terms")
+    assert paths.resolve("mart_legal_search_terms") == local
 
 
 def _touch(mart_dir, table: str):

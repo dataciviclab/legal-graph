@@ -8,9 +8,10 @@ Stato: ATTUALE — contratto chiavi per il compose e per i bridge cross-repo
 
 ```
 upstream (GCS / GitHub raw)
-  → compose toolkit (dataset.yml + sql/mart_legal_*.sql)
-  → out/data/mart/legal_graph/2026/
+  → compose toolkit (compose/legal-graph + compose/legal-index)
+  → out/data/mart/legal_graph/2026/  · out/data/mart/legal_index/2026/
       mart_legal_nodes · edges · node_metrics · search_keys · node_rel · emend_leg
+      mart_legal_search_terms (legal_index)
   → MCP legal-graph (search thin / node views / legal_text / query / insights)
 ```
 

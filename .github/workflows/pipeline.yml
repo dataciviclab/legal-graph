@@ -1,11 +1,11 @@
 # Pipeline — legal-graph
 #
-# Compose mart-only: build da rete → test → sync GCS (12 tabelle mart) → registry.
-# I mart NON vanno più in git: source of truth = gs://dataciviclab-mart/legal-graph/
-# texts/massime/edges_in sono nel publish: attivi per i client dal primo run
-# di pipeline che li carica (prima l'MCP degrada su GitHub raw / `edges`).
+# Compose mart-only in due dataset sotto `compose/`:
+# - legal-graph  → 12 tabelle (nodi, archi, indici, testi, massime)
+# - legal-index  → 1 tabella (indice BM25, picco di memoria isolato)
+# I mart NON vanno in git: source of truth = gs://dataciviclab-mart/legal-graph/
 #
-# Trigger: lunedì 06:00 UTC · dispatch · push main su dataset.yml|sql/**|
+# Trigger: lunedì 06:00 UTC · dispatch · push main su compose/**|
 # legal_graph/**. I cambi ai soli test girano in `test-mart.yml`.
 #
 # Perché anche il codice: la CI su PR fa solo preflight+lint, i test sul mart
@@ -20,8 +20,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "dataset.yml"
-      - "sql/**"
+      - "compose/**"
       - "legal_graph/**"
       # test-only → Test mart (download GCS + pytest), non compose+publish
       - ".github/workflows/pipeline.yml"
@@ -83,12 +82,12 @@ jobs:
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Sync mart to GCS (13 tabelle)
+      - name: Sync mart to GCS (grafo, 12 tabelle)
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
         run: |
           SRC="out/data/mart/legal_graph/2026"
           DEST="gs://dataciviclab-mart/legal-graph/legal_graph/2026"
-          TABLES="mart_legal_nodes mart_legal_edges mart_legal_entity_alias mart_legal_relation_type mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_search_terms mart_legal_node_rel mart_legal_emend_leg mart_legal_texts mart_legal_massime"
+          TABLES="mart_legal_nodes mart_legal_edges mart_legal_entity_alias mart_legal_relation_type mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg mart_legal_texts mart_legal_massime"
           for t in $TABLES; do
             f="$SRC/${t}.parquet"
             if [ ! -f "$f" ]; then
@@ -104,14 +103,40 @@ jobs:
           fi
           echo "✅ GCS $DEST"
 
+      # Dataset fratello: stesso prefix `legal-graph/`, slug `legal_index`.
+      # Il path pubblico cambia solo per search_terms (vedi paths.py).
+      - name: Sync indice to GCS (legal_index, 1 tabella)
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        run: |
+          SRC="out/data/mart/legal_index/2026"
+          DEST="gs://dataciviclab-mart/legal-graph/legal_index/2026"
+          f="$SRC/mart_legal_search_terms.parquet"
+          if [ ! -f "$f" ]; then
+            echo "::error::manca $f"
+            exit 1
+          fi
+          gsutil -q cp "$f" "$DEST/mart_legal_search_terms.parquet"
+          echo "✅ mart_legal_search_terms"
+          if [ -f "$SRC/metadata.json" ]; then
+            gsutil -q cp "$SRC/metadata.json" "$DEST/metadata.json"
+          fi
+          echo "✅ GCS $DEST"
+
       - name: Upload artifact (tutti i mart, 14gg)
         uses: actions/upload-artifact@v7
         with:
           name: legal-graph-mart
-          path: out/data/mart/legal_graph/
+          path: |
+            out/data/mart/legal_graph/
+            out/data/mart/legal_index/
           retention-days: 14
 
-      # Registry update PR rimosso (2026-10-08): toolkit registry build
-      # richiede sezioni {slug}/dataset.yml — incompatibile col layout
-      # compose monorepo con dataset.yml alla root. Da ripristinare con
-      # supporto toolkit per root-level dataset.yml.
+      # ── Registry (artifact catalogo) → draft PR ─────────────────────
+      # Ripristinato col layout `compose/{slug}/dataset.yml`: il builder del
+      # registry scopre le sezioni per convenzione, un dataset.yml in root
+      # non esisteva per lui (per questo `legal_graph` mancava dal catalogo).
+      - name: Registry update PR
+        if: ${{ !cancelled() && env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != '' }}
+        uses: dataciviclab/.github/actions/registry-update-pr@main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

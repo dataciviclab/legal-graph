@@ -11,7 +11,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
+from tests._paths import GRAPH_SQL_DIR as SQL_DIR
 
 
 def _expr(path: Path) -> str:

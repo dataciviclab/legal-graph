@@ -9,14 +9,29 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 
 | Pezzo | Dove |
 |---|---|
-| Config | `dataset.yml` (ordine tabelle obbligatorio) |
-| SQL base | `sql/mart_legal_nodes.sql`, `sql/mart_legal_edges.sql` |
-| SQL derivate | alias · relation_type · coverage · metrics · search_keys · **search_terms** · node_rel · emend_leg · **texts** · **massime** |
-| Output | `out/data/mart/legal_graph/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/legal_graph/2026/` — 13 tabelle nel compose; `entity_alias` e `relation_type` online dal primo run di pipeline M1 |
+| Config | `compose/legal-graph/dataset.yml` (ordine tabelle obbligatorio) |
+| Config indice | `compose/legal-index/dataset.yml` (solo `mart_legal_search_terms`) |
+| SQL base | `compose/legal-graph/sql/mart_legal_nodes.sql`, `.../mart_legal_edges.sql` |
+| SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
+| Indice BM25 | `compose/legal-index/sql/mart_legal_search_terms.sql` — dataset separato per memoria |
+| Output | `out/data/mart/legal_graph/2026/` + `out/data/mart/legal_index/2026/` (gitignored) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` — `legal_graph/2026/` (12 tabelle) + `legal_index/2026/` (1 tabella) |
 | Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
+
+### Perché due dataset
+
+`mart_legal_search_terms` aggrega ~62M token prima di ridurli a 7,2M coppie
+(atto, stem): è il picco di memoria di tutto il compose e, insieme a nodi e
+archi, non entra in una macchina da 8GB. Isolato in `legal_index`:
+
+- il build del grafo scende a un budget suo (`GRAPH_MEMORY`, default 2GB);
+- l'indice si ricostruisce solo quando cambia il corpus, non a ogni fix di SQL;
+- `legal_index` legge `search_keys` dal grafo **in locale** (support
+  `type: dataset`), non dalla copia pubblicata: niente staleness.
+
+Ordine obbligato: `make run` = `run-graph` → `run-index`.
 
 ## Mart (ordine compose)
 
@@ -125,7 +140,7 @@ Le view sui mart sono create al bootstrap della connessione: dopo un `make run` 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
 | `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
-| `pipeline.yml` | lun 06:00 UTC, push sql/dataset.yml | `make run` + intelligence + **test** + sync GCS + registry PR |
+| `pipeline.yml` | lun 06:00 UTC, push compose/** | `make run` (graph → index) + intelligence + **test** + sync GCS + registry PR |
 
 I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Il publish GCS include tutte e 10 le tabelle, texts e massime comprese (dal build 2026-11-09): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
