@@ -33,25 +33,37 @@ archi, non entra in una macchina da 8GB. Isolato in `legal_index`:
 
 Ordine obbligato: `make run` = `run-graph` → `run-index`.
 
-Misure reali (2026-11-23, macchina 4,9GB, `DUCKDB_MEMORY_LIMIT=2GB`,
-`preserve_insertion_order=false`, 4 thread):
+Misure reali (2026-11-23, macchina 4,9GB, `preserve_insertion_order=false`):
 
-| Target | Esito | Picco RSS | Tempo |
+| Versione / target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` (12 mart) | ✅ exit 0, 6.532.318 righe | **2,37 GB** | 80 s |
-| `run-index` (1 mart) | ❌ **OOM** | >3,1 GB | — |
+| `run-graph` (12 mart) | ✅ 6.532.318 righe | **2,37 GB** | 80 s |
+| `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
+| `run-index` ottimizzata, 2GB | ❌ OOM pulito di DuckDB | 2,44 GB | — |
+| `run-index` ottimizzata, 3GB + 3 thread | ✅ **7.918.259 righe** | **3,20 GB** | 59 s |
 
-L'indice **non** sta in 4GB nemmeno da solo: `regexp_extract_all` + `UNNEST`
-materializzano le liste fuori dal buffer manager, quindi `memory_limit` non
-lo contiene e non c'è spill. Su una macchina piccola:
+L'indice non stava in 4GB con la query originale: `regexp_extract_all` +
+`UNNEST` materializzano le liste fuori dal buffer manager, quindi
+`memory_limit` non le contiene e non c'è spill. Tre modifiche (equivalenti,
+verificate riga per riga su campioni da 300/400/1000 atti, Δweight = 0):
+
+1. **`doc_id` intero** al posto dell'URN in tutte le fasi di tokenizzazione:
+   il GROUP BY da ~8M coppie teneva la stringa (~40 byte) ripetuta.
+2. **`doc_len` da `tf`** (`SUM(tf)` per atto = `SUM(w)` per atto): il codice
+   rieseguiva l'intera catena `UNNEST`, perché i CTE DuckDB sono inlined.
+3. **Una `regexp_replace` con alternanza** invece di tre in cascata.
+
+Il passo decisivo però è stato il budget: `INDEX_MEMORY=3GB` e
+`INDEX_THREADS=3` (4 thread alzano il picco oltre il tetto).
+
+Su una macchina che non regge nemmeno 3,2 GB:
 
 ```bash
 make run-local     # = run-graph + download-index (indice dall'ultimo publish)
 ```
 
-Il grafo è quello su cui si itera (SQL, contratti, test) e ora si costruisce
-in locale; l'indice è un artifact di CI, o un lavoro di ottimizzazione SQL a sé
-(partizionare per collezione prima dell'aggregazione).
+L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
+è il pezzo giusto da prendere da GCS invece di ricostruirlo.
 
 ## Mart (ordine compose)
 

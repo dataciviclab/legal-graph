@@ -27,9 +27,27 @@
 -- (9,9%): il costo è accettato per non duplicare la lista in due linguaggi
 -- (SQL + Python) e per non rischiare che le due copie divergano. L'unica
 -- fonte della lista resta il codice.
+--
+-- MEMORIA (build 2026-11): tre scelte non cosmetiche, misurate sul picco.
+-- Il build originale veniva ucciso a 3,13GB; con queste tre cambia la
+-- quantita' di lavoro, con `INDEX_THREADS=3` + 3GB entra in 3,20GB.
+-- 1. `doc_id` intero invece di `id` (URN, ~40 byte) in tutte le fasi di
+--    tokenizzazione: il GROUP BY da ~8M coppie teneva la stringa ripetuta.
+--    L'URN torna solo nel SELECT finale.
+-- 2. `doc_len` si ricava da `tf` (SUM dei tf per atto), non da `stemmed`:
+--    il codice avrebbe rieseguito l'intera catena UNNEST una seconda volta
+--    (i CTE DuckDB sono inlined, non materializzati).
+-- 3. Una sola `regexp_replace` con alternanza invece di tre in cascata:
+--    una passata sul testo invece di tre, e meno stringhe intermedie.
+--    Tutte e tre le alternative sostituiscono con lo stesso `' '`.
+-- Equivalenza verificata riga per riga contro la versione precedente su
+-- campioni di 300/400/1000 atti: stesse chiavi, |Δweight| = 0.
 
 WITH docs AS (
-    SELECT id, title_folded
+    SELECT
+        id,
+        title_folded,
+        ROW_NUMBER() OVER () AS doc_id
     FROM read_parquet('{support.graph.mart.mart_legal_search_keys}')
     WHERE tipo NOT IN (
         'EMENDAMENTO', 'SOMMARIO', 'RISOLUZIONE', 'VOTAZIONE',
@@ -57,32 +75,26 @@ body AS (
 
 body_clean AS (
     SELECT
-        b.id,
+        d.doc_id,
         regexp_replace(
-            regexp_replace(
-                regexp_replace(
-                    translate(
-                        lower(b.testo),
-                        'àáâãäåèéêëìíîïòóôõöùúûüñç',
-                        'aaaaaaeeeeiiiiooooouuuunc'
-                    ),
-                    '\]\([^)]*\)', ' ', 'g'
-                ),
-                'https?://[^ ]+', ' ', 'g'
+            translate(
+                lower(b.testo),
+                'àáâãäåèéêëìíîïòóôõöùúûüñç',
+                'aaaaaaeeeeiiiiooooouuuunc'
             ),
-            '&[a-z]+;', ' ', 'g'
+            '\]\([^)]*\)|https?://[^ ]+|&[a-z]+;', ' ', 'g'
         ) AS testo
     FROM body b
     JOIN docs d ON d.id = b.id
 ),
 
 title_terms AS (
-    SELECT id, UNNEST(regexp_extract_all(title_folded, '[a-z]+')) AS term
+    SELECT doc_id, UNNEST(regexp_extract_all(title_folded, '[a-z]+')) AS term
     FROM docs
 ),
 
 body_terms AS (
-    SELECT id, UNNEST(regexp_extract_all(testo, '[a-z]+')) AS term
+    SELECT doc_id, UNNEST(regexp_extract_all(testo, '[a-z]+')) AS term
     FROM body_clean
 ),
 
@@ -90,12 +102,12 @@ body_terms AS (
 -- probabilmente il tema, ma il peso non basta a battere un testo che
 -- lo tratta centinaia di volte (vedi eval temi 2026-11).
 fields AS (
-    SELECT id, term, COUNT(*) * 2.0 AS w
+    SELECT doc_id, term, COUNT(*) * 2.0 AS w
     FROM title_terms
     WHERE length(term) >= 3
     GROUP BY 1, 2
     UNION ALL
-    SELECT id, term, COUNT(*) AS w
+    SELECT doc_id, term, COUNT(*) AS w
     FROM body_terms
     WHERE length(term) >= 3
     GROUP BY 1, 2
@@ -104,7 +116,7 @@ fields AS (
 -- Stem conservativo: la stessa espressione è in `textfold._term_stem`.
 stemmed AS (
     SELECT
-        id,
+        doc_id,
         CASE
             WHEN length(term) > 4 AND right(term, 1) IN ('a', 'e', 'i', 'o')
                 THEN left(term, length(term) - 1)
@@ -115,14 +127,16 @@ stemmed AS (
 ),
 
 tf AS (
-    SELECT id, term, SUM(w) AS tf
+    SELECT doc_id, term, SUM(w) AS tf
     FROM stemmed
     GROUP BY 1, 2
 ),
 
+-- SUM(tf) per atto == SUM(w) per atto: `tf` è già la somma per termine,
+-- quindi la lunghezza del documento non richiede una seconda passata.
 doc_len AS (
-    SELECT id, SUM(w) AS dl
-    FROM stemmed
+    SELECT doc_id, SUM(tf) AS dl
+    FROM tf
     GROUP BY 1
 ),
 
@@ -138,13 +152,14 @@ stats AS (
 )
 
 SELECT
-    t.id,
+    k.id,
     t.term,
     LN(1 + (s.n - d.df + 0.5) / (d.df + 0.5))
         * (t.tf * 2.2)
         / (t.tf + 1.2 * (0.25 + 0.75 * l.dl / s.avgdl)) AS weight
 FROM tf t
 JOIN df d USING (term)
-JOIN doc_len l USING (id)
+JOIN doc_len l USING (doc_id)
+JOIN docs k USING (doc_id)
 CROSS JOIN stats s
-ORDER BY t.term, t.id
+ORDER BY t.term, k.id

@@ -13,7 +13,10 @@ INDEX_CONFIG ?= compose/legal-index/dataset.yml
 # `DUCKDB_MEMORY_LIMIT` da ambiente vince su entrambi (utile in locale per
 # provare il tetto senza toccare il Makefile): make importa le env var.
 GRAPH_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),2GB)
-INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),4GB)
+INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),3GB)
+# 4 thread sull'indice alzano il picco sopra i 3GB (buffer per-thread):
+# 3 thread sono il punto in cui il build completo entra in ~3,2GB.
+INDEX_THREADS ?= 3
 
 .PHONY: run run-graph run-index run-local check lint clean clean-cache test download-gcs download-graph download-index help
 
@@ -26,7 +29,7 @@ run-graph:
 	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) $(TOOLKIT) run mart -c $(GRAPH_CONFIG) -y $(YEAR)
 
 run-index:
-	DUCKDB_MEMORY_LIMIT=$(INDEX_MEMORY) $(TOOLKIT) run mart -c $(INDEX_CONFIG) -y $(YEAR)
+	DUCKDB_MEMORY_LIMIT=$(INDEX_MEMORY) DUCKDB_THREADS=$(INDEX_THREADS) $(TOOLKIT) run mart -c $(INDEX_CONFIG) -y $(YEAR)
 
 # Macchine piccole (<8GB liberi): il grafo si costruisce in locale (~2,4GB),
 # l'indice BM25 no (supera i 3GB anche da solo: `regexp_extract_all` +
