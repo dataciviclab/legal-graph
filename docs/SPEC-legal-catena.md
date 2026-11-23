@@ -1,6 +1,7 @@
 # SPEC — `legal_catena` (MCP legal-graph)
 
-**Status:** proposta v1 · **Data:** 2026-11-23 · **Non implementato**
+**Status:** implementato v1 (2026-11-23) — `legal_graph/mcp/chain.py`, 9 test in
+`tests/test_legal_catena.py` · **Data:** 2026-11-23
 **Scope:** un tool verticale che risponde a *una* domanda — *da dove viene questa
 norma, e cosa ha prodotto* — con percorso ordinato e copertura dichiarata.
 

@@ -1,13 +1,14 @@
 """Server MCP legal-graph — Legal Knowledge Graph per agenti AI.
 
-Flusso consigliato (7 tool):
+Flusso consigliato (8 tool):
   1. legal_search     → trova l'atto
   2. legal_node       → contesto + vista specialistica (view=)
-  3. legal_text       → testo integrale (normativa)
-  4. legal_neighbors  → vicini per direzione/relazione (con canonica)
-  5. legal_coverage   → copertura per relazione e livelli L1-L2
-  6. legal_query      → SQL arbitrario (escape hatch)
-  7. legal_insights   → report di sistema (critici/obsoleti)
+  3. legal_catena     → provenienza: DDL→legge, delega→attuativi (percorso)
+  4. legal_text       → testo integrale (normativa)
+  5. legal_neighbors  → vicini per direzione/relazione (con canonica)
+  6. legal_coverage   → copertura per relazione e livelli L1-L2
+  7. legal_query      → SQL arbitrario (escape hatch)
+  8. legal_insights   → report di sistema (critici/obsoleti)
 
 View di legal_node:
   overview      metadati + conteggi relazioni + top edge + intelligence
@@ -27,6 +28,7 @@ from lab_connectors.mcp import create_mcp_server, guard_timed
 
 # Re-export per i test golden (import legal_graph.mcp_server as m)
 from legal_graph.mcp import db as _db
+from legal_graph.mcp.chain import _impl_catena
 from legal_graph.mcp.db import _view_exists  # noqa: F401 — re-export test
 from legal_graph.mcp.node_views import _impl_node
 from legal_graph.mcp.reports import (
@@ -52,6 +54,8 @@ mcp = create_mcp_server(
         "  1) legal_search per trovare un atto (URN o titolo)\n"
         "  2) legal_node(node_id, view) per contesto/viste:\n"
         "     overview | chain | jurisprudence | parliament\n"
+        "  2b) legal_catena(node_id, direzione=monte) per la provenienza in un\n"
+        "     percorso ordinato (DDL→legge, delega↔attuativi), con copertura\n"
         "  3) legal_text(node_id) per il testo integrale (solo source=normativa)\n"
         "  4) legal_neighbors(node_id, direction) per i vicini del nodo\n"
         "  5) legal_coverage per copertura relazioni e livelli L1-L2\n"
@@ -133,6 +137,40 @@ def legal_node(
     depth: int = 3,
 ) -> dict[str, Any]:
     return guard_timed(_impl_node, "legal_node", node_id, view=view, depth=depth)
+
+
+@mcp.tool(
+    name="legal_catena",
+    description=(
+        "Percorso di PROVENIENZA di un atto: da dove viene e cosa ha prodotto. "
+        "Relazioni seguite: diventa_legge (DDL→legge), converte_decreto_legge "
+        "(DL→DDL di conversione), attua_delega (decreto attuativo↔legge delega). "
+        "direzione: monte (verso l'origine, default) | valle (verso i derivati) | "
+        "entrambe. Restituisce passi ORDINATI con evidenza per hop, più `summary` "
+        "completo (es. 375 decreti attuativi anche se ne mostra 30), `copertura` "
+        "della relazione e `as_of` del build. "
+        "Usalo invece di legal_node(view='chain') quando la domanda è 'da dove "
+        "viene' o 'cosa ha prodotto': un solo passaggio, risposta deterministica. "
+        "NON segue abroga/modifica (ciclo di vita → legal_node overview) né "
+        "riferimento (citazioni → legal_neighbors). Ogni passo con "
+        "`affidabile: false` non ha citazione a supporto: dichiaralo."
+    ),
+    structured_output=True,
+)
+def legal_catena(
+    node_id: str,
+    direzione: str = "monte",
+    profondita: int = 3,
+    max_passi: int = 30,
+) -> dict[str, Any]:
+    return guard_timed(
+        _impl_catena,
+        "legal_catena",
+        node_id,
+        direzione=direzione,
+        profondita=profondita,
+        max_passi=max_passi,
+    )
 
 
 @mcp.tool(
