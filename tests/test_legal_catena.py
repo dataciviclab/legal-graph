@@ -116,7 +116,53 @@ def test_copertura_e_as_of_presenti():
     cov = {c["relation"]: c for c in res["copertura"]}
     assert "diventa_legge" in cov
     assert cov["diventa_legge"]["pct"] == pytest.approx(81.5, abs=1.0)
-    assert "as_of" in res
+    assert "build_at" in res
+
+
+def test_mart_legacy_senza_conf_evidence(monkeypatch):
+    """Su un mart pre-2026-11-19 `conf_evidence` non esiste: NULL, non crash.
+
+    È il criterio di accettazione di legal-graph#85 applicato a questo tool:
+    la compatibilità passa da `_has_col`, non da un caso limite.
+    """
+    import duckdb
+
+    from legal_graph.mcp import db as _db
+
+    con = duckdb.connect()
+    con.execute(
+        """
+        CREATE TABLE nodes (
+            id VARCHAR, tipo VARCHAR, title VARCHAR, data VARCHAR, anno INTEGER,
+            source VARCHAR, length_chars INTEGER, length_words INTEGER,
+            celex VARCHAR, collezione VARCHAR, source_filename VARCHAR,
+            stato VARCHAR, materia VARCHAR, qualita_score INTEGER,
+            sunsetting_score INTEGER
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE edges (
+            relation VARCHAR, source_id VARCHAR, target_id VARCHAR,
+            weight INTEGER, method VARCHAR, prov_evidence_kind VARCHAR,
+            evidence_locator VARCHAR
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO nodes (id, tipo, title, anno) VALUES "
+        "('a', 'LEGGE', 'Delega X', 1997), ('b', 'DDL', 'Delega X (DDL)', 1996)"
+    )
+    con.execute(
+        "INSERT INTO edges VALUES ('diventa_legge', 'b', 'a', 1, 'join', 'quote', 'art_1')"
+    )
+
+    monkeypatch.setattr(_db, "_get_con", lambda: con)
+    res = _impl_catena("a", direzione="monte")
+    assert [s["id"] for s in res["catena"]] == ["b"]
+    assert res["catena"][0]["evidence"]["conf"] is None
+    assert res["catena"][0]["affidabile"] is True
 
 
 def test_step_senza_evidenza_e_marcato(con):

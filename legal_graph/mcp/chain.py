@@ -18,7 +18,7 @@ from typing import Any
 import duckdb
 
 from legal_graph.mcp import db
-from legal_graph.mcp.db import _view_exists
+from legal_graph.mcp.db import _has_col, _view_exists
 from legal_graph.mcp.node_views import _find_node
 from legal_graph.paths import resolve_metadata_file
 
@@ -74,13 +74,23 @@ def _move(
 def _edges_for(
     con: duckdb.DuckDBPyConnection, ids: list[str]
 ) -> list[tuple[Any, ...]]:
-    """Archi di lineage incidenti agli id, in una query sola."""
+    """Archi di lineage incidenti agli id, in una query sola.
+
+    `conf_evidence` esiste dal build 2026-11-19: su un mart precedente la
+    colonna manca e va sostituita con NULL, altrimenti la query fallisce con un
+    binder error (#85, regola `_has_col`).
+    """
     rels = ", ".join(f"'{r}'" for r in LINEAGE)
     marks = ", ".join("?" for _ in ids)
+    conf = (
+        "conf_evidence"
+        if _has_col(con, "edges", "conf_evidence")
+        else "NULL::VARCHAR"
+    )
     return con.execute(
         f"""
         SELECT relation, source_id, target_id, weight, method,
-               prov_evidence_kind, conf_evidence, evidence_locator
+               prov_evidence_kind, {conf} AS conf_evidence, evidence_locator
         FROM edges
         WHERE relation IN ({rels})
           AND (source_id IN ({marks}) OR target_id IN ({marks}))
@@ -171,8 +181,8 @@ def _coverage(
     return out
 
 
-def _as_of(con: duckdb.DuckDBPyConnection) -> str | None:
-    """Data del build, se il `metadata.json` del publish è leggibile."""
+def _build_at(con: duckdb.DuckDBPyConnection) -> str | None:
+    """Data del build (non la vigenza dell'atto: quella è legal-graph#68)."""
     path = resolve_metadata_file()
     if path is None:
         return None
@@ -298,6 +308,11 @@ def _impl_catena(
         notes.append(
             f"{no_evidence} {parola} senza citazione a supporto (affidabile: false)"
         )
+    if "attua_delega" in relations:
+        notes.append(
+            "attua_delega è inferita da titolo/citazione: è un'ipotesi, non una "
+            "dichiarazione esplicita dell'atto (italia-corpus#170)"
+        )
     if not steps:
         notes.append("nessuna relazione di provenienza per questo nodo")
 
@@ -316,6 +331,6 @@ def _impl_catena(
             "si": truncated,
             "motivo": "max_passi" if truncated else None,
         },
-        "as_of": _as_of(con),
+        "build_at": _build_at(con),
         "note": notes,
     }

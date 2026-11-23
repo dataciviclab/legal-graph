@@ -1,6 +1,6 @@
 # SPEC — `legal_catena` (MCP legal-graph)
 
-**Status:** implementato v1 (2026-11-23) — `legal_graph/mcp/chain.py`, 9 test in
+**Status:** implementato v1 (2026-11-23) — `legal_graph/mcp/chain.py`, 10 test in
 `tests/test_legal_catena.py` · **Data:** 2026-11-23
 **Scope:** un tool verticale che risponde a *una* domanda — *da dove viene questa
 norma, e cosa ha prodotto* — con percorso ordinato e copertura dichiarata.
@@ -108,7 +108,7 @@ scelta euristica**).
      "nota": "1:1: una riga upstream produce un edge, nessun denominatore"}
   ],
   "troncato": {"si": false, "motivo": null},
-  "as_of": null,
+  "build_at": null,
   "note": []
 }
 ```
@@ -125,8 +125,15 @@ scelta euristica**).
 - **Hop senza evidenza**: 1.705 edge `diventa_legge` su 3.662 hanno
   `prov_evidence_kind = none`. Vanno restituiti, ma con `affidabile: false` sul
   passo e una nota: *"questo passaggio non ha una citazione a supporto"*.
-- `as_of`: da `metadata.json` del publish se leggibile, altrimenti `null`
-  finché non esiste `mart_legal_freshness` (P0 aperto).
+- **`attua_delega` è un'ipotesi, non un fatto** (italia-corpus#170): nasce dal
+  titolo o da una citazione, il 97,6% degli archi sono già `riferimento`, e il
+  ramo `regex` copre 116 delle 198 leggi con "delega al Governo" nel titolo. Se
+  compare nel percorso, la risposta aggiunge una nota che lo dichiara.
+- `build_at`: **data del build**, non vigenza dell'atto. Rinominato da `as_of`
+  perché legal-graph#68 userà `as_of` per la validità temporale dell'atto: due
+  significati sullo stesso nome sarebbero una rottura annunciata. Da
+  `metadata.json` del publish se leggibile, altrimenti `null` finché non esiste
+  `mart_legal_freshness` (P0 aperto).
 - `note`: frasi brevi e verificabili, es. `"39,5% dei DDL non ha urn_normattiva:
   la catena può fermarsi prima della legge"`.
 
@@ -200,3 +207,16 @@ vengono da lì.
 Criterio di adozione, onesto: se in due settimane di uso reale nessuno chiama
 `legal_catena` per una domanda di provenienza, la tesi "le catene sono la
 domanda" è falsa — e si risparmiano gli altri tre verticali.
+
+---
+
+## 11. Issue collegate (verificate 2026-11-23)
+
+| Issue | Relazione con questo tool | Stato |
+|---|---|---|
+| **legal-graph#85** — `conf_evidence` nelle viste curate | `legal_catena` la espone già in `step.evidence.conf`; resta da fare per `_top_edges`/`_bfs` di `legal_node` | **parzialmente chiusa da questo lavoro** (solo il ramo nuovo) |
+| **legal-graph#69** — monitor mensile, 5 domande fisse | è la stessa direzione "prodotto ricorrente": atti più modificati, nuove abrogazioni, dormienti, impugnazioni, direttive non recepite | da agganciare: 2 delle 5 domande sono già calcolabili e la 1ª (modifiche) è `legal_vita`, non `legal_catena` |
+| **legal-graph#68** — validità temporale (`as_of`) | conflitto di nome risolto: qui il campo è `build_at` | aperta, indipendente |
+| **italia-corpus#170** — delega dal preambolo | `attua_delega` è inferita dal titolo; il tool lo dichiara in `note` | aperta: alza la qualità di una relazione già usata |
+| **italia-corpus#158** — 4.403 `riferimento` con anni impossibili | non tocca il lineage (nessun `riferimento` qui) | aperta, impatta `legal_neighbors` |
+| **toolkit#426 / PR #515** — pulizia mart orfani | lo split lascia `mart_legal_search_terms` nel vecchio `out/data/mart/legal_graph/` | la pulizia arriva con la PR #515: non duplicarla qui |
