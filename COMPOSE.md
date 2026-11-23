@@ -33,6 +33,26 @@ archi, non entra in una macchina da 8GB. Isolato in `legal_index`:
 
 Ordine obbligato: `make run` = `run-graph` → `run-index`.
 
+Misure reali (2026-11-23, macchina 4,9GB, `DUCKDB_MEMORY_LIMIT=2GB`,
+`preserve_insertion_order=false`, 4 thread):
+
+| Target | Esito | Picco RSS | Tempo |
+|---|---|---|---|
+| `run-graph` (12 mart) | ✅ exit 0, 6.532.318 righe | **2,37 GB** | 80 s |
+| `run-index` (1 mart) | ❌ **OOM** | >3,1 GB | — |
+
+L'indice **non** sta in 4GB nemmeno da solo: `regexp_extract_all` + `UNNEST`
+materializzano le liste fuori dal buffer manager, quindi `memory_limit` non
+lo contiene e non c'è spill. Su una macchina piccola:
+
+```bash
+make run-local     # = run-graph + download-index (indice dall'ultimo publish)
+```
+
+Il grafo è quello su cui si itera (SQL, contratti, test) e ora si costruisce
+in locale; l'indice è un artifact di CI, o un lavoro di ottimizzazione SQL a sé
+(partizionare per collezione prima dell'aggregazione).
+
 ## Mart (ordine compose)
 
 ```text

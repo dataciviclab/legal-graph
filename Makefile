@@ -15,7 +15,7 @@ INDEX_CONFIG ?= compose/legal-index/dataset.yml
 GRAPH_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),2GB)
 INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),4GB)
 
-.PHONY: run run-graph run-index check lint clean clean-cache test download-gcs help
+.PHONY: run run-graph run-index run-local check lint clean clean-cache test download-gcs download-graph download-index help
 
 # Ordine obbligato: l'indice legge search_keys dal grafo.
 run:
@@ -27,6 +27,13 @@ run-graph:
 
 run-index:
 	DUCKDB_MEMORY_LIMIT=$(INDEX_MEMORY) $(TOOLKIT) run mart -c $(INDEX_CONFIG) -y $(YEAR)
+
+# Macchine piccole (<8GB liberi): il grafo si costruisce in locale (~2,4GB),
+# l'indice BM25 no (supera i 3GB anche da solo: `regexp_extract_all` +
+# `UNNEST` non spillano). Si scarica l'ultimo pubblicato e si itera sul resto.
+run-local:
+	$(MAKE) run-graph
+	$(MAKE) download-index
 
 check:
 	$(TOOLKIT) run preflight -c $(GRAPH_CONFIG)
@@ -44,7 +51,9 @@ clean-cache:
 test:
 	$(PYTHON) -m pytest tests/ -q
 
-download-gcs:
+download-gcs: download-graph download-index
+
+download-graph:
 	@DIR=out/data/mart/legal_graph/$(YEAR); mkdir -p $$DIR; \
 	BASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/$(YEAR); \
 	for t in mart_legal_nodes mart_legal_edges mart_legal_entity_alias \
@@ -63,6 +72,8 @@ download-gcs:
 			echo "⚠️  $$t non ancora su GCS — resta il file locale se presente"; \
 		fi; \
 	done
+
+download-index:
 	@IDX=out/data/mart/legal_index/$(YEAR); mkdir -p $$IDX; \
 	IBASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_index/$(YEAR); \
 	if curl -fsSL "$$IBASE/mart_legal_search_terms.parquet" -o "$$IDX/mart_legal_search_terms.parquet.tmp"; then \
