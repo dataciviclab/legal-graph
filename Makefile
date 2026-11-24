@@ -18,7 +18,7 @@ INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),3GB)
 # 3 thread sono il punto in cui il build completo entra in ~3,2GB.
 INDEX_THREADS ?= 3
 
-.PHONY: run run-graph run-index run-local freshness check lint clean clean-cache test download-gcs download-graph download-index help
+.PHONY: run run-graph run-index run-local freshness cache-support run-offline check lint clean clean-cache test download-gcs download-graph download-index help
 
 # Ordine obbligato: l'indice legge search_keys dal grafo.
 run:
@@ -35,6 +35,19 @@ freshness:
 
 run-index:
 	DUCKDB_MEMORY_LIMIT=$(INDEX_MEMORY) DUCKDB_THREADS=$(INDEX_THREADS) $(TOOLKIT) run mart -c $(INDEX_CONFIG) -y $(YEAR)
+
+# Cache dei support esterni: un run-graph legge 62 file da GCS, 525 MB di
+# egress a OGNI build. `cache-support` li scarica una volta in `.cache/` e
+# genera una config equivalente con uri locali; `run-offline` la usa (0 egress).
+# Il primo `cache-support` costa 525 MB; i successivi sono istantanei (salta i
+# file presenti). `--refresh` per aggiornarli.
+LOCAL_CONFIG ?= .cache/dataset.local.yml
+cache-support:
+	$(PYTHON) scripts/cache_support.py --config $(GRAPH_CONFIG) --out $(LOCAL_CONFIG)
+
+run-offline: cache-support
+	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) $(TOOLKIT) run mart -c $(LOCAL_CONFIG) -y $(YEAR)
+	$(PYTHON) -m legal_graph.freshness --config $(GRAPH_CONFIG) --out out/data/mart/legal_graph/$(YEAR)/mart_legal_freshness.parquet
 
 # Macchine piccole (<8GB liberi): il grafo si costruisce in locale (~2,4GB),
 # l'indice BM25 no (supera i 3GB anche da solo: `regexp_extract_all` +

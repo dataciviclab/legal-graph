@@ -29,3 +29,6 @@ Thumbs.db
 
 # Ruff
 .ruff_cache/
+
+# Cache dei support esterni (scripts/cache_support.py)
+.cache/
