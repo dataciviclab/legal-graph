@@ -30,3 +30,8 @@ jobs:
 
       - name: Lint
         run: make lint
+
+  # Cambi ai workflow: actionlint + pattern pericolosi, senza build.
+  # Sostituisce il trigger di pipeline.yml su se stesso (525 MB per modifica).
+  lint-workflows:
+    uses: dataciviclab/.github/.github/workflows/lint-workflows-reusable.yml@main

@@ -23,8 +23,9 @@ on:
     paths:
       - "compose/**"
       - "legal_graph/**"
-      # cambi al workflow stesso: richiedono un run completo per validarli
-      - ".github/workflows/pipeline.yml"
+      # I cambi al workflow NON stanno qui: un run completo costa 525 MB di
+      # egress (lettura dei support). Li valida `ci.yml` (preflight + lint,
+      # actionlint via reusable org), che non builda.
   workflow_dispatch:
 
 concurrency:
