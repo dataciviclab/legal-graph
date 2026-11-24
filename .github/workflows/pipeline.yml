@@ -6,7 +6,8 @@
 # I mart NON vanno in git: source of truth = gs://dataciviclab-mart/legal-graph/
 #
 # Trigger: lunedì 06:00 UTC · dispatch · push main su compose/**|
-# legal_graph/**. I cambi ai soli test girano in `test-mart.yml`.
+# legal_graph/**. I cambi ai soli test non hanno un workflow dedicato:
+# li valida il primo run successivo della pipeline (o un `workflow_dispatch`).
 #
 # Perché anche il codice: la CI su PR fa solo preflight+lint, i test sul mart
 # girano qui. Senza `legal_graph/**` un fix di search/views arriverebbe su main
@@ -22,7 +23,7 @@ on:
     paths:
       - "compose/**"
       - "legal_graph/**"
-      # test-only → Test mart (download GCS + pytest), non compose+publish
+      # cambi al workflow stesso: richiedono un run completo per validarli
       - ".github/workflows/pipeline.yml"
   workflow_dispatch:
 
