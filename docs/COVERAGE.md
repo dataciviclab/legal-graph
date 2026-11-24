@@ -261,7 +261,7 @@ Due limiti da leggere accanto ai numeri:
 | Relatore → ddl | ✅ edge `relatore` (`senatore:*` → `senato:*`) |
 | Relatore → atto Camera | ✅ edge `relatore` (`deputato:*` → `camera:{legislatura}:{num}`) — ~19% incarichi (atto LOD parziale per design); l'id storico `camera:atto:{leg}_{id}` resta alias |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:{legislatura}:{num}`) |
-| Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`; anche `deputato:*` quando la firma arriva da `deputato_url`, 20.470 edge; weight 2 se primo) |
+| Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`; anche `deputato:*` quando la firma arriva da `deputato_url`, **86.546** edge; weight 2 se primo). Legislature **13-19**: fino al 2026-11-24 il support leggeva la sola partizione `2026` (residuo del layout per anno), quindi c'erano 11.855 archi `senatore:*` e 20.470 `deputato_url`, tutti dalla legislatura 19 ferma a settembre |
 | DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative) |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
 | Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
