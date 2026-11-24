@@ -34,6 +34,15 @@ Storia delle modifiche del grafo. I numeri sono quelli del build indicato.
   punto: 884 archi con `conf_extraction='weak'` hanno una citazione completa con
   marker, quindi il metodo non era una misura di forza.
 
+## 2026-11-24
+
+- **`attua_delega`: terzo metodo, `preambolo`** — la base della delega è dichiarata nel preambolo
+  del D.Lgs («Vista la legge … e, in particolare, l'articolo …»). Il dato arriva da `italia-corpus`
+  (`rel_type='delega'`, #174). **Non aggiunge archi**: conferma le coppie esistenti, che passano a
+  `assertion_type='extracted'` con `method='preambolo'`. `conf_evidence='strong'` resta solo sulle
+  coppie confermate; le altre scendono al massimo a `medium`. Con un mart IC senza `rel_type='delega'`
+  il comportamento è invariato (guardia `delega_disponibile`).
+
 ## 2026-11-15
 
 - **`granularita` + `n_locator` dell'abroga** — due colonne additive in coda a

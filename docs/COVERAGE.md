@@ -235,6 +235,19 @@ Attenzione al ramo da citazione: il locator è un **insieme di citazioni**, non 
 
 Per ramo: `title` 452 `strong` + 20 `medium`; `regex` 884 `strong` + 837 `medium` + 54 `review`. Il numero dice che `conf_extraction` **non è una misura di forza**: 884 archi etichettati `weak` hanno una citazione completa con marker. I 54 `review` sono i candidati da leggere, non da eliminare.
 
+**`method='preambolo'` (dal 2026-11-24)** — la base della delega dichiarata **nell'atto**, non nel
+titolo: «Vista la legge 14 marzo 2025, n. 26, recante «Delega al Governo …» e, in particolare,
+l'articolo 2, comma 2». Il dato arriva da `italia-corpus` (`rel_type='delega'`, #174) e **non
+aggiunge archi**: conferma coppie già presenti e le porta a `assertion_type='extracted'`. Dove il
+preambolo è disponibile, `conf_evidence='strong'` è riservato a queste coppie; un arco **non**
+confermato scende al massimo a `medium` (il quote sostiene una citazione, non la relazione). Se il
+mart IC non porta ancora `rel_type='delega'`, il comportamento resta quello precedente.
+
+Il locator dal preambolo è **parziale**: il `contesto` dell'artifact è troncato a 300 caratteri e
+nelle righe lunghe l'articolo («e, in particolare, l'articolo 2, comma 2…») cade oltre il taglio.
+Quando c'è viene usato; quando manca resta il locator AKN. Un `articolo` come colonna dell'artifact
+(previsto da #170) chiuderebbe il buco.
+
 Due limiti da leggere accanto ai numeri:
 
 - **`strong` non significa «delega verificata»**: dice che il quote cita l'articolo della legge con una formula di richiamo, e **733 dei 1.336 (54,9%) non contengono la parola «delega»** («a norma dell'articolo» 359, «ai sensi» 180, «in attuazione» 158). Di conseguenza `medium` non è «evidenza inutile»: è «citazione senza formula delegante» — come L. 120/2025, che *modifica* la legge di delega invece di attuarla.

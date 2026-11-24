@@ -570,3 +570,44 @@ class TestDelegaConfEvidenza:
                 assert got and got[0] == atteso, (quote, got, atteso)
         finally:
             con.close()
+
+
+class TestDelegaPreambolo:
+    """La delega confermata dal preambolo (italia-corpus #174).
+
+    I test sul mart riflettono il build pubblicato: finché `riferimenti` non
+    porta `rel_type='delega'` valgono le guardie di seguito.
+    """
+
+    def test_preambolo_non_aggiunge_archi(self, con):
+        """Il join col preambolo decora, non moltiplica né aggiunge righe."""
+        total, distinct = con.execute("""
+            SELECT COUNT(*), COUNT(DISTINCT (source_id, target_id))
+            FROM edges WHERE relation = 'attua_delega'
+        """).fetchone()
+        assert total == distinct, f"{total} archi vs {distinct} coppie: fan-out"
+
+    def test_non_confermati_non_sono_strong(self, con):
+        n_pre = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega' AND method = 'preambolo'
+        """).fetchone()[0]
+        if n_pre == 0:
+            return  # mart IC senza `rel_type='delega'`: regola non applicabile
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega'
+              AND method <> 'preambolo'
+              AND conf_evidence = 'strong'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} archi non confermati restano 'strong'"
+
+    def test_preambolo_il_caso_noto(self, con):
+        row = con.execute("""
+            SELECT method, assertion_type, conf_evidence
+            FROM edges
+            WHERE relation = 'attua_delega'
+              AND source_id = 'urn:nir:stato:decreto.legislativo:2025-05-15;71'
+              AND target_id = 'urn:nir:stato:legge:2025-03-14;26'
+        """).fetchone()
+        assert row == ('preambolo', 'extracted', 'strong'), row
