@@ -256,7 +256,7 @@ nodes_gu AS (
         NULL::VARCHAR AS materia,
         NULL::INTEGER AS qualita_score,
         NULL::INTEGER AS sunsetting_score
-    FROM read_parquet('{support.gu_acts.path}')
+    FROM read_parquet({support.gu_acts.outputs}, union_by_name = true)
     WHERE NULLIF(urn_normattiva, '') IS NOT NULL
 ),
 
@@ -739,7 +739,7 @@ nodes_norme AS (
               SELECT 1 FROM (
                   SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
                   UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
-                  UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+                  UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet({support.gu_acts.outputs}, union_by_name = true)
                   UNION ALL SELECT id FROM nodes_catalogo
               ) n
               WHERE n.id LIKE 'urn:nir:stato:%'
@@ -864,7 +864,7 @@ nodes_dl AS (
           SELECT 1 FROM (
               SELECT urn AS id FROM read_parquet('{support.normativa.path}') WHERE is_current AND NULLIF(urn, '') IS NOT NULL
               UNION ALL SELECT urn AS id FROM read_parquet('{support.atti_api.path}') WHERE NULLIF(urn, '') IS NOT NULL
-              UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet('{support.gu_acts.path}')
+              UNION ALL SELECT COALESCE(NULLIF(urn_normattiva, ''), 'gu:' || id) AS id FROM read_parquet({support.gu_acts.outputs}, union_by_name = true)
               UNION ALL SELECT id FROM nodes_catalogo
           ) n
           WHERE n.id LIKE 'urn:nir:stato:decreto.legge:%'

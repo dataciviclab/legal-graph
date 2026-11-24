@@ -49,7 +49,7 @@ _DIRS = ("monte", "valle", "entrambe")
 # dichiara fresco un passo vecchio — è il caso che la feature esiste per evitare.
 _REL_SUPPORT: dict[str, tuple[str, ...]] = {
     "diventa_legge": ("senato_ddl", "camera_leggi", "normativa"),
-    "converte_decreto_legge": ("atti", "dl"),
+    "converte_decreto_legge": ("atti", "dl", "gu_acts"),
     "attua_delega": ("riferimenti_urn", "normativa", "atti_api"),
 }
 _MAX_PER_REL_HOP = 10

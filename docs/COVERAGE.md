@@ -57,7 +57,7 @@ WHERE upstream IS NOT NULL;
 | `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.778 fuori perimetro, 528 direttive non risolte, 23 guardia temporale, 929 collassate: somma **15.258** = 218.249 − 202.991 |
 | `emendamento` | 764.941 | 562.368 | 495.357 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
-| `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
+| `diventa_legge` | 7.520 | 4.496 | 3.708 | 82,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 69.387 | 69.387 | 67.879 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
 
 **Locator articolo (`evidence_locator`, 2026-11-16).** L'edge dice *quale articolo*, non solo quale atto:
@@ -262,7 +262,7 @@ Due limiti da leggere accanto ai numeri:
 | Relatore → atto Camera | ✅ edge `relatore` (`deputato:*` → `camera:{legislatura}:{num}`) — ~19% incarichi (atto LOD parziale per design); l'id storico `camera:atto:{leg}_{id}` resta alias |
 | Firmatario → atto Camera | ✅ edge `firmatario` (`deputato:*` → `camera:{legislatura}:{num}`) |
 | Firmatario → ddl Senato | ✅ edge `firmatario` (`senatore:*` → `senato:*`; anche `deputato:*` quando la firma arriva da `deputato_url`, **86.546** edge; weight 2 se primo). Legislature **13-19**: fino al 2026-11-24 il support leggeva la sola partizione `2026` (residuo del layout per anno), quindi c'erano 11.855 archi `senatore:*` e 20.470 `deputato_url`, tutti dalla legislatura 19 ferma a settembre |
-| DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative) |
+| DL conversione (Leg13-19) | ✅ nodi `dl:{anno}-{numero}` + edge `converte_decreto_legge` → `senato:{ddl_id}` (esito+giorni in evidence; ddl_id representative). **`esito_gu`** (legal-graph#91): esito formale dalla Gazzetta, `convertito` / `mancata_conversione` / NULL — additivo rispetto a `esito` (stato parlamentare). Copre i DL dal 2024 (la GU pubblica da lì; gli atti del 1° del mese richiedono `1°` nel parse). Sul build 2026-11-24: 90 convertito, 9 decaduto→mancata, **3 in_esame→mancata** (DL 42/89/139), **3 in_esame→convertito** (DL 157/162/167) — 6 disaccordi dichiarati invece che silenziosi |
 | Votazione → DDL | ✅ edge `vota` (`votazione:*` → `senato:*`, evidence = esito) |
 | Iter revisioni Cost. | ✅ nodi `itercost:*` + edge `proposta_cost` / `diventa_revisione` |
 | Voti individuali / profilo | ❌ compose OP, non grafo |
