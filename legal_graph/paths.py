@@ -129,8 +129,13 @@ def resolve(table: str, *, allow_gcs: bool = True) -> PathLike | None:
     return None
 
 
+def _metadata_url(table: str) -> str:
+    """`metadata.json` accanto ai parquet di `table`, su GCS."""
+    return gcs_url(table).rsplit("/", 1)[0] + "/metadata.json"
+
+
 def resolve_metadata_file() -> PathLike | None:
-    """`metadata.json` del publish: elenca le tabelle effettivamente caricate.
+    """`metadata.json` del publish del grafo: elenca le tabelle caricate.
 
     Locale se c'è (accanto ai mart), altrimenti accanto ai parquet su GCS.
     `None` se la modalità non ammette quella sorgente.
@@ -141,7 +146,23 @@ def resolve_metadata_file() -> PathLike | None:
         return local
     if mode in ("auto", "gcs"):
         # stessa directory dei parquet: lo scrive il publish accanto a loro
-        return gcs_url("mart_legal_nodes").rsplit("/", 1)[0] + "/metadata.json"
+        return _metadata_url("mart_legal_nodes")
+    return None
+
+
+def resolve_index_metadata_file() -> PathLike | None:
+    """`metadata.json` di `legal_index`.
+
+    `search_terms` vive nel dataset fratello: il suo metadata non è quello del
+    grafo, e senza questo la tabella risulta "non pubblicata" e la view non
+    viene creata (regressione 2026-11-24).
+    """
+    mode = source_mode()
+    local = index_dir() / "metadata.json"
+    if mode in ("auto", "local") and local.exists():
+        return local
+    if mode in ("auto", "gcs"):
+        return _metadata_url("mart_legal_search_terms")
     return None
 
 
