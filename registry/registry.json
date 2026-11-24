@@ -1,19 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repo": "legal-graph",
   "source_repo": "dataciviclab/legal-graph",
   "updated_at": "2026-11-24",
+  "gcs": {
+    "clean": "year",
+    "prefix": "legal-graph/"
+  },
   "datasets": [
     {
       "slug": "legal_graph",
       "name": "Legal Graph",
       "description": "Legal Knowledge Graph: nodi unici e relazioni legislative/materiali unificati da italia-corpus, costituzione-italiana, gu-monitor, senato-akn e open-politica. Fonti lette da rete (GCS/GitHub).\n",
-      "source": "",
       "source_id": "dataciviclab_composite",
-      "period": {
-        "start": 1874,
-        "end": 2026
-      },
       "tags": [
         "diritto",
         "normativa",
@@ -22,7 +21,10 @@
         "knowledge-graph"
       ],
       "category": "normativa",
-      "stage": "incubating",
+      "period": {
+        "start": 1874,
+        "end": 2026
+      },
       "mart_refs": [
         "legal_graph__mart_legal_nodes",
         "legal_graph__mart_legal_edges",
@@ -36,18 +38,18 @@
         "legal_graph__mart_legal_emend_leg",
         "legal_graph__mart_legal_texts",
         "legal_graph__mart_legal_massime"
-      ]
+      ],
+      "last_run": {
+        "at": "2026-11-24T17:13:50.708253+00:00",
+        "year": 2026,
+        "status": "SUCCESS"
+      }
     },
     {
       "slug": "legal_index",
       "name": "Legal Index",
       "description": "Indice lessicale BM25 sugli atti del Legal Knowledge Graph: una riga per (atto, termine) con peso precalcolato. Alimenta `legal_search` per tema. Derivato da legal-graph (search_keys) + italia-corpus (testi).\n",
-      "source": "",
       "source_id": "dataciviclab_composite",
-      "period": {
-        "start": 1874,
-        "end": 2026
-      },
       "tags": [
         "diritto",
         "normativa",
@@ -57,10 +59,18 @@
         "compose"
       ],
       "category": "normativa",
-      "stage": "incubating",
+      "period": {
+        "start": 1874,
+        "end": 2026
+      },
       "mart_refs": [
         "legal_index__mart_legal_search_terms"
-      ]
+      ],
+      "last_run": {
+        "at": "2026-11-23T21:57:55.597269+00:00",
+        "year": 2026,
+        "status": "SUCCESS"
+      }
     }
   ],
   "marts": [
@@ -68,188 +78,119 @@
       "slug": "legal_graph__mart_legal_coverage",
       "dataset": "legal_graph",
       "table": "mart_legal_coverage",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_coverage.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "relation"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_edges",
       "dataset": "legal_graph",
       "table": "mart_legal_edges",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_edges.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_edges_in",
       "dataset": "legal_graph",
       "table": "mart_legal_edges_in",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_edges_in.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_emend_leg",
       "dataset": "legal_graph",
       "table": "mart_legal_emend_leg",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_emend_leg.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_entity_alias",
       "dataset": "legal_graph",
       "table": "mart_legal_entity_alias",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_entity_alias.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "alias_id"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_massime",
       "dataset": "legal_graph",
       "table": "mart_legal_massime",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_massime.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_node_metrics",
       "dataset": "legal_graph",
       "table": "mart_legal_node_metrics",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_node_metrics.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_node_rel",
       "dataset": "legal_graph",
       "table": "mart_legal_node_rel",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_node_rel.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_nodes",
       "dataset": "legal_graph",
       "table": "mart_legal_nodes",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_nodes.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_relation_type",
       "dataset": "legal_graph",
       "table": "mart_legal_relation_type",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_relation_type.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "relation"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_search_keys",
       "dataset": "legal_graph",
       "table": "mart_legal_search_keys",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_search_keys.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id"
+      ]
     },
     {
       "slug": "legal_graph__mart_legal_texts",
       "dataset": "legal_graph",
       "table": "mart_legal_texts",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_texts.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id"
+      ]
     },
     {
       "slug": "legal_index__mart_legal_search_terms",
       "dataset": "legal_index",
       "table": "mart_legal_search_terms",
-      "location": {
-        "type": "gcs",
-        "path": "gs://dataciviclab-mart/legal_index/2026/mart_legal_search_terms.parquet",
-        "multi_file": false
-      }
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id",
+        "term"
+      ]
     }
   ],
-  "signals": [
-    {
-      "id": "compose:legal_graph",
-      "source_id": "dataciviclab_composite",
-      "status": "ok",
-      "label": "legal_graph",
-      "detail": "anno 2026 — mart: si",
-      "action": "",
-      "run": {
-        "run_id": "20261124T170907Z_3583b70d",
-        "year": 2026,
-        "status": "SUCCESS",
-        "quality_score": {
-          "mart": 100
-        },
-        "output_rows": {
-          "mart": 6804109
-        },
-        "output_bytes": {
-          "mart": 207506619
-        },
-        "started_at": "2026-11-24T17:09:07.966670+00:00",
-        "finished_at": "2026-11-24T17:10:07.979629+00:00",
-        "duration_seconds": 60.013
-      }
-    },
-    {
-      "id": "compose:legal_index",
-      "source_id": "dataciviclab_composite",
-      "status": "ok",
-      "label": "legal_index",
-      "detail": "anno 2026 — mart: si",
-      "action": "",
-      "run": {
-        "run_id": "20261124T171017Z_52e31b46",
-        "year": 2026,
-        "status": "SUCCESS",
-        "quality_score": {
-          "mart": 100
-        },
-        "output_rows": {
-          "mart": 7920852
-        },
-        "output_bytes": {
-          "mart": 82826006
-        },
-        "started_at": "2026-11-24T17:10:17.933765+00:00",
-        "finished_at": "2026-11-24T17:10:42.191769+00:00",
-        "duration_seconds": 24.258
-      }
-    }
-  ],
-  "codelists": [],
-  "entities": {
-    "entities": {},
-    "bridges": []
-  }
+  "checks": [],
+  "codelists": []
 }
