@@ -6,6 +6,9 @@ data/*.json
 data/*.cache
 data/text_cache/
 
+# DuckDB spill (`memory_limit` superato → file temporanei in cwd)
+.tmp/
+
 # Python
 __pycache__/
 *.pyc

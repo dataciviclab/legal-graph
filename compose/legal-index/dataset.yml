@@ -1,0 +1,59 @@
+# legal-index — indice lessicale (BM25) del Legal Knowledge Graph
+#
+# Dataset fratello di `legal-graph`, separato per UN motivo: la memoria.
+# `mart_legal_search_terms` aggrega ~62M token prima di ridurli a 7,2M
+# coppie (atto, stem) ed è il picco di RAM di tutto il compose (~4GB).
+# Qui ha un budget proprio e non trascina il build del grafo.
+#
+# Dipende da `compose/legal-graph/` (search_keys), non da rete: il support
+# `graph` è un dataset locale, quindi l'indice legge il mart appena
+# costruito e non una copia pubblicata (niente staleness).
+#
+# Output: out/data/mart/legal_index/2026/mart_legal_search_terms.parquet
+
+root: "../../out"
+schema_version: 1
+
+dataset:
+  name: "legal_index"
+  source_id: "dataciviclab_composite"
+  tags: [diritto, normativa, legal-graph, indice, bm25, compose]
+  category: normativa
+  description: >
+    Indice lessicale BM25 sugli atti del Legal Knowledge Graph: una riga
+    per (atto, termine) con peso precalcolato. Alimenta `legal_search`
+    per tema. Derivato da legal-graph (search_keys) + italia-corpus (testi).
+  years: [2026]
+  time_coverage:
+    start_year: 1874
+    end_year: 2026
+
+support:
+  # Mart del compose fratello (path locale, nessuna rete): mart_legal_search_keys
+  - type: dataset
+    name: graph
+    config: ../legal-graph/dataset.yml
+    years: [2026]
+  # Testo degli atti: stesso artifact che `legal_text` serve su richiesta
+  - name: testi
+    type: external
+    repo: italia-corpus
+    slug: testi
+    layer: clean
+    years: [2026]
+
+mart:
+  tables:
+    - name: "mart_legal_search_terms"
+      sql: "sql/mart_legal_search_terms.sql"
+  required_tables:
+    - "mart_legal_search_terms"
+  validate:
+    table_rules:
+      mart_legal_search_terms:
+        required_columns: [id, term, weight]
+        primary_key: [id, term]
+        min_rows: 1000000
+
+validation:
+  fail_on_error: true

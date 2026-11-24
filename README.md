@@ -76,8 +76,8 @@ Dettagli su compose, variabili d'ambiente e CI in [COMPOSE.md](COMPOSE.md).
 
 ```text
 fonti del Lab (GitHub / GCS)
-  → compose toolkit (dataset.yml + SQL)
-  → 10 mart su GCS
+  → compose toolkit (compose/legal-graph + compose/legal-index)
+  → 13 mart su GCS (12 grafo + 1 indice)
   → MCP thin: search · node · text · query · insights
 ```
 

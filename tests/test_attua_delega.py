@@ -18,6 +18,7 @@ preflight + lint).
 from __future__ import annotations
 
 import legal_graph.mcp_server as m
+from tests._paths import GRAPH_SQL_DIR
 
 
 class TestAttuaDelega:
@@ -180,11 +181,10 @@ class TestAttuaDelega:
         usciva un locator impossibile (`art_55` per la L. 124/2015).
         """
         import re
-        from pathlib import Path
 
         import duckdb
 
-        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+        sql = (GRAPH_SQL_DIR / "mart_legal_edges.sql").read_text(
             encoding="utf-8"
         )
 
@@ -309,9 +309,8 @@ class TestAttuaDelega:
     def test_join_locator_mappa_la_citazione(self):
         """Il ramo regex usa il locator della citazione (`citation`) e non
         `attua_delega`, che in AKN non esiste."""
-        from pathlib import Path
 
-        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+        sql = (GRAPH_SQL_DIR / "mart_legal_edges.sql").read_text(
             encoding="utf-8"
         )
         blocco = sql[sql.index("LEFT JOIN akn_locator l") :]
@@ -535,11 +534,10 @@ class TestDelegaConfEvidenza:
     def test_espressione_conf_evidenza(self):
         """Il CTE reale sui quote limite, senza dipendere dal mart."""
         import re
-        from pathlib import Path
 
         import duckdb
 
-        sql = (Path(__file__).resolve().parent.parent / "sql" / "mart_legal_edges.sql").read_text(
+        sql = (GRAPH_SQL_DIR / "mart_legal_edges.sql").read_text(
             encoding="utf-8"
         )
         match = re.search(r"delega_conf_evidenza AS \((.*?)\n\),", sql, re.DOTALL)

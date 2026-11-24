@@ -15,14 +15,12 @@ senza il `LEFT(..., 100)` il mart esplode in dimensione (oggi `evidence` è il
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
 from legal_graph.paths import resolve_texts_file
 from legal_graph.resolve import sql_quote
-
-SQL_DIR = Path(__file__).resolve().parents[1] / "sql"
+from tests._paths import GRAPH_SQL_DIR as SQL_DIR
 
 # Colonne del clean `senato-akn` che costano 157,5 MB e 81,5 MB: il compose
 # deve leggere `text_preview`, non queste.

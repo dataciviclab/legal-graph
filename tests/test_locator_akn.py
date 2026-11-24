@@ -1,11 +1,10 @@
 """Locator AKN (#67, #142): `articolo` prima, fallback sul `detail`."""
 
 import re
-from pathlib import Path
 
 import duckdb
 
-SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
+from tests._paths import GRAPH_SQL_DIR as SQL_DIR
 
 
 def _pattern() -> str:

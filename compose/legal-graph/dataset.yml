@@ -8,12 +8,16 @@
 #   repo+slug+layer → path risolto dal registry del produttore
 #   repo+path       → raw.githubusercontent.com (derived non nel registry)
 #
+# Layout: il dataset vive in `compose/legal-graph/` (sezione scoperta dal
+# registry). L'indice lessicale è il dataset fratello `compose/legal-index/`
+# (picco di memoria isolato: ~62M token in aggregazione).
+#
 # Output: out/data/mart/legal_graph/2026/
 #   - mart_legal_nodes.parquet
 #   - mart_legal_edges.parquet
 #   - mart_legal_edges_in.parquet   (stessa tabella, ordinata per target_id)
 
-root: "out"
+root: "../../out"
 schema_version: 1
 
 dataset:
@@ -38,15 +42,6 @@ support:
     type: external
     repo: italia-corpus
     slug: normativa
-    layer: clean
-    years: [2026]
-  # Testo degli atti (una riga per espressione): alimenta l'indice
-  # lessicale `mart_legal_search_terms` e, in futuro, `legal_text`
-  # senza GitHub raw. Stesso artifact del dataset IC `testi`.
-  - name: testi
-    type: external
-    repo: italia-corpus
-    slug: testi
     layer: clean
     years: [2026]
   # `riferimenti` clean non è più un support: i nodi catalogo usano il mart
@@ -332,10 +327,9 @@ mart:
       sql: "sql/mart_legal_node_metrics.sql"
     - name: "mart_legal_search_keys"
       sql: "sql/mart_legal_search_keys.sql"
-    # indice lessicale full-text (BM25) sugli atti: la ricerca per tema
-    # legge qui invece di fare LIKE sul titolo
-    - name: "mart_legal_search_terms"
-      sql: "sql/mart_legal_search_terms.sql"
+    # L'indice lessicale full-text (BM25) è il dataset fratello
+    # `legal_index` (compose/legal-index/): legge search_keys da qui e
+    # ha un budget di memoria proprio. Vedi COMPOSE.md.
     - name: "mart_legal_node_rel"
       sql: "sql/mart_legal_node_rel.sql"
     - name: "mart_legal_emend_leg"
@@ -356,7 +350,6 @@ mart:
     - "mart_legal_relation_type"
     - "mart_legal_node_metrics"
     - "mart_legal_search_keys"
-    - "mart_legal_search_terms"
     - "mart_legal_texts"
   validate:
     table_rules:
@@ -390,10 +383,6 @@ mart:
         required_columns: [id, title_folded]
         primary_key: [id]
         min_rows: 10000
-      mart_legal_search_terms:
-        required_columns: [id, term, weight]
-        primary_key: [id, term]
-        min_rows: 1000000
       mart_legal_texts:
         required_columns: [id, kind, title, testo]
         primary_key: [id]
