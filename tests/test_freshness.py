@@ -76,7 +76,9 @@ def test_mappa_support_segue_l_sql():
     """La mappa deve seguire l'SQL: `converte` nasce da atti+dl, non da normativa."""
     from legal_graph.mcp.chain import _REL_SUPPORT
 
-    assert _REL_SUPPORT["converte_decreto_legge"] == ("atti", "dl")
+    # `gu_acts` sostiene `esito_gu` sullo stesso arco (legal-graph#91): senza,
+    # una catena di conversione potrebbe poggiare su una Gazzetta vecchia.
+    assert _REL_SUPPORT["converte_decreto_legge"] == ("atti", "dl", "gu_acts")
     assert "atti_api" in _REL_SUPPORT["attua_delega"]
 
 

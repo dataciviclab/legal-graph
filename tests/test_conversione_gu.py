@@ -101,3 +101,27 @@ def test_esito_gu_solo_sulle_conversioni(edges_gu):
         "WHERE relation <> 'converte_decreto_legge' AND esito_gu IS NOT NULL"
     ).fetchone()[0]
     assert n == 0
+
+
+def test_parse_id_urn_e_fallback_dl():
+    """Il join legge sia l'URN sia il fallback `dl:YYYY-N` (nessun arco oggi,
+    ma un DL post-2024 nel fallback perderebbe `esito_gu` in silenzio)."""
+    import duckdb
+
+    rows = duckdb.connect().execute(
+        """
+        SELECT s,
+               TRY_CAST(COALESCE(NULLIF(regexp_extract(s, ':(\\d{4})-', 1), ''),
+                                 NULLIF(regexp_extract(s, 'dl:(\\d{4})-', 1), '')) AS INT) AS anno,
+               TRY_CAST(COALESCE(NULLIF(regexp_extract(s, ';(\\d+)$', 1), ''),
+                                 NULLIF(regexp_extract(s, 'dl:\\d{4}-(\\d+)$', 1), '')) AS INT) AS numero
+        FROM (VALUES
+            ('urn:nir:stato:decreto.legge:2026-04-03;42'),
+            ('dl:1996-254'),
+            ('dl:2025-10')
+        ) t(s)
+        """
+    ).fetchall()
+    assert rows[0][1:] == (2026, 42)
+    assert rows[1][1:] == (1996, 254)
+    assert rows[2][1:] == (2025, 10)

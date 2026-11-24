@@ -57,7 +57,7 @@ WHERE upstream IS NOT NULL;
 | `riferimento` | 218.249 | 218.249 | 202.991 | 93,0% | 13.778 fuori perimetro, 528 direttive non risolte, 23 guardia temporale, 929 collassate: somma **15.258** = 218.249 − 202.991 |
 | `emendamento` | 764.941 | 562.368 | 495.357 | 88,1% | fasi senza DDL e directory replicata (ambiguo), atti fuori corpus |
 | `invoca_parametro` | 109.232 | 54.415 | 54.415 | 100% | righe con parametro di un altro atto o fuori 1..139, più duplicazione snapshot (109.232 righe → 54.415 coppie) |
-| `diventa_legge` | 7.520 | 4.496 | 3.662 | 81,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
+| `diventa_legge` | 7.520 | 4.496 | 3.708 | 82,5% | URN di legge assenti dal corpus (DDL Senato 63% in corpus, leggi Camera 33%) |
 | `abroga` | 69.387 | 69.387 | 67.879 | 97,8% | 1.410 bersagli fuori da catalogo e corpus, 97 self-loop, 1 guardia temporale |
 
 **Locator articolo (`evidence_locator`, 2026-11-16).** L'edge dice *quale articolo*, non solo quale atto:

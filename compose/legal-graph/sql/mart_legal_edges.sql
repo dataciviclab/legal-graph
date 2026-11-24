@@ -1480,8 +1480,15 @@ LEFT JOIN conversione_esito ce
   AND g.relation = 'converte_decreto_legge'
 LEFT JOIN gu_conversioni gc
   ON  g.relation = 'converte_decreto_legge'
-  AND gc.anno_dl = TRY_CAST(regexp_extract(g.source_id, ':(\d{4})-', 1) AS INT)
-  AND gc.numero_dl = TRY_CAST(regexp_extract(g.source_id, ';(\d+)$', 1) AS INT)
+  -- Due forme di id: URN (`...:2026-04-03;42`) e fallback `dl:1996-254`
+  -- quando il DL non ha un nodo normativa. Senza il secondo ramo un DL
+  -- post-2024 nel fallback perderebbe `esito_gu` in silenzio.
+  AND gc.anno_dl = TRY_CAST(COALESCE(
+        NULLIF(regexp_extract(g.source_id, ':(\d{4})-', 1), ''),
+        NULLIF(regexp_extract(g.source_id, 'dl:(\d{4})-', 1), '')) AS INT)
+  AND gc.numero_dl = TRY_CAST(COALESCE(
+        NULLIF(regexp_extract(g.source_id, ';(\d+)$', 1), ''),
+        NULLIF(regexp_extract(g.source_id, 'dl:\d{4}-(\d+)$', 1), '')) AS INT)
 LEFT JOIN legislatura_edge le
   ON  le.source_id = g.source_id
   AND le.relation = g.relation
