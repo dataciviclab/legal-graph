@@ -580,12 +580,22 @@ class TestDelegaPreambolo:
     """
 
     def test_preambolo_non_aggiunge_archi(self, con):
-        """Il join col preambolo decora, non moltiplica né aggiunge righe."""
-        total, distinct = con.execute("""
-            SELECT COUNT(*), COUNT(DISTINCT (source_id, target_id))
+        """Il join col preambolo decora, non moltiplica né aggiunge righe.
+
+        Due invarianti:
+        - nessun fan-out: una riga per coppia;
+        - nessuna coppia nuova: il preambolo conferma ~1.209 delle 2.250, mentre
+          l'artifact ne ha 1.330. Se un refactor introducesse una UNION, gli
+          archi `preambolo` salirebbero a 1.330: il tetto a 1.250 lo intercetta.
+        """
+        total, distinct, n_pre = con.execute("""
+            SELECT COUNT(*),
+                   COUNT(DISTINCT (source_id, target_id)),
+                   COUNT(*) FILTER (WHERE method = 'preambolo')
             FROM edges WHERE relation = 'attua_delega'
         """).fetchone()
         assert total == distinct, f"{total} archi vs {distinct} coppie: fan-out"
+        assert n_pre <= 1_250, f"{n_pre} archi dal preambolo: coppie nuove entrate?"
 
     def test_non_confermati_non_sono_strong(self, con):
         n_pre = con.execute("""

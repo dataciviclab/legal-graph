@@ -1177,7 +1177,7 @@ delega_preambolo AS (
             MIN(contesto)
         ) AS contesto
     FROM read_parquet('{support.riferimenti_urn.path}')
-    WHERE rel_type = 'delega' AND COALESCE(bersaglio_urn, '') <> ''
+    WHERE rel_type = 'delega' AND origine = 'preambolo' AND COALESCE(bersaglio_urn, '') <> ''
     GROUP BY 1, 2
 ),
 
