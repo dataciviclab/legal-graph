@@ -88,8 +88,12 @@ class TestAttuaDelega:
         """).fetchall()
         assert rows, "nessun attua_delega"
         for method, assertion, kind, n in rows:
-            assert method in ("title", "regex"), (method, n)
-            if method == "title":
+            assert method in ("title", "regex", "preambolo"), (method, n)
+            if method == "preambolo":
+                # Estratta dal preambolo: la prova è la riga dell'atto.
+                assert assertion == "extracted", (assertion, n)
+                assert kind in ("locator", "quote"), (kind, n)
+            elif method == "title":
                 assert assertion == "extracted", (assertion, n)
                 assert kind == "locator", (kind, n)
             else:
@@ -269,19 +273,37 @@ class TestAttuaDelega:
 
     def test_locator_titolo_casi_note(self, con):
         """Regressione sui quattro edge reali che sbagliavano l'articolo."""
-        attesi = {
-            "urn:nir:stato:decreto.legislativo:2016-06-20;116": "art_17-com1",
-            "urn:nir:stato:decreto.legislativo:2017-07-20;118": "art_17-com1",
-            "urn:nir:stato:decreto.legislativo:2019-12-27;172": "art_8-com1",
-            "urn:nir:stato:decreto.legislativo:2026-06-25;128": "art_19-bis",
-        }
-        for source, atteso in attesi.items():
+        # (fonte, bersaglio, locator atteso): il locator può arrivare dal titolo
+        # o dal preambolo, ma deve essere quello giusto per **quella** legge.
+        attesi = [
+            (
+                "urn:nir:stato:decreto.legislativo:2016-06-20;116",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_17-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2017-07-20;118",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_17-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2019-12-27;172",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_8-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2026-06-25;128",
+                "urn:nir:stato:legge:2024-03-05;21",
+                "art_19-bis",
+            ),
+        ]
+        for source, target, atteso in attesi:
             got = con.execute(
                 "SELECT evidence_locator FROM edges WHERE relation = 'attua_delega'"
-                " AND source_id = ? AND method = 'title'",
-                [source],
+                " AND source_id = ? AND target_id = ?",
+                [source, target],
             ).fetchone()
-            assert got, f"edge attua_delega 'title' mancante per {source}"
+            assert got, f"edge attua_delega mancante per {source} -> {target}"
             assert got[0] == atteso, (source, got[0], atteso)
 
     def test_join_locator_mappa_la_citazione(self):
@@ -309,7 +331,7 @@ class TestAttuaDelega:
         assert all("method" in e and "assertion_type" in e for e in forward)
         deleghe = [e for e in forward if e["relation"] == "attua_delega"]
         assert deleghe, "nessun attua_delega nella chain del 36/2023"
-        assert deleghe[0]["method"] == "title", deleghe[0]
+        assert deleghe[0]["method"] in ("preambolo", "title"), deleghe[0]
         assert "2022-06-21;78" in deleghe[0]["target_id"], deleghe[0]
 
     def test_bfs_non_scarta_la_delega_title_oltre_il_top8(self):
