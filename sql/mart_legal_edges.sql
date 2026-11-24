@@ -1175,9 +1175,16 @@ delega_preambolo AS (
             MIN(CASE WHEN regexp_matches(LOWER(contesto), 'articolo\s+[0-9]')
                      THEN contesto END),
             MIN(contesto)
-        ) AS contesto
+        ) AS contesto,
+        -- Locator emesso da IC (#174): sopravvive al troncamento del contesto.
+        -- NULL sulle righe vecchie o senza articolo: lì si ricade sul parsing.
+        MIN(articolo) AS articolo
     FROM read_parquet('{support.riferimenti_urn.path}')
-    WHERE rel_type = 'delega' AND origine = 'preambolo' AND COALESCE(bersaglio_urn, '') <> ''
+    -- `origine` non è nel mart (grain per coppia, non per estrattore): la
+    -- garanzia che `delega` venga solo dal preambolo sta nel produttore
+    -- (italia-corpus verifica l'invariante: solo `_archi_da_preambolo` emette
+    -- `rel_type='delega'`).
+    WHERE rel_type = 'delega' AND COALESCE(bersaglio_urn, '') <> ''
     GROUP BY 1, 2
 ),
 
@@ -1185,14 +1192,23 @@ delega_preambolo_locator AS (
     SELECT
         source_id,
         target_id,
-        CASE WHEN regexp_extract(LOWER(contesto), 'articolo\s+([0-9]+)', 1) = ''
-             THEN NULL
-             ELSE 'art_' || regexp_extract(LOWER(contesto), 'articolo\s+([0-9]+)', 1)
-                  || CASE WHEN regexp_extract(LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1) = ''
-                          THEN ''
-                          ELSE '-com' || regexp_extract(LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1)
-                     END
-        END AS locator
+        COALESCE(
+            articolo,
+            CASE WHEN regexp_extract(LOWER(contesto), 'art(?:icolo)?\.?\s+([0-9]+)', 1) = ''
+                 THEN NULL
+                 ELSE 'art_' || regexp_extract(
+                          LOWER(contesto), 'art(?:icolo)?\.?\s+([0-9]+)', 1
+                      )
+                      || CASE WHEN regexp_extract(
+                                   LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1
+                               ) = ''
+                              THEN ''
+                              ELSE '-com' || regexp_extract(
+                                       LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1
+                                   )
+                         END
+            END
+        ) AS locator
     FROM delega_preambolo
 ),
 
