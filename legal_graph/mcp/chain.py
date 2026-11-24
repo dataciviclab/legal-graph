@@ -13,14 +13,16 @@ Confine: qui c'è **solo il lineage**. Ciclo di vita (`abroga`, `modifica`,
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import duckdb
 
+from legal_graph.freshness import SOGLIA_GIORNI
 from legal_graph.mcp import db
 from legal_graph.mcp.db import _has_col, _view_exists
 from legal_graph.mcp.node_views import _find_node
-from legal_graph.paths import resolve_metadata_file
+from legal_graph.paths import resolve_freshness_file, resolve_metadata_file
 
 # Relazione → quale lato dell'edge è il "monte" (l'origine della catena).
 # `attua_delega` è l'unica invertita: source = decreto attuativo, target = legge
@@ -36,6 +38,20 @@ LINEAGE: dict[str, str] = {
 _PRIORITY = {"diventa_legge": 0, "converte_decreto_legge": 1, "attua_delega": 2}
 
 _DIRS = ("monte", "valle", "entrambe")
+
+# Support che alimentano ogni relazione di lineage: serve a dire quanto è
+# vecchio il dato che sostiene un passo. Solo lineage — le altre relazioni
+# hanno altri tool e altri support.
+#
+# La mappa segue l'SQL, non l'intuizione: `converte_decreto_legge` nasce da
+# `atti` + `dl` (`conversione_dl`), non da `normativa`; `attua_delega` legge
+# `normativa_types`, che è `normativa` ∪ `atti_api`. Una mappa sbagliata qui
+# dichiara fresco un passo vecchio — è il caso che la feature esiste per evitare.
+_REL_SUPPORT: dict[str, tuple[str, ...]] = {
+    "diventa_legge": ("senato_ddl", "camera_leggi", "normativa"),
+    "converte_decreto_legge": ("atti", "dl"),
+    "attua_delega": ("riferimenti_urn", "normativa", "atti_api"),
+}
 _MAX_PER_REL_HOP = 10
 _MAX_FRONTIER = 60
 _TITLE = 200
@@ -181,6 +197,52 @@ def _coverage(
     return out
 
 
+def _giorni_da(as_of: Any) -> int | None:
+    """Giorni trascorsi da `as_of` **adesso** (naive → UTC)."""
+    if as_of is None:
+        return None
+    if isinstance(as_of, str):
+        try:
+            as_of = datetime.fromisoformat(as_of)
+        except ValueError:
+            return None
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - as_of).days
+
+
+def _dati_freschezza(
+    con: duckdb.DuckDBPyConnection, relations: list[str]
+) -> dict[str, Any]:
+    """Età del support più vecchio che sostiene i passi, se la tabella c'è.
+
+    Legge `mart_legal_freshness` (prodotta da `legal_graph.freshness`) e
+    ricalcola l'età da `as_of` **al momento della domanda**: `age_days` nella
+    tabella è la fotografia del build, e riusarla farebbe dire 57 giorni per
+    sempre a un support che nel frattempo ne ha 67.
+    """
+    path = resolve_freshness_file()
+    if path is None:
+        return {}
+    try:
+        rows = con.execute(
+            "SELECT support, as_of FROM read_parquet(?)", [str(path)]
+        ).fetchall()
+    except duckdb.Error:
+        return {}
+    per_support = {r[0]: r[1] for r in rows}
+    wanted = {s for rel in relations for s in _REL_SUPPORT.get(rel, ())}
+    dates = [per_support[s] for s in wanted if per_support.get(s) is not None]
+    ages = [_giorni_da(d) for d in dates]
+    ages = [a for a in ages if a is not None]
+    out: dict[str, Any] = {}
+    if ages:
+        out["dati_age_days"] = int(max(ages))
+    if dates:
+        out["dati_as_of"] = str(min(dates))[:10]
+    return out
+
+
 def _build_at(con: duckdb.DuckDBPyConnection) -> str | None:
     """Data del build (non la vigenza dell'atto: quella è legal-graph#68)."""
     path = resolve_metadata_file()
@@ -302,11 +364,17 @@ def _impl_catena(
             step["anno"] = row[3]
 
     relations = sorted({s["relation"] for s in steps})
+    dati = _dati_freschezza(con, relations)
     notes: list[str] = []
     if no_evidence:
         parola = "passaggio" if no_evidence == 1 else "passaggi"
         notes.append(
             f"{no_evidence} {parola} senza citazione a supporto (affidabile: false)"
+        )
+    if dati.get("dati_age_days", 0) > SOGLIA_GIORNI:
+        notes.append(
+            f"la catena poggia su dati di {dati['dati_age_days']} giorni fa "
+            f"(soglia {SOGLIA_GIORNI})"
         )
     if "attua_delega" in relations:
         notes.append(
@@ -331,6 +399,7 @@ def _impl_catena(
             "si": truncated,
             "motivo": "max_passi" if truncated else None,
         },
+        **dati,
         "build_at": _build_at(con),
         "note": notes,
     }
