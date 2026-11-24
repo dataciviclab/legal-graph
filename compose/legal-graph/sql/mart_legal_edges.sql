@@ -1256,6 +1256,23 @@ formulaic_evidence AS (
       AND evidence <> 'akn:ref'
     GROUP BY 1
     HAVING COUNT(DISTINCT source_id) > 50
+),
+
+-- Esito formale dalla Gazzetta (legal-graph#91): la conversione, o la mancata
+-- conversione, è un **atto pubblicato**, non uno stato dell'iter. Il titolo GU
+-- nomina sempre il decreto per data e numero, anche quando non esiste un link
+-- o un URN; quindi il join è su (anno, numero) del DL, non sull'URN.
+-- `convertito` vince se per la stessa coppia esistono entrambe le formule.
+gu_conversioni AS (
+    SELECT
+        TRY_CAST(regexp_extract(titolo, 'decreto-legge\s+\d+°?\s+\S+\s+(\d{4}),\s*n\.\s*(\d+)', 1) AS INT) AS anno_dl,
+        TRY_CAST(regexp_extract(titolo, 'decreto-legge\s+\d+°?\s+\S+\s+(\d{4}),\s*n\.\s*(\d+)', 2) AS INT) AS numero_dl,
+        CASE WHEN bool_or(titolo ILIKE 'Conversione in legge%') THEN 'convertito'
+             ELSE 'mancata_conversione' END AS esito_gu
+    FROM read_parquet({support.gu_acts.outputs}, union_by_name = true)
+    WHERE (titolo ILIKE 'Conversione in legge%' OR titolo ILIKE 'Mancata conversione%')
+      AND regexp_matches(titolo, 'decreto-legge\s+\d+°?\s+\S+\s+(\d{4}),\s*n\.\s*(\d+)')
+    GROUP BY 1, 2
 )
 
 SELECT
@@ -1375,6 +1392,10 @@ SELECT
     END AS evidence_locator,
     -- C3 (feedback 2026-11-13): `convertito` vs tentata (decaduto/in_esame/restituito).
     ce.esito AS esito,
+    -- Esito formale dalla Gazzetta (#91): `convertito` | `mancata_conversione` | NULL.
+    -- Additivo: `esito` resta lo stato parlamentare. Chi vuole la risposta secca
+    -- usa COALESCE(esito_gu, esito).
+    CASE WHEN g.relation = 'converte_decreto_legge' THEN gc.esito_gu END AS esito_gu,
     le.legislatura AS legislatura,
     CASE
         WHEN g.source_id LIKE 'norma:%' OR g.source_id LIKE 'dl:%'
@@ -1457,6 +1478,10 @@ LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
   AND ce.atto_id = g.target_id
   AND g.relation = 'converte_decreto_legge'
+LEFT JOIN gu_conversioni gc
+  ON  g.relation = 'converte_decreto_legge'
+  AND gc.anno_dl = TRY_CAST(regexp_extract(g.source_id, ':(\d{4})-', 1) AS INT)
+  AND gc.numero_dl = TRY_CAST(regexp_extract(g.source_id, ';(\d+)$', 1) AS INT)
 LEFT JOIN legislatura_edge le
   ON  le.source_id = g.source_id
   AND le.relation = g.relation

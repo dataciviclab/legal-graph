@@ -90,12 +90,15 @@ support:
     years: [2026]
 
   # -- gu-monitor (clean su GCS, via registry) -----------------------
+  # 2024-2026: serve l'esito formale delle conversioni (#91). I nodi GU
+  # restano pochi perché `nodes_gu` prende solo le righe con URN (~230/anno);
+  # le altre non diventano nodi.
   - name: gu_acts
     type: external
     repo: gu-monitor
     slug: gu_atti
     layer: clean
-    years: [2026]
+    years: [2024, 2025, 2026]
 
   # -- costituzione-italiana (GCS clean) ----------------------------
   - name: articoli_costituzione
