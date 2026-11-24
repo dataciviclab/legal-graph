@@ -88,8 +88,12 @@ class TestAttuaDelega:
         """).fetchall()
         assert rows, "nessun attua_delega"
         for method, assertion, kind, n in rows:
-            assert method in ("title", "regex"), (method, n)
-            if method == "title":
+            assert method in ("title", "regex", "preambolo"), (method, n)
+            if method == "preambolo":
+                # Estratta dal preambolo: la prova è la riga dell'atto.
+                assert assertion == "extracted", (assertion, n)
+                assert kind in ("locator", "quote"), (kind, n)
+            elif method == "title":
                 assert assertion == "extracted", (assertion, n)
                 assert kind == "locator", (kind, n)
             else:
@@ -269,19 +273,37 @@ class TestAttuaDelega:
 
     def test_locator_titolo_casi_note(self, con):
         """Regressione sui quattro edge reali che sbagliavano l'articolo."""
-        attesi = {
-            "urn:nir:stato:decreto.legislativo:2016-06-20;116": "art_17-com1",
-            "urn:nir:stato:decreto.legislativo:2017-07-20;118": "art_17-com1",
-            "urn:nir:stato:decreto.legislativo:2019-12-27;172": "art_8-com1",
-            "urn:nir:stato:decreto.legislativo:2026-06-25;128": "art_19-bis",
-        }
-        for source, atteso in attesi.items():
+        # (fonte, bersaglio, locator atteso): il locator può arrivare dal titolo
+        # o dal preambolo, ma deve essere quello giusto per **quella** legge.
+        attesi = [
+            (
+                "urn:nir:stato:decreto.legislativo:2016-06-20;116",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_17-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2017-07-20;118",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_17-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2019-12-27;172",
+                "urn:nir:stato:legge:2015-08-07;124",
+                "art_8-com1",
+            ),
+            (
+                "urn:nir:stato:decreto.legislativo:2026-06-25;128",
+                "urn:nir:stato:legge:2024-03-05;21",
+                "art_19-bis",
+            ),
+        ]
+        for source, target, atteso in attesi:
             got = con.execute(
                 "SELECT evidence_locator FROM edges WHERE relation = 'attua_delega'"
-                " AND source_id = ? AND method = 'title'",
-                [source],
+                " AND source_id = ? AND target_id = ?",
+                [source, target],
             ).fetchone()
-            assert got, f"edge attua_delega 'title' mancante per {source}"
+            assert got, f"edge attua_delega mancante per {source} -> {target}"
             assert got[0] == atteso, (source, got[0], atteso)
 
     def test_join_locator_mappa_la_citazione(self):
@@ -309,7 +331,7 @@ class TestAttuaDelega:
         assert all("method" in e and "assertion_type" in e for e in forward)
         deleghe = [e for e in forward if e["relation"] == "attua_delega"]
         assert deleghe, "nessun attua_delega nella chain del 36/2023"
-        assert deleghe[0]["method"] == "title", deleghe[0]
+        assert deleghe[0]["method"] in ("preambolo", "title"), deleghe[0]
         assert "2022-06-21;78" in deleghe[0]["target_id"], deleghe[0]
 
     def test_bfs_non_scarta_la_delega_title_oltre_il_top8(self):
@@ -502,9 +524,13 @@ class TestDelegaConfEvidenza:
         for urn in self.CASI[:1] + self.CASI[2:]:
             assert rows[urn][2] == 0, (urn, rows[urn])
         assert rows["urn:nir:stato:legge:2026-03-17;36"][0] > 0
-        # L. 120/2025: un arco cita la legge che *modifica* la delega, senza
-        # marker nel quote → medium, ed è il caso che resta da leggere.
-        assert rows["urn:nir:stato:legge:2025-08-08;120"][1] >= 1, rows
+        # L. 120/2025: il preambolo la cita tra i «Vista», quindi la coppia è
+        # confermata e l'arco è `strong`. Con la sola regola sul quote era
+        # `medium`: il preambolo è una fonte migliore e vince.
+        # Limite noto: una legge citata come «Modifiche alla legge delega»
+        # viene confermata come le altre — non distinguiamo "modifica" da
+        # "delega" nel preambolo.
+        assert rows["urn:nir:stato:legge:2025-08-08;120"][0] >= 1, rows
 
     def test_espressione_conf_evidenza(self):
         """Il CTE reale sui quote limite, senza dipendere dal mart."""
@@ -570,3 +596,54 @@ class TestDelegaConfEvidenza:
                 assert got and got[0] == atteso, (quote, got, atteso)
         finally:
             con.close()
+
+
+class TestDelegaPreambolo:
+    """La delega confermata dal preambolo (italia-corpus #174).
+
+    I test sul mart riflettono il build pubblicato: finché `riferimenti` non
+    porta `rel_type='delega'` valgono le guardie di seguito.
+    """
+
+    def test_preambolo_non_aggiunge_archi(self, con):
+        """Il join col preambolo decora, non moltiplica né aggiunge righe.
+
+        Due invarianti:
+        - nessun fan-out: una riga per coppia;
+        - nessuna coppia nuova: il preambolo conferma ~1.209 delle 2.250, mentre
+          l'artifact ne ha 1.330. Se un refactor introducesse una UNION, gli
+          archi `preambolo` salirebbero a 1.330: il tetto a 1.250 lo intercetta.
+        """
+        total, distinct, n_pre = con.execute("""
+            SELECT COUNT(*),
+                   COUNT(DISTINCT (source_id, target_id)),
+                   COUNT(*) FILTER (WHERE method = 'preambolo')
+            FROM edges WHERE relation = 'attua_delega'
+        """).fetchone()
+        assert total == distinct, f"{total} archi vs {distinct} coppie: fan-out"
+        assert n_pre <= 1_250, f"{n_pre} archi dal preambolo: coppie nuove entrate?"
+
+    def test_non_confermati_non_sono_strong(self, con):
+        n_pre = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega' AND method = 'preambolo'
+        """).fetchone()[0]
+        if n_pre == 0:
+            return  # mart IC senza `rel_type='delega'`: regola non applicabile
+        bad = con.execute("""
+            SELECT COUNT(*) FROM edges
+            WHERE relation = 'attua_delega'
+              AND method <> 'preambolo'
+              AND conf_evidence = 'strong'
+        """).fetchone()[0]
+        assert bad == 0, f"{bad} archi non confermati restano 'strong'"
+
+    def test_preambolo_il_caso_noto(self, con):
+        row = con.execute("""
+            SELECT method, assertion_type, conf_evidence
+            FROM edges
+            WHERE relation = 'attua_delega'
+              AND source_id = 'urn:nir:stato:decreto.legislativo:2025-05-15;71'
+              AND target_id = 'urn:nir:stato:legge:2025-03-14;26'
+        """).fetchone()
+        assert row == ('preambolo', 'extracted', 'strong'), row

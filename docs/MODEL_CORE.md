@@ -97,7 +97,7 @@ Rules:
 ## 7. Provenance
 
 For every important node/edge:
-`assertion_type` (`extracted|resolved|inferred|verified|unverifiable`), `method` (`akn_ref|akn_lifecycle|regex|title|join|api|manual`), `evidence_kind` (`quote|locator|label|none`), `evidence_locator`, four confidences (`identity`, `extraction`, `semantic`, `temporal`), `review_status`.
+`assertion_type` (`extracted|resolved|inferred|verified|unverifiable`), `method` (`akn_ref|akn_lifecycle|preambolo|regex|title|join|api|manual`), `evidence_kind` (`quote|locator|label|none`), `evidence_locator`, four confidences (`identity`, `extraction`, `semantic`, `temporal`), `review_status`.
 
 - No single confidence float.
 - `weight` is ranking, not confidence.

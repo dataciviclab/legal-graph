@@ -429,7 +429,10 @@ def _bfs(
                            PARTITION BY e.{a}
                            ORDER BY
                              CASE WHEN e.relation = 'attua_delega'
-                                  THEN CASE WHEN e.method = 'title' THEN 0 ELSE 2 END
+                                  -- `preambolo` e `title` sono le fonti che
+                                  -- nominano la legge: in testa alla chain.
+                                  THEN CASE WHEN e.method IN ('preambolo', 'title')
+                                            THEN 0 ELSE 2 END
                                   ELSE 1 END,
                              (e.evidence_locator IS NOT NULL) DESC,
                              e.weight DESC, {anno_expr} DESC, e.{b}, e.relation

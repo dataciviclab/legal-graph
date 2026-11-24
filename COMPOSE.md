@@ -83,6 +83,13 @@ make lint
 
 Le fonti si leggono **HTTPS dirette** — nessun clone locale.
 
+> **Artefatti upstream nuovi**: se `italia-corpus` aggiunge una colonna a un
+> support (es. `articolo` in `mart_riferimenti_urn`), il build locale usa il
+> parquet in `out/` e fallisce con un **binder error** che sembra un bug del
+> codice. Ordine giusto: `make download-gcs` **prima** di `make run`. Stessa
+> cosa per l'MCP: le view sono create al bootstrap, dopo `make run` va
+> riavviato.
+
 ## MCP (thin)
 
 | Tool | Cosa fa |

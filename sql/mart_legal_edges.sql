@@ -1159,6 +1159,61 @@ delega_conf_evidenza AS (
     WHERE g.relation = 'attua_delega'
 ),
 
+-- Delega confermata dal preambolo (italia-corpus #174): la base della delega
+-- è dichiarata nell'atto («Vista la legge … e, in particolare, l'articolo …»).
+-- Vuota finché il mart IC non pubblica `rel_type='delega'`: in quel caso il
+-- comportamento resta identico a prima (`delega_disponibile`). **Non aggiunge
+-- archi**: decora solo coppie già presenti in `grouped`, quindi il conteggio
+-- non cambia di una riga.
+delega_preambolo AS (
+    SELECT
+        fonte_urn AS source_id,
+        bersaglio_urn AS target_id,
+        -- Più righe per coppia (il preambolo ripete la legge): si tiene quella
+        -- con l'articolo, altrimenti la prima in ordine.
+        COALESCE(
+            MIN(CASE WHEN regexp_matches(LOWER(contesto), 'articolo\s+[0-9]')
+                     THEN contesto END),
+            MIN(contesto)
+        ) AS contesto,
+        -- Locator emesso da IC (#174): sopravvive al troncamento del contesto.
+        -- NULL sulle righe vecchie o senza articolo: lì si ricade sul parsing.
+        MIN(articolo) AS articolo
+    FROM read_parquet('{support.riferimenti_urn.path}')
+    -- `origine` non è nel mart (grain per coppia, non per estrattore): la
+    -- garanzia che `delega` venga solo dal preambolo sta nel produttore
+    -- (italia-corpus verifica l'invariante: solo `_archi_da_preambolo` emette
+    -- `rel_type='delega'`).
+    WHERE rel_type = 'delega' AND COALESCE(bersaglio_urn, '') <> ''
+    GROUP BY 1, 2
+),
+
+delega_preambolo_locator AS (
+    SELECT
+        source_id,
+        target_id,
+        COALESCE(
+            articolo,
+            CASE WHEN regexp_extract(LOWER(contesto), 'art(?:icolo)?\.?\s+([0-9]+)', 1) = ''
+                 THEN NULL
+                 ELSE 'art_' || regexp_extract(
+                          LOWER(contesto), 'art(?:icolo)?\.?\s+([0-9]+)', 1
+                      )
+                      || CASE WHEN regexp_extract(
+                                   LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1
+                               ) = ''
+                              THEN ''
+                              ELSE '-com' || regexp_extract(
+                                       LOWER(contesto), 'comm[ai]\s+([0-9]+)', 1
+                                   )
+                         END
+            END
+        ) AS locator
+    FROM delega_preambolo
+),
+
+delega_disponibile AS (SELECT COUNT(*) > 0 AS ok FROM delega_preambolo),
+
 -- Evidenza formulaica o non informativa: lo **stesso** snippet usato da più di
 -- 50 atti distinti per citare lo stesso target. Caso tipico: la clausola di
 -- pubblicazione in ogni preambolo ("…pubblicazioni ufficiali… D.P.R.
@@ -1265,7 +1320,10 @@ SELECT
         -- Il titolo del D.Lgs nomina la legge delegante: l'edge è estratto
         -- (con locator). La citazione generica resta inferita.
         WHEN g.relation = 'attua_delega' THEN
-            CASE WHEN COALESCE(g.from_title, FALSE) THEN 'extracted' ELSE 'inferred' END
+            -- Confermata dal preambolo o nominata nel titolo: estratta.
+            -- Citazione generica: resta inferita.
+            CASE WHEN p.source_id IS NOT NULL OR COALESCE(g.from_title, FALSE)
+                 THEN 'extracted' ELSE 'inferred' END
         WHEN g.relation IN ('modifica', 'abroga', 'sostituisce', 'split', 'join', 'renumbering')
             -- `abroga` dal mart URN di IC è una regex sul testo con quote:
             -- se l'evidenza c'è, è estratta; senza contesto resta inferita.
@@ -1287,7 +1345,9 @@ SELECT
             -- relazione: prima 3.364 regex erano dichiarate `akn_lifecycle`.
             THEN CASE WHEN g.evidence LIKE 'akn:%' THEN 'akn_lifecycle' ELSE 'regex' END
         WHEN g.relation = 'attua_delega'
-            THEN CASE WHEN COALESCE(g.from_title, FALSE) THEN 'title' ELSE 'regex' END
+            THEN CASE WHEN p.source_id IS NOT NULL THEN 'preambolo'
+                      WHEN COALESCE(g.from_title, FALSE) THEN 'title'
+                      ELSE 'regex' END
         WHEN g.relation IN ('impugna', 'invoca_parametro', 'evoca_parametro') THEN 'massima'
         WHEN g.relation = 'cita_costituzione' THEN 'regex'
         WHEN g.relation = 'converte_decreto_legge' THEN 'join'
@@ -1305,6 +1365,8 @@ SELECT
     -- Se il titolo non nomina un articolo, si usa comunque la citazione.
     CASE
         WHEN g.relation <> 'attua_delega' THEN l.locators
+        -- Il preambolo è la fonte migliore: l'articolo dichiarato nell'atto.
+        WHEN p.source_id IS NOT NULL THEN COALESCE(dp.locator, dl.locator, l.locators)
         WHEN NOT COALESCE(g.from_title, FALSE) THEN l.locators
         ELSE COALESCE(dl.locator, l.locators)
     END AS evidence_locator,
@@ -1374,8 +1436,20 @@ SELECT
     -- La guardia sulla relazione è nel `CASE` **e** nel join: la stessa coppia
     -- esiste anche come `riferimento`/`abroga` (2.338 archi), e senza guardia
     -- si prenderebbero il valore della delega.
-    CASE WHEN g.relation = 'attua_delega' THEN de.conf_evidence END AS conf_evidence
+    -- `strong` solo se la delega è confermata dal preambolo. Se il mart IC non
+    -- porta ancora `rel_type='delega'` (`dd.ok` falso) si tiene la regola
+    -- precedente, per non declassare tutto su un mart vecchio. Altrimenti un
+    -- arco non confermato scende al massimo a `medium`: senza una fonte che
+    -- dica «delega», il quote sostiene una citazione, non la relazione.
+    CASE
+        WHEN g.relation <> 'attua_delega' THEN NULL
+        WHEN p.source_id IS NOT NULL THEN 'strong'
+        WHEN NOT dd.ok THEN de.conf_evidence
+        WHEN de.conf_evidence = 'strong' THEN 'medium'
+        ELSE de.conf_evidence
+    END AS conf_evidence
 FROM grouped g
+CROSS JOIN delega_disponibile dd
 LEFT JOIN conversione_esito ce
   ON  ce.source_id = g.source_id
   AND ce.atto_id = g.target_id
@@ -1405,6 +1479,14 @@ LEFT JOIN delega_locator dl
 LEFT JOIN delega_conf_evidenza de
   ON  de.source_id = g.source_id
   AND de.target_id = g.target_id
+  AND g.relation = 'attua_delega'
+LEFT JOIN delega_preambolo p
+  ON  p.source_id = g.source_id
+  AND p.target_id = g.target_id
+  AND g.relation = 'attua_delega'
+LEFT JOIN delega_preambolo_locator dp
+  ON  dp.source_id = g.source_id
+  AND dp.target_id = g.target_id
   AND g.relation = 'attua_delega'
 -- Ordinamento fisico: DuckDB scrive i row group in ordine di tabella e ne
 -- registra min/max. Le query MCP filtrano per id (nodi) e source_id (archi):
