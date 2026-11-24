@@ -531,8 +531,11 @@ class TestCardinality:
 
     def test_edge_count_range(self, con):
         count = con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-        # include relatore + firmatari + votazioni + iter cost
-        assert 1_000_000 <= count <= 1_450_000, f"Edge count {count} outside expected range"
+        # include relatore + firmatari + votazioni + iter cost.
+        # 2026-11-24: +126k `firmatario` — il support Senato legge le
+        # legislature 13-19 invece della sola partizione `2026` (residuo del
+        # layout per anno): 348.731 → 474.732 archi totali 1.411.670 → 1.537.671.
+        assert 1_000_000 <= count <= 1_700_000, f"Edge count {count} outside expected range"
 
     def test_normativa_nodes_range(self, con):
         count = con.execute("""

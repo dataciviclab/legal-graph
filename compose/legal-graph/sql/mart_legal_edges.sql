@@ -793,7 +793,10 @@ edges_firmatario_sen AS (
             WHEN BOOL_OR(f.senatore_id IS NULL) THEN 'firmatario_deputato'
             ELSE 'firmatario'
         END AS evidence
-    FROM read_parquet('{support.senato_firmatari.path}') f
+    -- open-politica pubblica per legislatura (13-19), non per anno: leggere
+    -- `path` (una sola partizione, e per di più il residuo 2026) teneva solo
+    -- la legislatura 19 ferma a settembre. `outputs` copre tutte le legislature.
+    FROM read_parquet({support.senato_firmatari.outputs}, union_by_name = true) f
     WHERE f.ddl_id IS NOT NULL
       AND f.data_ritiro_firma IS NULL
       AND (

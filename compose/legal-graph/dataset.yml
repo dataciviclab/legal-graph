@@ -253,7 +253,7 @@ support:
     repo: open-politica
     slug: senato_firmatari
     layer: clean
-    years: [2026]
+    years: [13, 14, 15, 16, 17, 18, 19]
   - name: camera_firmatari
     type: external
     repo: open-politica
