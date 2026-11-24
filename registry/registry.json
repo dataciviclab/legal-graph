@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "repo": "legal-graph",
+  "source_repo": "dataciviclab/legal-graph",
+  "updated_at": "2026-11-24",
+  "datasets": [
+    {
+      "slug": "legal_graph",
+      "name": "Legal Graph",
+      "description": "Legal Knowledge Graph: nodi unici e relazioni legislative/materiali unificati da italia-corpus, costituzione-italiana, gu-monitor, senato-akn e open-politica. Fonti lette da rete (GCS/GitHub).\n",
+      "source": "",
+      "source_id": "dataciviclab_composite",
+      "period": {
+        "start": 1874,
+        "end": 2026
+      },
+      "tags": [
+        "diritto",
+        "normativa",
+        "legal-graph",
+        "compose",
+        "knowledge-graph"
+      ],
+      "category": "normativa",
+      "stage": "incubating",
+      "mart_refs": [
+        "legal_graph__mart_legal_nodes",
+        "legal_graph__mart_legal_edges",
+        "legal_graph__mart_legal_entity_alias",
+        "legal_graph__mart_legal_relation_type",
+        "legal_graph__mart_legal_edges_in",
+        "legal_graph__mart_legal_coverage",
+        "legal_graph__mart_legal_node_metrics",
+        "legal_graph__mart_legal_search_keys",
+        "legal_graph__mart_legal_node_rel",
+        "legal_graph__mart_legal_emend_leg",
+        "legal_graph__mart_legal_texts",
+        "legal_graph__mart_legal_massime"
+      ]
+    },
+    {
+      "slug": "legal_index",
+      "name": "Legal Index",
+      "description": "Indice lessicale BM25 sugli atti del Legal Knowledge Graph: una riga per (atto, termine) con peso precalcolato. Alimenta `legal_search` per tema. Derivato da legal-graph (search_keys) + italia-corpus (testi).\n",
+      "source": "",
+      "source_id": "dataciviclab_composite",
+      "period": {
+        "start": 1874,
+        "end": 2026
+      },
+      "tags": [
+        "diritto",
+        "normativa",
+        "legal-graph",
+        "indice",
+        "bm25",
+        "compose"
+      ],
+      "category": "normativa",
+      "stage": "incubating",
+      "mart_refs": [
+        "legal_index__mart_legal_search_terms"
+      ]
+    }
+  ],
+  "marts": [
+    {
+      "slug": "legal_graph__mart_legal_coverage",
+      "dataset": "legal_graph",
+      "table": "mart_legal_coverage",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_coverage.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_edges",
+      "dataset": "legal_graph",
+      "table": "mart_legal_edges",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_edges.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_edges_in",
+      "dataset": "legal_graph",
+      "table": "mart_legal_edges_in",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_edges_in.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_emend_leg",
+      "dataset": "legal_graph",
+      "table": "mart_legal_emend_leg",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_emend_leg.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_entity_alias",
+      "dataset": "legal_graph",
+      "table": "mart_legal_entity_alias",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_entity_alias.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_massime",
+      "dataset": "legal_graph",
+      "table": "mart_legal_massime",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_massime.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_node_metrics",
+      "dataset": "legal_graph",
+      "table": "mart_legal_node_metrics",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_node_metrics.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_node_rel",
+      "dataset": "legal_graph",
+      "table": "mart_legal_node_rel",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_node_rel.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_nodes",
+      "dataset": "legal_graph",
+      "table": "mart_legal_nodes",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_nodes.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_relation_type",
+      "dataset": "legal_graph",
+      "table": "mart_legal_relation_type",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_relation_type.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_search_keys",
+      "dataset": "legal_graph",
+      "table": "mart_legal_search_keys",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_search_keys.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_graph__mart_legal_texts",
+      "dataset": "legal_graph",
+      "table": "mart_legal_texts",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_graph/2026/mart_legal_texts.parquet",
+        "multi_file": false
+      }
+    },
+    {
+      "slug": "legal_index__mart_legal_search_terms",
+      "dataset": "legal_index",
+      "table": "mart_legal_search_terms",
+      "location": {
+        "type": "gcs",
+        "path": "gs://dataciviclab-mart/legal_index/2026/mart_legal_search_terms.parquet",
+        "multi_file": false
+      }
+    }
+  ],
+  "signals": [
+    {
+      "id": "compose:legal_graph",
+      "source_id": "dataciviclab_composite",
+      "status": "ok",
+      "label": "legal_graph",
+      "detail": "anno 2026 — mart: si",
+      "action": "",
+      "run": {
+        "run_id": "20261124T125437Z_8fb6d415",
+        "year": 2026,
+        "status": "SUCCESS",
+        "quality_score": {
+          "mart": 100
+        },
+        "output_rows": {
+          "mart": 6532318
+        },
+        "output_bytes": {
+          "mart": 206308604
+        },
+        "started_at": "2026-11-24T12:54:37.693399+00:00",
+        "finished_at": "2026-11-24T12:55:31.449516+00:00",
+        "duration_seconds": 53.756
+      }
+    },
+    {
+      "id": "compose:legal_index",
+      "source_id": "dataciviclab_composite",
+      "status": "ok",
+      "label": "legal_index",
+      "detail": "anno 2026 — mart: si",
+      "action": "",
+      "run": {
+        "run_id": "20261124T125531Z_c23e84ba",
+        "year": 2026,
+        "status": "SUCCESS",
+        "quality_score": {
+          "mart": 100
+        },
+        "output_rows": {
+          "mart": 7918259
+        },
+        "output_bytes": {
+          "mart": 82824332
+        },
+        "started_at": "2026-11-24T12:55:31.733299+00:00",
+        "finished_at": "2026-11-24T12:55:50.883193+00:00",
+        "duration_seconds": 19.15
+      }
+    }
+  ],
+  "codelists": [],
+  "entities": {
+    "entities": {},
+    "bridges": []
+  }
+}
