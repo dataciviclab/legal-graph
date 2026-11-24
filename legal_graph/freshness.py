@@ -53,9 +53,12 @@ def _as_of(parquet: str) -> datetime | None:
     if not ts:
         return None
     try:
-        return datetime.fromisoformat(ts)
+        dt = datetime.fromisoformat(ts)
     except ValueError:
         return None
+    # `age_days` confronta con `now` (aware): un timestamp naive farebbe
+    # esplodere il confronto, quindi si normalizza a UTC qui.
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def _anni(entry: dict[str, Any]) -> str:
