@@ -23,9 +23,8 @@ on:
     paths:
       - "compose/**"
       - "legal_graph/**"
-      # I cambi al workflow NON stanno qui: un run completo costa 525 MB di
-      # egress (lettura dei support). Li valida `ci.yml` (preflight + lint,
-      # actionlint via reusable org), che non builda.
+      # I cambi al workflow NON stanno qui: un run completo rifà il build.
+      # Li valida `ci.yml` (preflight + lint, actionlint via reusable org).
   workflow_dispatch:
 
 concurrency:
