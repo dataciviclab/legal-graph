@@ -34,12 +34,14 @@ from pathlib import Path
 import duckdb
 
 from legal_graph.paths import (
+    dataset_of,
     is_remote,
     resolve_coverage_file,
     resolve_edges_file,
     resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_entity_alias_file,
+    resolve_index_metadata_file,
     resolve_massime_file,
     resolve_metadata_file,
     resolve_metrics_file,
@@ -361,11 +363,12 @@ def _bootstrap_views(con: duckdb.DuckDBPyConnection) -> None:
     # pipeline (edges_in, texts, massime). `source_exists` dice True anche per
     # una URL che risponde 404 — e DuckDB legge lo schema alla CREATE VIEW,
     # quindi la view fallirebbe subito. `_sorgente_leggibile` fa un probe.
-    pubblicate = _tabelle_pubblicate(con)
+    pubblicate = _pubblicate_per_dataset(con)
     for vista, tabella, resolver in _mart_opzionali():
-        if pubblicate is not None and tabella not in pubblicate:
+        elenco = pubblicate.get(dataset_of(tabella))
+        if elenco is not None and tabella not in elenco:
             continue
-        _ensure_view(con, vista, resolver(), remoto_verificato=pubblicate is not None)
+        _ensure_view(con, vista, resolver(), remoto_verificato=elenco is not None)
     _bootstrap_meta_views(con)
 
 
@@ -401,24 +404,40 @@ def _mart_opzionali() -> tuple[tuple[str, str, object], ...]:
     )
 
 
-def _tabelle_pubblicate(con: duckdb.DuckDBPyConnection) -> set[str] | None:
-    """Tabelle elencate in `metadata.json` del publish, o None se illeggibile.
+def _pubblicate_per_dataset(
+    con: duckdb.DuckDBPyConnection,
+) -> dict[str, set[str] | None]:
+    """Tabelle caricate da ciascun publish: `{dataset: set | None}`.
 
-    Un probe per tabella costa un GET remoto (~0,3s): il metadata è una
-    richiesta sola e dice cosa è stato caricato davvero.
+    Due publish distinti (`legal_graph`, `legal_index`): il gate va applicato
+    **per dataset**, non su un elenco unico. Dopo lo split `search_terms` vive
+    in `legal_index` e non compare nel metadata del grafo: con un elenco unico
+    la view veniva saltata e la ricerca per tema perdeva l'indice (regressione
+    2026-11-24, pipeline rossa a `test_search_terms`).
+
+    `None` = metadata illeggibile o assente: per quel dataset non si applica il
+    gate, si prova la sorgente (comportamento storico).
     """
-    path = resolve_metadata_file()
-    if path is None:
-        return None
-    try:
-        rows = con.execute(
-            "SELECT t.name FROM (SELECT unnest(tables) AS t FROM read_json_auto(?))",
-            [str(path)],
-        ).fetchall()
-    except duckdb.Error:
-        return None
-    nomi = {r[0] for r in rows if r[0]}
-    return nomi or None
+    out: dict[str, set[str] | None] = {}
+    for dataset, resolver in (
+        ("legal_graph", resolve_metadata_file),
+        ("legal_index", resolve_index_metadata_file),
+    ):
+        path = resolver()
+        if path is None:
+            out[dataset] = None
+            continue
+        try:
+            rows = con.execute(
+                "SELECT t.name FROM (SELECT unnest(tables) AS t FROM read_json_auto(?))",
+                [str(path)],
+            ).fetchall()
+        except duckdb.Error:
+            out[dataset] = None
+            continue
+        nomi = {r[0] for r in rows if r[0]}
+        out[dataset] = nomi or None
+    return out
 
 
 def _sorgente_leggibile(
