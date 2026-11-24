@@ -524,9 +524,13 @@ class TestDelegaConfEvidenza:
         for urn in self.CASI[:1] + self.CASI[2:]:
             assert rows[urn][2] == 0, (urn, rows[urn])
         assert rows["urn:nir:stato:legge:2026-03-17;36"][0] > 0
-        # L. 120/2025: un arco cita la legge che *modifica* la delega, senza
-        # marker nel quote → medium, ed è il caso che resta da leggere.
-        assert rows["urn:nir:stato:legge:2025-08-08;120"][1] >= 1, rows
+        # L. 120/2025: il preambolo la cita tra i «Vista», quindi la coppia è
+        # confermata e l'arco è `strong`. Con la sola regola sul quote era
+        # `medium`: il preambolo è una fonte migliore e vince.
+        # Limite noto: una legge citata come «Modifiche alla legge delega»
+        # viene confermata come le altre — non distinguiamo "modifica" da
+        # "delega" nel preambolo.
+        assert rows["urn:nir:stato:legge:2025-08-08;120"][0] >= 1, rows
 
     def test_espressione_conf_evidenza(self):
         """Il CTE reale sui quote limite, senza dipendere dal mart."""
