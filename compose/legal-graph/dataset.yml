@@ -44,15 +44,6 @@ support:
     slug: normativa
     layer: clean
     years: [2026]
-  # Testo degli atti (una riga per espressione): alimenta l'indice
-  # lessicale `mart_legal_search_terms` e, in futuro, `legal_text`
-  # senza GitHub raw. Stesso artifact del dataset IC `testi`.
-  - name: testi
-    type: external
-    repo: italia-corpus
-    slug: testi
-    layer: clean
-    years: [2026]
   # `riferimenti` clean non è più un support: i nodi catalogo usano il mart
   # URN (stessa sorgente degli edge `riferimento`), così i due non divergono.
   # Contratto URN-based (fonte_urn, bersaglio_urn, rel_type, peso, ...):
