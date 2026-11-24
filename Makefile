@@ -18,7 +18,7 @@ INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),3GB)
 # 3 thread sono il punto in cui il build completo entra in ~3,2GB.
 INDEX_THREADS ?= 3
 
-.PHONY: run run-graph run-index run-local check lint clean clean-cache test download-gcs download-graph download-index help
+.PHONY: run run-graph run-index run-local freshness check lint clean clean-cache test download-gcs download-graph download-index help
 
 # Ordine obbligato: l'indice legge search_keys dal grafo.
 run:
@@ -27,6 +27,11 @@ run:
 
 run-graph:
 	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) $(TOOLKIT) run mart -c $(GRAPH_CONFIG) -y $(YEAR)
+	$(PYTHON) -m legal_graph.freshness --config $(GRAPH_CONFIG) --out out/data/mart/legal_graph/$(YEAR)/mart_legal_freshness.parquet
+
+# Solo la tabella di freschezza (non ricostruisce il grafo).
+freshness:
+	$(PYTHON) -m legal_graph.freshness --config $(GRAPH_CONFIG) --out out/data/mart/legal_graph/$(YEAR)/mart_legal_freshness.parquet
 
 run-index:
 	DUCKDB_MEMORY_LIMIT=$(INDEX_MEMORY) DUCKDB_THREADS=$(INDEX_THREADS) $(TOOLKIT) run mart -c $(INDEX_CONFIG) -y $(YEAR)
@@ -62,7 +67,7 @@ download-graph:
 	for t in mart_legal_nodes mart_legal_edges mart_legal_entity_alias \
 	         mart_legal_relation_type mart_legal_coverage \
 	         mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel \
-	         mart_legal_emend_leg; do \
+	         mart_legal_emend_leg mart_legal_freshness; do \
 		curl -fsSL "$$BASE/$$t.parquet" -o "$$DIR/$$t.parquet.tmp" \
 			&& mv "$$DIR/$$t.parquet.tmp" "$$DIR/$$t.parquet" \
 			&& echo "✅ $$t" || { rm -f "$$DIR/$$t.parquet.tmp"; exit 1; }; \

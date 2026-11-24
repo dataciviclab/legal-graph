@@ -166,6 +166,21 @@ def resolve_index_metadata_file() -> PathLike | None:
     return None
 
 
+def resolve_freshness_file() -> PathLike | None:
+    """Freschezza degli input (`mart_legal_freshness`), se pubblicata.
+
+    Prodotta da `legal_graph.freshness`, non dal compose SQL: è metadato sulla
+    filiera. Vive nella directory dei mart del grafo.
+    """
+    mode = source_mode()
+    local = mart_dir() / "mart_legal_freshness.parquet"
+    if mode in ("auto", "local") and local.exists():
+        return local
+    if mode in ("auto", "gcs"):
+        return gcs_url("mart_legal_nodes").rsplit("/", 1)[0] + "/mart_legal_freshness.parquet"
+    return None
+
+
 def is_remote(source: PathLike | None) -> bool:
     return isinstance(source, str) and source.startswith(("http://", "https://"))
 

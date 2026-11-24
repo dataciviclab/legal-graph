@@ -20,7 +20,7 @@ import duckdb
 from legal_graph.mcp import db
 from legal_graph.mcp.db import _has_col, _view_exists
 from legal_graph.mcp.node_views import _find_node
-from legal_graph.paths import resolve_metadata_file
+from legal_graph.paths import resolve_freshness_file, resolve_metadata_file
 
 # Relazione → quale lato dell'edge è il "monte" (l'origine della catena).
 # `attua_delega` è l'unica invertita: source = decreto attuativo, target = legge
@@ -36,6 +36,16 @@ LINEAGE: dict[str, str] = {
 _PRIORITY = {"diventa_legge": 0, "converte_decreto_legge": 1, "attua_delega": 2}
 
 _DIRS = ("monte", "valle", "entrambe")
+
+# Support che alimentano ogni relazione di lineage: serve a dire quanto è
+# vecchio il dato che sostiene un passo. Solo lineage — le altre relazioni
+# hanno altri tool e altri support.
+_REL_SUPPORT: dict[str, tuple[str, ...]] = {
+    "diventa_legge": ("senato_ddl", "camera_leggi", "normativa"),
+    "converte_decreto_legge": ("normativa",),
+    "attua_delega": ("riferimenti_urn", "normativa"),
+}
+_SOGLIA_FRESCHEZZA = 14
 _MAX_PER_REL_HOP = 10
 _MAX_FRONTIER = 60
 _TITLE = 200
@@ -181,6 +191,44 @@ def _coverage(
     return out
 
 
+def _dati_freschezza(
+    con: duckdb.DuckDBPyConnection, relations: list[str]
+) -> dict[str, Any]:
+    """Età del support più vecchio che sostiene i passi, se la tabella c'è.
+
+    Legge `mart_legal_freshness` (prodotta da `legal_graph.freshness`): è il
+    dato che rende utile `build_at`, che da solo dice quando è stato cotto il
+    pane, non quando è stata mietuta la farina.
+    """
+    path = resolve_freshness_file()
+    if path is None:
+        return {}
+    try:
+        rows = con.execute(
+            "SELECT support, as_of, age_days FROM read_parquet(?)", [str(path)]
+        ).fetchall()
+    except duckdb.Error:
+        return {}
+    per_support = {r[0]: (r[1], r[2]) for r in rows}
+    wanted = {s for rel in relations for s in _REL_SUPPORT.get(rel, ())}
+    ages = [
+        per_support[s][1]
+        for s in wanted
+        if s in per_support and per_support[s][1] is not None
+    ]
+    dates = [
+        per_support[s][0]
+        for s in wanted
+        if s in per_support and per_support[s][0] is not None
+    ]
+    out: dict[str, Any] = {}
+    if ages:
+        out["dati_age_days"] = int(max(ages))
+    if dates:
+        out["dati_as_of"] = str(min(dates))[:10]
+    return out
+
+
 def _build_at(con: duckdb.DuckDBPyConnection) -> str | None:
     """Data del build (non la vigenza dell'atto: quella è legal-graph#68)."""
     path = resolve_metadata_file()
@@ -302,11 +350,17 @@ def _impl_catena(
             step["anno"] = row[3]
 
     relations = sorted({s["relation"] for s in steps})
+    dati = _dati_freschezza(con, relations)
     notes: list[str] = []
     if no_evidence:
         parola = "passaggio" if no_evidence == 1 else "passaggi"
         notes.append(
             f"{no_evidence} {parola} senza citazione a supporto (affidabile: false)"
+        )
+    if dati.get("dati_age_days", 0) > _SOGLIA_FRESCHEZZA:
+        notes.append(
+            f"la catena poggia su dati di {dati['dati_age_days']} giorni fa "
+            f"(soglia {_SOGLIA_FRESCHEZZA})"
         )
     if "attua_delega" in relations:
         notes.append(
@@ -331,6 +385,7 @@ def _impl_catena(
             "si": truncated,
             "motivo": "max_passi" if truncated else None,
         },
+        **dati,
         "build_at": _build_at(con),
         "note": notes,
     }
