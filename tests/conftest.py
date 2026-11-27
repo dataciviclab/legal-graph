@@ -128,3 +128,41 @@ def con(_mart_in_memoria):
             pytest.fail(_MART_ASSENTE)
         pytest.skip(_MART_ASSENTE)
     return connection
+
+
+# --- Test che richiedono il mart pubblicato ---------------------------------
+# Questi moduli asseriscono valori del corpus (golden search, copertura, URN):
+# senza il mart falliscono, e non per un difetto del codice. Sono integrazione,
+# non unit. Il mart si costruisce nella pipeline (`make run`): lì girano tutti.
+# In CI, su un cambio di codice, girano gli altri (0 byte, nessun download).
+#
+# Per rigenerare la lista: LEGAL_GRAPH_MART_DIR=/percorso/vuoto pytest -q
+# (i 97 test che passano sono gli unit; i moduli che danno errore vanno qui).
+MART_MODULES = {
+    "test_search_golden",
+    "test_massime_date",
+    "test_graph_integrity",
+    "test_search_terms",
+    "test_coverage",
+    "test_legal_text",
+    "test_tabelle_pubblicate",
+    "test_e2e_contratto",
+    "test_attua_delega",
+    "test_paths_source",
+    "test_build_cost",
+    "test_freshness",
+    "test_locator_akn",
+    "test_m1_identity",
+    # Usano il mart senza passare dalla fixture `con`: senza marker, in un
+    # checkout pulito danno FileNotFoundError invece di essere esclusi.
+    "test_concorrenza",
+    "test_legal_catena",
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    """Marca come `mart` i test che leggono il mart pubblicato."""
+    for item in items:
+        module = item.module.__name__.rsplit(".", 1)[-1]
+        if module in MART_MODULES:
+            item.add_marker(pytest.mark.mart)

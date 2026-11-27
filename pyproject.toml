@@ -41,6 +41,7 @@ line-length = 100
 testpaths = ["tests"]
 markers = [
     "network: test che scaricano testo da GitHub raw (esclusi dal loop locale)",
+    "mart: test che leggono il mart pubblicato (integrazione: girano dopo make run)",
 ]
 # Loop locale ermetico: i test di rete girano con `pytest -m network`
 # (la pipeline li lancia dopo `make test`, dove la rete è già usata).
