@@ -48,7 +48,8 @@ attuale 2026-11-27, `DUCKDB_MEMORY_LIMIT=1,5GB`, 2 thread):
 
 | Target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` + 2 staging, row group 2048 (2026-11-27) | ✅ 7.076.079 righe | **1,80 GB** | 1 m 51 s |
+| `run-graph` + 2 staging, row group 2048 (2026-11-27) | ✅ 7.076.079 righe | 1,80 GB | 1 m 51 s |
+| `run-graph` + 2 staging, row group 8192/16384 (2026-11-27) | ✅ 7.607.682 righe | **2,18 GB** | 3 m 34 s |
 | `run-graph` prima dello split (2026-11-23, 12 tabelle) | ✅ 6.532.318 righe | 2,37 GB | 80 s |
 | `run-texts` (2 tabelle, isolato) | ✅ 69.266 righe | **1,59 GB** | 10 s |
 | `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
@@ -144,25 +145,28 @@ parziali, ma non entra in `mart_refs`/`marts` del registry e non va su GCS.
 
 ### Row group: layout per lookup, non per scrittura
 
-Le tabelle lette **per chiave** dal MCP hanno `row_group_size: 2048`
-(`nodes`, `edges`, `edges_in`, `node_metrics`, `texts`, `search_terms`):
-il row group è l'unità minima che un lettore scarica da GCS, e il default
-(122.880 righe) fa leggere 2-3 MB per una riga. Con 2048 righe, filtro su
-chiave ordinata → 1 gruppo:
+Le tabelle lette **per chiave** dal MCP hanno `row_group_size` dedicato:
+il row group è l'unità minima che un lettore scarica da GCS, ma il **footer**
+(statistiche per gruppo) si legge tutto. Con gruppi da 2048 il footer di 449
+gruppi costava **1,2 MB**: più del payload di una riga. Misurato post-publish
+(2026-11-27):
 
-| Tabella | Gruppi | Byte per lookup (stima da metadata) | Prima |
+| Tabella | Gruppi | Lookup con 2048 | Lookup scelto |
 |---|---:|---:|---:|
-| `nodes` | 449 | ~39 KB | 2,9 MB |
-| `edges_in` | 753 | ~24 KB | 3,5 MB |
-| `edges` | 753 | ~26 KB | 0,08 MB |
-| `texts` | 12 | ~17 MB | 77 MB |
-| `search_terms` | 967 (8192 righe/gruppo) | ~250 KB per 3 termini | 5,1 MB |
+| `nodes` | 113 (8192) | 1,28 MB (footer 1,24) | **0,48 MB** |
+| `edges_in` | 95 (16384) | 1,79 MB (footer 1,76) | **0,41 MB** |
+| `edges` | 95 (16384) | ~1,8 MB | **~0,4 MB** |
+| `node_metrics` | 57 (16384) | ~1,2 MB | **~0,45 MB** |
+| `texts` | 12 (2048) | 6,2 MB | 6,2 MB (payload di testo) |
+| `search_terms` | 968 (8192) | 1,2 MB per 3 termini | 1,2 MB (già ottimale) |
 
-Costo: i file crescono del ~13-25% per le statistiche per gruppo
-(`nodes` 23,4→26,4 MB; `edges_in` 17,3→22,1 MB) e il build richiede
-`preserve_insertion_order=false` (come in CI): senza, a 2 thread e 1,5 GB
-va in OOM. `search_keys` resta a gruppi grandi: è una scansione completa,
-non un lookup.
+`nodes` resta a 8192, non 16384: il lookup singolo è identico (~0,48 MB) ma
+la search recupera i 20 titoli in 15 gruppi invece di 9 da 300 KB. Le
+tabelle lette solo per chiave (`edges`, `edges_in`, `node_metrics`) vanno a
+16384. I file sono **più piccoli** con gruppi grandi (`nodes` 26,4→24,1 MB;
+`edges_in` 22,1→18,1 MB). Il prezzo è il build: **3m34s / 2,18 GB** con
+8192/16384 contro 1m51s / 1,80 GB con 2048. `texts` resta a 2048 (il payload
+è il testo); `search_keys` a gruppi grandi (scansione completa, non lookup).
 
 La search **non proietta più `title` da `search_keys`** (13,7 MB su 31,6):
 lo recupera per i soli top-N da `nodes` (`_titoli_per_id`). Misurato:
