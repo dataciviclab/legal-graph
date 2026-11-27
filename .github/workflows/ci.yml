@@ -31,6 +31,17 @@ jobs:
       - name: Lint
         run: make lint
 
+      # Test unit: logica MCP, URN, guard, path. Zero byte da GCS.
+      # I test che asseriscono il mart (marker `mart`) girano nella pipeline,
+      # dopo `make run`, dove il mart esiste: qui non servirebbe scaricarlo.
+      - name: Tests (unit, senza mart)
+        # SOURCE=local: senza mart locale `resolve()` non ripiega su GCS.
+        # Senza questo, un test che tocca il mart in un checkout pulito
+        # scaricherebbe i parquet dal bucket invece di skippare.
+        env:
+          LEGAL_GRAPH_SOURCE: local
+        run: python -m pytest -q -m "not mart and not network"
+
   # Cambi ai workflow: actionlint + pattern pericolosi, senza build.
   # Sostituisce il trigger di pipeline.yml su se stesso (525 MB per modifica).
   lint-workflows:
