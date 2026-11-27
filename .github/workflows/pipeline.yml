@@ -1,64 +1,167 @@
 # Pipeline — legal-graph
 #
 # Compose mart-only in tre dataset sotto `compose/`:
-# - legal-graph  → 10 tabelle (nodi, archi, metriche, chiavi) + freshness
+# - legal-graph  → 10 tabelle (nodi, archi, metriche, chiavi)
 # - legal-texts  → 2 tabelle (testi, massime; payload e memoria isolati)
 # - legal-index  → 1 tabella (indice BM25, picco di memoria isolato)
 # I mart NON vanno in git: source of truth = gs://dataciviclab-mart/legal-graph/
 #
-# Workflow reusable org (come `pil-intelligence`, compose-only): build →
-# verify → sync → registry. `detect-paths: compose` + `make run-batch`
-# eseguono solo i dataset cambiati; schedule e dispatch restano completi.
+# Trigger: lunedì 06:00 UTC · dispatch · push main su compose/**.
+# I cambi al solo codice MCP (`legal_graph/**`, `tests/**`) NON sono nei
+# trigger: non toccano i mart e un run completo costerebbe ~0,5 GiB per un fix
+# di una riga. I test sul mart per quei cambi girano al run successivo
+# (schedule o dispatch); la CI su PR copre il codice senza dati.
 #
-# Sync `per-dataset` (flat fallirebbe: non c'è out/data/clean). Nota: la
-# reusable sincronizza l'intera directory anno, quindi carica anche `_run/`
-# e le tabelle `internal` (stg_*). Accettato finché non esiste `sync-exclude`
-# nella reusable.
-#
-# I cambi al solo codice MCP (`legal_graph/**`, `tests/**`) sono coperti da
-# `code-tests.yml`: scarica i mart pubblicati e lancia i test, senza rebuild
-# né publish. Prima del 2026-11 `legal_graph/**` era nei trigger di questa
-# pipeline (run completo, ~0,5 GiB per un fix di codice).
+# Il run è sempre completo (graph → texts → index): niente batch, niente
+# download dei mart in CI. I test girano su ciò che il run ha appena
+# costruito (`LEGAL_GRAPH_REQUIRE_MART=1`).
 
 name: Pipeline
 
 on:
-  pull_request:
-    types: [closed]
-    paths:
-      - "compose/**"
   schedule:
     - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "compose/**"
+      # I cambi al workflow NON stanno qui: un run completo rifà il build.
+      # Li valida `ci.yml` (preflight + lint, actionlint via reusable org).
   workflow_dispatch:
 
 concurrency:
-  group: legal-graph-pipeline-${{ github.event.pull_request.number || github.ref || 'schedule' }}
+  group: legal-graph-pipeline
   cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
 
 jobs:
   pipeline:
-    if: github.event.pull_request.merged == true || github.event_name != 'pull_request'
-    uses: dataciviclab/.github/.github/workflows/pipeline-reusable.yml@main
-    with:
-      repo-slug: "legal-graph"
-      run-command: "make run"
-      # I test girano anche sul batch: `run-batch` chiama `ensure-marts` e
-      # scarica i dataset non ricostruiti, così il set è completo.
-      verify-command: "make test && python3 -m pytest tests/ -m network -q"
-      sync-pattern: "per-dataset"
-      detect-paths: "compose"
-      # La reusable salva `out/data/mart` in actions/cache dopo il run.
-      # `code-tests.yml` la riusa (restore-keys: lg-mart-) invece di scaricare
-      # ~280 MB di parquet a ogni merge di codice.
-      cache-paths: "out/data/mart"
-      cache-key: "lg-mart"
-      install-extras: "dev,pipeline,mcp"
-      extra-env: |
-        LEGAL_GRAPH_REQUIRE_MART=1
-        DUCKDB_MEMORY_LIMIT=4GB
-        DUCKDB_PRESERVE_INSERTION_ORDER=false
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
-    secrets: inherit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # i test girano subito dopo `make run`: un mart mancante deve fallire la
+      # pipeline, non skippare in silenzio
+      LEGAL_GRAPH_REQUIRE_MART: "1"
+      # indice BM25: ~62M token in aggregazione, il default 2GB non basta
+      DUCKDB_MEMORY_LIMIT: "4GB"
+      DUCKDB_PRESERVE_INSERTION_ORDER: "false"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dataciviclab/.github/actions/python-setup@main
+        with:
+          install-extras: "dev,pipeline,mcp"
+
+      - name: Build compose (tutti i mart locali)
+        run: make run
+
+      - name: Verify tests su mart costruiti
+        run: make test
+
+      # `addopts` in pyproject esclude i test `network` (fetch da GitHub raw):
+      # nel loop locale la cache testo è fredda e la rete non è un presupposto.
+      # Qui i mart sono già stati costruiti dalla rete, quindi girano anche loro.
+      - name: Verify test di rete (testo da GitHub raw)
+        run: python3 -m pytest tests/ -m network -q
+
+      # ── GCS: tutte le 12 tabelle mart (grafo + alias/vocabolario + texts) ─
+      - name: GCP Auth (WIF)
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+
+      # setup-gcloud obbligatorio: il gsutil del runner non supporta le
+      # credenziali WIF external_account (401 Anonymous caller). Stesso
+      # pattern di italia-corpus/build-dataset.yml.
+      - name: Set up gcloud
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Sync mart to GCS (grafo, 11 tabelle)
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        run: |
+          SRC="out/data/mart/legal_graph/2026"
+          DEST="gs://dataciviclab-mart/legal-graph/legal_graph/2026"
+          TABLES="mart_legal_nodes mart_legal_edges mart_legal_entity_alias mart_legal_relation_type mart_legal_edges_in mart_legal_coverage mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel mart_legal_emend_leg mart_legal_freshness"
+          for t in $TABLES; do
+            f="$SRC/${t}.parquet"
+            if [ ! -f "$f" ]; then
+              echo "::error::manca $f"
+              exit 1
+            fi
+            gsutil -q cp "$f" "$DEST/${t}.parquet"
+            echo "✅ $t"
+          done
+          # metadata del compose (righe/schema, non i dati)
+          if [ -f "$SRC/metadata.json" ]; then
+            gsutil -q cp "$SRC/metadata.json" "$DEST/metadata.json"
+          fi
+          echo "✅ GCS $DEST"
+
+      # Dataset fratello: stesso prefix `legal-graph/`, slug `legal_texts`.
+      # Testi e massime: payload e picco di memoria isolati dal grafo.
+      - name: Sync testi to GCS (legal_texts, 2 tabelle)
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        run: |
+          SRC="out/data/mart/legal_texts/2026"
+          DEST="gs://dataciviclab-mart/legal-graph/legal_texts/2026"
+          for t in mart_legal_texts mart_legal_massime; do
+            f="$SRC/${t}.parquet"
+            if [ ! -f "$f" ]; then
+              echo "::error::manca $f"
+              exit 1
+            fi
+            gsutil -q cp "$f" "$DEST/${t}.parquet"
+            echo "✅ $t"
+          done
+          if [ -f "$SRC/metadata.json" ]; then
+            gsutil -q cp "$SRC/metadata.json" "$DEST/metadata.json"
+          fi
+          echo "✅ GCS $DEST"
+
+      # Dataset fratello: stesso prefix `legal-graph/`, slug `legal_index`.
+      # Il path pubblico cambia solo per search_terms (vedi paths.py).
+      - name: Sync indice to GCS (legal_index, 1 tabella)
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        run: |
+          SRC="out/data/mart/legal_index/2026"
+          DEST="gs://dataciviclab-mart/legal-graph/legal_index/2026"
+          f="$SRC/mart_legal_search_terms.parquet"
+          if [ ! -f "$f" ]; then
+            echo "::error::manca $f"
+            exit 1
+          fi
+          gsutil -q cp "$f" "$DEST/mart_legal_search_terms.parquet"
+          echo "✅ mart_legal_search_terms"
+          if [ -f "$SRC/metadata.json" ]; then
+            gsutil -q cp "$SRC/metadata.json" "$DEST/metadata.json"
+          fi
+          echo "✅ GCS $DEST"
+
+      - name: Upload artifact (tutti i mart, 14gg)
+        uses: actions/upload-artifact@v7
+        with:
+          name: legal-graph-mart
+          path: |
+            out/data/mart/legal_graph/
+            out/data/mart/legal_texts/
+            out/data/mart/legal_index/
+          retention-days: 14
+
+      # ── Registry (artifact catalogo) → draft PR ─────────────────────
+      # Ripristinato col layout `compose/{slug}/dataset.yml`: il builder del
+      # registry scopre le sezioni per convenzione, un dataset.yml in root
+      # non esisteva per lui (per questo `legal_graph` mancava dal catalogo).
+      - name: Registry update PR
+        if: ${{ !cancelled() && env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != '' }}
+        uses: dataciviclab/.github/actions/registry-update-pr@main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -19,9 +19,7 @@ INDEX_MEMORY ?= $(if $(DUCKDB_MEMORY_LIMIT),$(DUCKDB_MEMORY_LIMIT),3GB)
 # 3 thread sono il punto in cui il build completo entra in ~3,2GB.
 INDEX_THREADS ?= 3
 
-BATCH_FILE ?= batch.txt
-
-.PHONY: run run-batch ensure-marts run-graph run-texts run-index run-local freshness check lint clean clean-cache test download-gcs download-graph download-texts download-index help
+.PHONY: run run-graph run-texts run-index run-local freshness check lint clean clean-cache test download-gcs download-graph download-texts download-index help
 
 # Ordine obbligato: l'indice legge search_keys dal grafo. `legal-texts` è
 # indipendente (legge solo clean di costituzione-italiana): lo eseguiamo
@@ -30,63 +28,6 @@ run:
 	$(MAKE) run-graph
 	$(MAKE) run-texts
 	$(MAKE) run-index
-
-# Batch: la reusable org scrive `batch.txt` con i `dataset.yml` cambiati
-# (`detect-paths: compose`). Mappa i tre dataset sui target:
-#   legal-graph  → run-graph + run-index (l'indice legge search_keys)
-#   legal-index  → run-graph + run-index (in checkout pulito search_keys non c'è)
-#   legal-texts  → run-texts (indipendente)
-# `ensure-marts` scarica i mart non ricostruiti: i test girano su un set
-# completo, senza mescolare build locale e publish vecchio.
-run-batch:
-	@set -e; \
-	if [ ! -f $(BATCH_FILE) ]; then \
-		echo "batch.txt assente: run completo"; $(MAKE) run; exit 0; \
-	fi; \
-	g=0; t=0; i=0; \
-	while read -r f; do \
-		case "$$f" in \
-			compose/legal-graph/*) g=1;; \
-			compose/legal-texts/*) t=1;; \
-			compose/legal-index/*) i=1;; \
-		esac; \
-	done < $(BATCH_FILE); \
-	if [ $$g -eq 0 ] && [ $$t -eq 0 ] && [ $$i -eq 0 ]; then \
-		echo "nessun dataset riconosciuto in $(BATCH_FILE): run completo"; \
-		$(MAKE) run; exit 0; \
-	fi; \
-	echo "batch: graph=$$g texts=$$t index=$$i"; \
-	if [ $$g -eq 1 ] || [ $$i -eq 1 ]; then \
-		$(MAKE) run-graph; \
-		$(MAKE) run-index; \
-	fi; \
-	if [ $$t -eq 1 ]; then $(MAKE) run-texts; fi; \
-	$(MAKE) ensure-marts
-
-# Scarica solo i mart mancanti (non sovrascrive quelli appena costruiti).
-# Serve al batch: i test asseriscono su tutti e tre i dataset.
-ensure-marts:
-	@set -e; \
-	mkdir -p out/data/mart/legal_graph/$(YEAR) out/data/mart/legal_texts/$(YEAR) out/data/mart/legal_index/$(YEAR); \
-	GBASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/$(YEAR); \
-	for t in mart_legal_nodes mart_legal_edges mart_legal_entity_alias \
-	         mart_legal_relation_type mart_legal_edges_in mart_legal_coverage \
-	         mart_legal_node_metrics mart_legal_search_keys mart_legal_node_rel \
-	         mart_legal_emend_leg mart_legal_freshness; do \
-		f=out/data/mart/legal_graph/$(YEAR)/$$t.parquet; \
-		[ -f $$f ] || { echo "⬇️  $$t"; curl -fsSL "$$GBASE/$$t.parquet" -o "$$f.tmp" && mv "$$f.tmp" "$$f"; }; \
-	done; \
-	TBASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_texts/$(YEAR); \
-	TOLD=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_graph/$(YEAR); \
-	for t in mart_legal_texts mart_legal_massime; do \
-		f=out/data/mart/legal_texts/$(YEAR)/$$t.parquet; \
-		[ -f $$f ] || { echo "⬇️  $$t"; \
-			curl -fsSL "$$TBASE/$$t.parquet" -o "$$f.tmp" || curl -fsSL "$$TOLD/$$t.parquet" -o "$$f.tmp"; \
-			mv "$$f.tmp" "$$f"; }; \
-	done; \
-	IBASE=https://storage.googleapis.com/dataciviclab-mart/legal-graph/legal_index/$(YEAR); \
-	f=out/data/mart/legal_index/$(YEAR)/mart_legal_search_terms.parquet; \
-	[ -f $$f ] || { echo "⬇️  mart_legal_search_terms"; curl -fsSL "$$IBASE/mart_legal_search_terms.parquet" -o "$$f.tmp" && mv "$$f.tmp" "$$f"; }
 
 # `preserve_insertion_order=false` come in CI: con i row group piccoli il
 # writer tiene più stato e senza il flag il build supera 1,5GB (misurato:

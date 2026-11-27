@@ -247,29 +247,18 @@ Le view sui mart sono create al bootstrap della connessione: dopo un `make run` 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
 | `ci.yml` | PR + push main | preflight + lint + unit test senza mart |
-| `pipeline.yml` | merge PR su `compose/**`, lun 06:00 UTC, dispatch | reusable org: build → **test** → sync GCS → registry PR |
-| `code-tests.yml` | merge PR su `legal_graph/**`, `tests/**`, `Makefile`, dispatch | mart dalla cache della pipeline + `make test`, senza rebuild né publish; download solo a cache fredda |
+| `pipeline.yml` | push main su `compose/**`, lun 06:00 UTC, dispatch | `make run` (graph → texts → index) + **test** + sync GCS + registry PR |
 
-**Batch.** `pipeline.yml` passa `detect-paths: compose`: sui merge esegue
-`make run-batch`, che legge `batch.txt` e mappa:
+Il run è **sempre completo**: nessun batch, nessun download dei mart in CI. I
+test girano su ciò che il run ha appena costruito (`LEGAL_GRAPH_REQUIRE_MART=1`),
+quindi un mart rotto blocca il publish. Il sync è a lista esplicita: non carica
+`_run/` né le tabelle `internal` (`stg_*`).
 
-| Dataset toccato | Target |
-|---|---|
-| `compose/legal-texts/**` | `run-texts` (10 s) |
-| `compose/legal-graph/**` | `run-graph` + `run-index` |
-| `compose/legal-index/**` | `run-graph` + `run-index` (in checkout pulito `search_keys` non c'è) |
-
-Schedule e dispatch costruiscono un `batch.txt` con tutti e tre → run completo.
-Dopo il batch, `ensure-marts` scarica i dataset non ricostruiti: il
-`verify-command` (`make test && pytest -m network`) gira su un set completo.
-Il sync `per-dataset` carica l'intera directory anno, quindi anche `_run/` e le
-tabelle `internal` (`stg_*`): accettato finché la reusable non espone
-`sync-exclude`.
-
-La pipeline salva `out/data/mart` in `actions/cache` (`cache-key: lg-mart`):
-`code-tests.yml` la riusa (`actions/cache/restore` con `restore-keys: lg-mart-`)
-e scarica i mart solo a cache fredda/incompleta. I mart che la pipeline ha
-appena costruito non si riscaricano per un fix di codice.
+I cambi al solo codice MCP (`legal_graph/**`, `tests/**`) **non** sono nei
+trigger: non toccano i mart e un run completo costerebbe ~0,5 GiB per un fix di
+una riga. I test sul mart per quei cambi girano al run successivo; la CI su PR
+copre il codice senza dati (`-m "not mart and not network"`). `make test` in
+locale usa `out/` o i mart scaricati con `make download-gcs`.
 
 I mart **non** vengono più committati in git. Il publish GCS include tutte e 10 le tabelle del grafo + 2 testi + 1 indice: `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
