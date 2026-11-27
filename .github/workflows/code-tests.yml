@@ -38,8 +38,28 @@ jobs:
         with:
           install-extras: "dev,pipeline,mcp"
 
-      - name: Mart pubblicati
-        run: make download-gcs
+      # I mart li ha già costruiti la pipeline: si riusano dalla cache invece
+      # di riscaricarli (~280 MB). Solo `restore`, senza salvare una seconda
+      # cache: la chiave esatta non esiste mai, il prefisso `lg-mart-` sì.
+      - name: Mart dalla cache della pipeline
+        uses: actions/cache/restore@v4
+        with:
+          path: out/data/mart
+          key: lg-mart-${{ github.run_id }}
+          restore-keys: lg-mart-
+
+      # Fallback: cache fredda (primo run dopo un cambio di schema o cache
+      # scaduta) → si scarica come prima.
+      - name: Mart (download solo se la cache è fredda)
+        run: |
+          if [ -f out/data/mart/legal_graph/2026/mart_legal_nodes.parquet ] \
+             && [ -f out/data/mart/legal_texts/2026/mart_legal_texts.parquet ] \
+             && [ -f out/data/mart/legal_index/2026/mart_legal_search_terms.parquet ]; then
+            echo "✅ mart dalla cache"
+          else
+            echo "cache fredda o incompleta: download dei mart pubblicati"
+            make download-gcs
+          fi
 
       - name: Test sul mart
         run: make test

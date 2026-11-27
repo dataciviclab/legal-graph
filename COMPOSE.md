@@ -248,7 +248,7 @@ Le view sui mart sono create al bootstrap della connessione: dopo un `make run` 
 |---|---|---|
 | `ci.yml` | PR + push main | preflight + lint + unit test senza mart |
 | `pipeline.yml` | merge PR su `compose/**`, lun 06:00 UTC, dispatch | reusable org: build → **test** → sync GCS → registry PR |
-| `code-tests.yml` | merge PR su `legal_graph/**`, `tests/**`, `Makefile`, dispatch | `make download-gcs` + `make test`, senza rebuild né publish |
+| `code-tests.yml` | merge PR su `legal_graph/**`, `tests/**`, `Makefile`, dispatch | mart dalla cache della pipeline + `make test`, senza rebuild né publish; download solo a cache fredda |
 
 **Batch.** `pipeline.yml` passa `detect-paths: compose`: sui merge esegue
 `make run-batch`, che legge `batch.txt` e mappa:
@@ -265,6 +265,11 @@ Dopo il batch, `ensure-marts` scarica i dataset non ricostruiti: il
 Il sync `per-dataset` carica l'intera directory anno, quindi anche `_run/` e le
 tabelle `internal` (`stg_*`): accettato finché la reusable non espone
 `sync-exclude`.
+
+La pipeline salva `out/data/mart` in `actions/cache` (`cache-key: lg-mart`):
+`code-tests.yml` la riusa (`actions/cache/restore` con `restore-keys: lg-mart-`)
+e scarica i mart solo a cache fredda/incompleta. I mart che la pipeline ha
+appena costruito non si riscaricano per un fix di codice.
 
 I mart **non** vengono più committati in git. Il publish GCS include tutte e 10 le tabelle del grafo + 2 testi + 1 indice: `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 

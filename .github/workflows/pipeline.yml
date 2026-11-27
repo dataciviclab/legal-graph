@@ -47,6 +47,11 @@ jobs:
       verify-command: "make test && python3 -m pytest tests/ -m network -q"
       sync-pattern: "per-dataset"
       detect-paths: "compose"
+      # La reusable salva `out/data/mart` in actions/cache dopo il run.
+      # `code-tests.yml` la riusa (restore-keys: lg-mart-) invece di scaricare
+      # ~280 MB di parquet a ogni merge di codice.
+      cache-paths: "out/data/mart"
+      cache-key: "lg-mart"
       install-extras: "dev,pipeline,mcp"
       extra-env: |
         LEGAL_GRAPH_REQUIRE_MART=1
