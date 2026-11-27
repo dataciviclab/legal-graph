@@ -175,11 +175,15 @@ support:
     slug: senato_corpus
     layer: clean
     years: [2026]
+  # Grano emendamento (legislatura, fase, emend_id), dedup e testo integrale
+  # già risolti dal produttore: 28 MB invece dei 197 MB del clean, e la
+  # scelta di quale documento rappresenta l'emendamento vive upstream.
   - name: senato_emendamenti
     type: external
     repo: senato-akn
     slug: senato_emendamenti
-    layer: clean
+    layer: mart
+    table: mart_emendamenti
     years: [2026]
   - name: senato_dibattito
     type: external
@@ -304,9 +308,22 @@ support:
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti
   # nella stessa sessione DuckDB del run MART.
-  #   1 mart_legal_nodes / 2 mart_legal_edges  <- support esterni
+  #   0 stg_riferimenti                        <- una lettura del support
+  #   1 mart_legal_nodes / 2 mart_legal_edges  <- support esterni + stg
   #   3+ metrics, search_keys, rel, emend_leg  <- FROM mart_legal_*
   tables:
+    # Staging interno: `mart_riferimenti_urn` è letta 8 volte (nodi, archi,
+    # copertura) con colonne diverse, 52,9 MiB/run su un file da 13,7.
+    # Materializzata una volta, le tre tabelle la leggono dalla sessione.
+    # `internal: true`: il parquet resta in out/ ma non è un contratto
+    # pubblico (fuori da mart_refs/marts del registry).
+    - name: "stg_riferimenti"
+      sql: "sql/stg_riferimenti.sql"
+      internal: true
+    # Emendamenti: 28 MB, letti da nodi, archi e copertura. Una lettura sola.
+    - name: "stg_emendamenti"
+      sql: "sql/stg_emendamenti.sql"
+      internal: true
     - name: "mart_legal_nodes"
       sql: "sql/mart_legal_nodes.sql"
     - name: "mart_legal_edges"

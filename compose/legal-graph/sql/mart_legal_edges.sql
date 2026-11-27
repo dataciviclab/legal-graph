@@ -2,8 +2,9 @@
 --
 -- Una riga per (source_id, relation, target_id) deduplicata.
 -- Stesso schema dello storico data/legal_edges.parquet.
--- attua_delega: riusa riferimenti + tipi/oggetti da normativa
--- (non dal mart nodi — il compose e' indipendente per tabella).
+-- Identità: tipo/oggetto/numero/anno degli atti arrivano da `mart_legal_nodes`
+-- (una sola definizione), non ri-derivati dal clean. Le fonti restano solo
+-- per il payload delle relazioni (citazioni, emendamenti, firmatari, ...).
 
 WITH massime_norme_dated AS (
     -- `norma_data` arriva dai mart di costituzione-italiana come stringa
@@ -65,26 +66,26 @@ urn_lookup AS (
     ) WHERE _rn = 1
 ),
 
+-- Identità degli atti normativi: la prende dai **nodi**, non dal clean.
+-- `mart_legal_nodes` ha già tipo/oggetto/numero/anno per URN (corpus e
+-- `atti_api`, che `nodes_atti_api` pubblica con source='normativa'), quindi
+-- questa CTE non ri-deriva nulla. Verificato: con il clean `attua_delega`
+-- produceva 2.042 coppie (4.165 righe per le espressioni duplicate) e con i
+-- nodi 2.042 coppie distinte, 0 perse / 0 aggiunte; l'euristica titolo 472/472.
+--
+-- Eccezione voluta: `urn_lookup` (filename→URN per `cita_costituzione`) resta
+-- sul clean. `nodes` espone solo l'espressione `is_current`; usando i nodi si
+-- perdono 12 coppie su 6.030 (0,2%) perché la citazione viene da uno snapshot
+-- non corrente. Lì la sorgente completa serve davvero.
 normativa_types AS (
-    SELECT urn, tipo, oggetto, numero, anno_atto
-    FROM read_parquet('{support.normativa.path}')
-    WHERE NULLIF(urn, '') IS NOT NULL
-    UNION ALL
-    -- Atti fetchati via API Normattiva (leggi ordinarie assenti dalle
-    -- collezioni): servono da target per l'euristica title-regex di
-    -- attua_delega. Anti-join per non duplicare URN gia' in normativa.
     SELECT
-        a.urn,
-        a.tipo_descrizione AS tipo,
-        a.titolo AS oggetto,
-        CAST(a.numero AS VARCHAR) AS numero,
-        a.anno AS anno_atto
-    FROM read_parquet('{support.atti_api.path}') a
-    WHERE NULLIF(a.urn, '') IS NOT NULL
-      AND NOT EXISTS (
-          SELECT 1 FROM read_parquet('{support.normativa.path}') n
-          WHERE n.urn = a.urn
-      )
+        id AS urn,
+        tipo,
+        title AS oggetto,
+        numero,
+        anno AS anno_atto
+    FROM mart_legal_nodes
+    WHERE source = 'normativa'
 ),
 
 -- Alias URN che non sono atti NIR citabili per numero: la Costituzione è
@@ -114,7 +115,7 @@ edges_riferimenti AS (
         r.fonte_anno AS source_year,
         r.bersaglio_anno AS target_year,
         LEFT(r.contesto, 200) AS evidence
-    FROM read_parquet('{support.riferimenti_urn.path}') r
+    FROM stg_riferimenti r
     LEFT JOIN urn_aliases ua
       ON ua.urn = r.bersaglio_urn
     -- Priorità: CELEX dell'artefatto upstream, poi alias URN→nodo, poi URN
@@ -380,9 +381,8 @@ ddl_fase AS (
 ),
 
 emend_target AS (
-    -- Colonne esplicite, non `e.*`: l'anteprima (`text_preview`, ≤240 char)
-    -- basta a costruire gli archi. Il testo integrale pesa 158 MB su 211 MB
-    -- del clean (emendamenti) e non va letto per 100 caratteri di evidenza.
+    -- `stg_emendamenti` è già al grano (legislatura, fase, emend_id) e senza
+    -- testo integrale: nessun dedup qui.
     SELECT
         e.legislatura,
         e.fase,
@@ -394,7 +394,7 @@ emend_target AS (
             CASE WHEN e.n_atti_fase = 1
                  THEN 'senato:' || CAST(e.atto_num AS VARCHAR) END
         ) AS target_id
-    FROM read_parquet('{support.senato_emendamenti.path}') e
+    FROM stg_emendamenti e
     LEFT JOIN ddl_fase df
       ON df.legislatura = CAST(regexp_extract(e.legislatura, '(\d+)', 1) AS INTEGER)
      AND df.fase = e.fase
@@ -512,7 +512,7 @@ edges_abro AS (
         r.fonte_anno AS source_year,
         r.bersaglio_anno AS target_year,
         LEFT(r.contesto, 200) AS evidence
-    FROM read_parquet('{support.riferimenti_urn.path}') r
+    FROM stg_riferimenti r
     -- Il nodo deve esistere su entrambi i lati: un arco verso un id senza
     -- nodo è dangling (il test d'integrità lo blocca) e inutile al consumer.
     JOIN mart_legal_nodes ns ON ns.id = r.fonte_urn
@@ -1182,7 +1182,7 @@ delega_preambolo AS (
         -- Locator emesso da IC (#174): sopravvive al troncamento del contesto.
         -- NULL sulle righe vecchie o senza articolo: lì si ricade sul parsing.
         MIN(articolo) AS articolo
-    FROM read_parquet('{support.riferimenti_urn.path}')
+    FROM stg_riferimenti
     -- `origine` non è nel mart (grain per coppia, non per estrattore): la
     -- garanzia che `delega` venga solo dal preambolo sta nel produttore
     -- (italia-corpus verifica l'invariante: solo `_archi_da_preambolo` emette
@@ -1237,7 +1237,7 @@ reading_clause_edges AS (
     SELECT DISTINCT
         r.fonte_urn AS source_id,
         n.id AS target_id
-    FROM read_parquet('{support.riferimenti_urn.path}') r
+    FROM stg_riferimenti r
     LEFT JOIN urn_aliases ua
       ON ua.urn = r.bersaglio_urn
     -- Priorità: CELEX dell'artefatto upstream, poi alias URN→nodo, poi URN

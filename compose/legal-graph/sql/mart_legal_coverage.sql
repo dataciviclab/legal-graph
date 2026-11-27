@@ -36,7 +36,7 @@ WITH rif AS (
     SELECT
         count(*) AS upstream_rows,
         count(DISTINCT (fonte_urn, bersaglio_urn)) AS natural_pairs
-    FROM read_parquet('{support.riferimenti_urn.path}')
+    FROM stg_riferimenti
     WHERE rel_type = 'citation'
 ),
 
@@ -46,7 +46,7 @@ abro_raw AS (
     SELECT
         count(*) AS upstream_rows,
         count(DISTINCT (fonte_urn, bersaglio_urn)) AS natural_pairs
-    FROM read_parquet('{support.riferimenti_urn.path}')
+    FROM stg_riferimenti
     WHERE rel_type = 'abroga'
 ),
 
@@ -67,20 +67,17 @@ ddl_legge AS (
     )
 ),
 
--- Emendamenti: il denominatore sono gli emendamenti distinti
--- (legislatura, **fase**, emend_id), la stessa chiave di `edges_emend`.
--- `emend_id` è il numero dentro l'atto ("1.1" esiste in centinaia di atti):
--- usare `atto_num` (la directory, replicata fino a 57 volte) gonfiava le coppie
--- di 6.982 e sottostimava la copertura (85,8% invece di 86,9%).
+-- Emendamenti: il denominatore sono gli emendamenti, non i documenti.
+-- Da 2026-12 il produttore pubblica `mart_emendamenti` al grano
+-- (legislatura, fase, emend_id): il dedup delle copie upstream (758.852
+-- documenti → 558.585 emendamenti) non si ripete qui. `upstream_rows` e
+-- `natural_pairs` coincidono per costruzione: il funnel misura il filtro di
+-- legal-graph (nodo bersaglio mancante), non la replica della fonte.
 emend AS (
     SELECT
         count(*) AS upstream_rows,
-        count(DISTINCT (
-            CAST(regexp_extract(legislatura, '(\d+)', 1) AS INTEGER),
-            fase,
-            emend_id
-        )) AS natural_pairs
-    FROM read_parquet('{support.senato_emendamenti.path}')
+        count(*) AS natural_pairs
+    FROM stg_emendamenti
     WHERE emend_id IS NOT NULL AND NULLIF(fase, '') IS NOT NULL
 ),
 
@@ -130,10 +127,10 @@ funnel AS (
         ),
         (
             'emendamento',
-            'senato-akn.senato_emendamenti',
+            'senato-akn.mart_emendamenti',
             (SELECT upstream_rows FROM emend),
             (SELECT natural_pairs FROM emend),
-            'Target = atto della fase (`fase + legislatura → senato_ddl.id_ddl`); fallback su `atto_num` solo quando la directory è unica (`n_atti_fase = 1`). Si perde dove la fase non ha un DDL e la directory è replicata (ambiguo) o l''atto è fuori corpus. Denominatore: emendamenti distinti (leg, fase, numero), non nodi.'
+            'Target = atto della fase (`fase + legislatura → senato_ddl.id_ddl`); fallback su `atto_num` solo quando la directory è unica (`n_atti_fase = 1`). Si perde dove la fase non ha un DDL e la directory è replicata (ambiguo) o l''atto è fuori corpus. Denominatore: emendamenti (leg, fase, numero) dal mart upstream, non documenti.'
         ),
         (
             'invoca_parametro',
@@ -164,7 +161,7 @@ rif_pairs AS (
     SELECT
         r.fonte_urn, r.bersaglio_urn, r.bersaglio_celex, r.esito,
         r.fonte_anno, r.fonte_anno_espressione, r.bersaglio_anno, r.da_regex, r.peso
-    FROM read_parquet('{support.riferimenti_urn.path}') r
+    FROM stg_riferimenti r
     WHERE r.rel_type = 'citation'
 ),
 

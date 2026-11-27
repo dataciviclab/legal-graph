@@ -79,6 +79,12 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
 ## Mart (ordine compose)
 
 ```text
+0  stg_riferimenti          ← una lettura di mart_riferimenti_urn (13,7 MiB)
+                              usata da nodi, archi e copertura: prima 8
+                              scansioni = 52,9 MiB/run. `internal: true`
+0b stg_emendamenti          ← mart `senato-akn.mart_emendamenti` (grano
+                              emendamento, 28 MB) letto una volta sola:
+                              prima 3 scansioni del clean = 78,8 MiB/run
 1 mart_legal_nodes          ← support esterni (+ nodi Camera/Senato da
                               open-politica `atti` e `persone`; eiv da akn_act_meta,
                               nodi dl:* da atti.mart_dl,
@@ -86,8 +92,10 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
                               fuori corpus: solo identità, nessun testo;
                               **nodi UE** `celex:*` da `direttive_ue`: una riga per
                               CELEX, le due grafie URN collassano sullo stesso nodo)
-2 mart_legal_edges          ← support esterni + relazioni tipizzate
-                              (attua_delega: `method='title'` letta dal titolo
+2 mart_legal_edges          ← support esterni + stg + identità da nodes
+                              (tipo/oggetto/numero/anno degli atti da
+                              mart_legal_nodes, non dal clean;
+                              attua_delega: `method='title'` letta dal titolo
                               dell'atto, `regex` dedotta da una citazione;
                               modifiche AKN, relatore_sentenza, relatore Camera,
                               firmatario, converte_decreto_legge)
@@ -102,11 +110,14 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
 5b mart_legal_search_terms   ← FROM search_keys + testi IC (indice BM25)
 6 mart_legal_node_rel       ← FROM mart_legal_edges
 7 mart_legal_emend_leg      ← FROM mart_legal_edges
-8 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
-9 mart_legal_massime         ← massime (testo troncato 600)
 ```
 
+`mart_legal_texts` e `mart_legal_massime` vivono in `compose/legal-texts/`
+(dataset `legal_texts`): payload di testo e picco di memoria isolati.
+
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.
+Le `stg_*` sono `internal: true`: il parquet resta in `out/` per debug e run
+parziali, ma non entra in `mart_refs`/`marts` del registry e non va su GCS.
 
 L'ordine `nodes → edges` è un **contratto**, non una comodità: `mart_legal_edges`
 fa `EXISTS (... FROM mart_legal_nodes)` per emettere solo edge con endpoint
