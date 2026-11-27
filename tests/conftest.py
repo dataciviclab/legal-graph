@@ -28,13 +28,11 @@ from legal_graph.paths import (
     resolve_edges_in_file,
     resolve_emend_leg_file,
     resolve_entity_alias_file,
-    resolve_massime_file,
     resolve_metrics_file,
     resolve_node_rel_file,
     resolve_nodes_file,
     resolve_relation_type_file,
     resolve_search_keys_file,
-    resolve_texts_file,
     source_exists,
 )
 
@@ -54,10 +52,13 @@ MART = {
     "search_keys": resolve_search_keys_file,
     "node_rel": resolve_node_rel_file,
     "emend_leg": resolve_emend_leg_file,
-    "texts": resolve_texts_file,
-    "massime": resolve_massime_file,
 }
 
+# `texts` (77 MB di testo) e `massime` (11 MB) restano VIEW: la copia
+# integrale di `texts` costa ~10 s a freddo, mentre solo `test_legal_text`
+# la interroga (5 lookup). Con `row_group_size: 2048` un lookup legge un
+# gruppo: più economico del copia-incolla in tabella.
+#
 # `search_terms` (indice BM25, ~7M righe) resta una VIEW: materializzarlo
 # dentro il budget di 3GB sposterebbe la suite in OOM per pochi test che
 # lo interrogano. La view costa ~30 ms per query, accettabile qui.
