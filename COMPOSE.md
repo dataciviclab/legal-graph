@@ -156,7 +156,7 @@ chiave ordinata → 1 gruppo:
 | `edges_in` | 753 | ~24 KB | 3,5 MB |
 | `edges` | 753 | ~26 KB | 0,08 MB |
 | `texts` | 12 | ~17 MB | 77 MB |
-| `search_terms` | 3.870 | ~70 KB per 3 termini | 5,1 MB |
+| `search_terms` | 967 (8192 righe/gruppo) | ~250 KB per 3 termini | 5,1 MB |
 
 Costo: i file crescono del ~13-25% per le statistiche per gruppo
 (`nodes` 23,4→26,4 MB; `edges_in` 17,3→22,1 MB) e il build richiede
