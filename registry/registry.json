@@ -2,10 +2,9 @@
   "schema_version": 2,
   "repo": "legal-graph",
   "source_repo": "dataciviclab/legal-graph",
-  "updated_at": "2026-11-24",
+  "updated_at": "2026-11-27",
   "gcs": {
-    "clean": "year",
-    "prefix": "legal-graph/"
+    "clean": "year"
   },
   "datasets": [
     {
@@ -35,12 +34,10 @@
         "legal_graph__mart_legal_node_metrics",
         "legal_graph__mart_legal_search_keys",
         "legal_graph__mart_legal_node_rel",
-        "legal_graph__mart_legal_emend_leg",
-        "legal_graph__mart_legal_texts",
-        "legal_graph__mart_legal_massime"
+        "legal_graph__mart_legal_emend_leg"
       ],
       "last_run": {
-        "at": "2026-11-24T17:13:50.708253+00:00",
+        "at": "2026-11-27T22:36:40.846774+00:00",
         "year": 2026,
         "status": "SUCCESS"
       }
@@ -67,7 +64,35 @@
         "legal_index__mart_legal_search_terms"
       ],
       "last_run": {
-        "at": "2026-11-23T21:57:55.597269+00:00",
+        "at": "2026-11-27T22:38:41.466163+00:00",
+        "year": 2026,
+        "status": "SUCCESS"
+      }
+    },
+    {
+      "slug": "legal_texts",
+      "name": "Legal Texts",
+      "description": "Testi e massime del Legal Knowledge Graph: articoli della Costituzione, pronunce della Corte costituzionale (testo e dispositivo) e massime con le chiavi di parametro/norma. Dataset fratello di legal-graph, separato per payload e picco di memoria; nessuna dipendenza dai nodi o dagli archi.\n",
+      "source_id": "dataciviclab_composite",
+      "tags": [
+        "diritto",
+        "normativa",
+        "legal-graph",
+        "testi",
+        "massime",
+        "compose"
+      ],
+      "category": "normativa",
+      "period": {
+        "start": 1948,
+        "end": 2026
+      },
+      "mart_refs": [
+        "legal_texts__mart_legal_texts",
+        "legal_texts__mart_legal_massime"
+      ],
+      "last_run": {
+        "at": "2026-11-27T22:38:31.075358+00:00",
         "year": 2026,
         "status": "SUCCESS"
       }
@@ -114,13 +139,6 @@
       "primary_key": [
         "alias_id"
       ]
-    },
-    {
-      "slug": "legal_graph__mart_legal_massime",
-      "dataset": "legal_graph",
-      "table": "mart_legal_massime",
-      "layout": "year",
-      "year": 2026
     },
     {
       "slug": "legal_graph__mart_legal_node_metrics",
@@ -170,16 +188,6 @@
       ]
     },
     {
-      "slug": "legal_graph__mart_legal_texts",
-      "dataset": "legal_graph",
-      "table": "mart_legal_texts",
-      "layout": "year",
-      "year": 2026,
-      "primary_key": [
-        "id"
-      ]
-    },
-    {
       "slug": "legal_index__mart_legal_search_terms",
       "dataset": "legal_index",
       "table": "mart_legal_search_terms",
@@ -188,6 +196,27 @@
       "primary_key": [
         "id",
         "term"
+      ]
+    },
+    {
+      "slug": "legal_texts__mart_legal_massime",
+      "dataset": "legal_texts",
+      "table": "mart_legal_massime",
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "sentenza_id",
+        "id_massima"
+      ]
+    },
+    {
+      "slug": "legal_texts__mart_legal_texts",
+      "dataset": "legal_texts",
+      "table": "mart_legal_texts",
+      "layout": "year",
+      "year": 2026,
+      "primary_key": [
+        "id"
       ]
     }
   ],
