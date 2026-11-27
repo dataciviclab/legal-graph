@@ -163,7 +163,8 @@ Cellar e `vigenza_fonte='cellar'`; non è la vigenza italiana del corpus
 
 ```bash
 make run              # compose da rete → 10 mart grafo + 2 testi + 1 indice
-make test             # integrità + golden + E2E di contratto
+make test             # integrità + golden + E2E di contratto (sorgente locale)
+make test TEST_SOURCE=auto   # idem, con fallback GCS (mart scaricati)
 make lint
 ```
 

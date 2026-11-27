@@ -65,8 +65,14 @@ clean:
 clean-cache:
 	rm -rf data/text_cache
 
+# I test girano su ciò che è stato costruito/scaricato in locale: con `auto`
+# un indice vecchio su GCS si mescolerebbe a un grafo appena ricostruito e il
+# contratto id-indice→nodi fallirebbe per staleness, non per un bug. `auto`
+# resta disponibile con `make test TEST_SOURCE=auto`.
+TEST_SOURCE ?= local
+
 test:
-	$(PYTHON) -m pytest tests/ -q
+	LEGAL_GRAPH_SOURCE=$(TEST_SOURCE) $(PYTHON) -m pytest tests/ -q
 
 download-gcs: download-graph download-texts download-index
 
