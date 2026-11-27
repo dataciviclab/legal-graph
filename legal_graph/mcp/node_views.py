@@ -545,9 +545,9 @@ def _view_chain(con: duckdb.DuckDBPyConnection, node_row: tuple, depth: int) -> 
     top_riferimenti_out: list[dict[str, Any]] = []
     if not backward:
         rows_in = con.execute(
-            """
+            f"""
             SELECT e.source_id, e.weight, n.tipo, LEFT(n.title, 120), n.anno
-            FROM edges e JOIN nodes n ON n.id = e.source_id
+            FROM {_tabella_in(con)} e JOIN nodes n ON n.id = e.source_id
             WHERE e.target_id = ? AND e.relation = 'riferimento'
             ORDER BY e.weight DESC, e.source_id LIMIT 5
             """,
