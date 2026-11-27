@@ -1,0 +1,86 @@
+# legal-texts — testi e massime del Legal Knowledge Graph
+#
+# Dataset fratello di `legal-graph`, separato per due motivi misurati:
+# - payload: 88 MB su 198 MB pubblicati dal compose, quasi tutto testo
+#   (mart_legal_texts è la copia di servizio delle pronunce Cost.);
+# - build: `mart_legal_texts` da sola costa 5,8 s e 1,64 GB di RSS, il
+#   maggiore contributo singolo al picco del dataset del grafo (2,37 GB).
+#
+# Le due tabelle NON leggono nodi o archi: dipendono solo dai clean di
+# costituzione-italiana. Quindi questo dataset è indipendente da
+# `legal-graph` e si può costruire in parallelo.
+#
+# Output: out/data/mart/legal_texts/2026/
+#   - mart_legal_texts.parquet
+#   - mart_legal_massime.parquet
+
+root: "../../out"
+schema_version: 1
+
+dataset:
+  name: "legal_texts"
+  source_id: "dataciviclab_composite"
+  tags: [diritto, normativa, legal-graph, testi, massime, compose]
+  category: normativa
+  description: >
+    Testi e massime del Legal Knowledge Graph: articoli della Costituzione,
+    pronunce della Corte costituzionale (testo e dispositivo) e massime con
+    le chiavi di parametro/norma. Dataset fratello di legal-graph, separato
+    per payload e picco di memoria; nessuna dipendenza dai nodi o dagli archi.
+  years: [2026]
+  time_coverage:
+    start_year: 1948
+    end_year: 2026
+
+# Nessuna sezione raw/clean: mart-only compose.
+
+support:
+  # Articoli della Costituzione (testo integrale)
+  - name: articoli_costituzione
+    type: external
+    repo: costituzione-italiana
+    slug: articoli_costituzione
+    layer: clean
+    years: [2026]
+  # Pronunce della Corte: testo e dispositivo
+  - name: pronunce_corte_costituzionale
+    type: external
+    repo: costituzione-italiana
+    slug: pronunce_corte_costituzionale
+    layer: clean
+    years: [2026]
+  # Massime: una riga per massima, `parametri`/`norme` in JSON
+  - name: massime_corte_costituzionale
+    type: external
+    repo: costituzione-italiana
+    slug: massime_corte_costituzionale
+    layer: clean
+    years: [2026]
+
+mart:
+  tables:
+    - name: "mart_legal_texts"
+      sql: "sql/mart_legal_texts.sql"
+      # 22.567 righe da ~3,6 KB (il testo) stanno in UN row group con il
+      # default (122.880 righe): ogni `legal_text` da GCS leggeva 77 MB per
+      # una riga. Con 2048 righe per gruppo (il minimo che DuckDB accetta)
+      # sono 12 gruppi e un lookup legge ~6 MB.
+      row_group_size: 2048
+    - name: "mart_legal_massime"
+      sql: "sql/mart_legal_massime.sql"
+  required_tables:
+    - "mart_legal_texts"
+    - "mart_legal_massime"
+  validate:
+    table_rules:
+      mart_legal_texts:
+        required_columns: [id, kind, title, testo]
+        primary_key: [id]
+        min_rows: 1000
+      mart_legal_massime:
+        required_columns: [sentenza_id, ecli, id_massima, testo]
+        primary_key: [sentenza_id, id_massima]
+        min_rows: 10000
+
+validation:
+  fail_on_error: true

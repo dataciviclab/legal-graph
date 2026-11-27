@@ -14,13 +14,23 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | SQL base | `compose/legal-graph/sql/mart_legal_nodes.sql`, `.../mart_legal_edges.sql` |
 | SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Indice BM25 | `compose/legal-index/sql/mart_legal_search_terms.sql` — dataset separato per memoria |
-| Output | `out/data/mart/legal_graph/2026/` + `out/data/mart/legal_index/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/` — `legal_graph/2026/` (12 tabelle) + `legal_index/2026/` (1 tabella) |
+| Output | `out/data/mart/legal_graph/2026/` + `out/data/mart/legal_texts/2026/` + `out/data/mart/legal_index/2026/` (gitignored) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` — `legal_graph/2026/` (11 tabelle, con freshness) + `legal_texts/2026/` (2) + `legal_index/2026/` (1) |
 | Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
 
-### Perché due dataset
+### Perché tre dataset
+
+**`legal_texts` (testi e massime).** `mart_legal_texts` + `mart_legal_massime`
+sono 88 MB su 198 MB del compose e non leggono nodi o archi: dipendono solo
+dai clean di costituzione-italiana. Da soli valgono 5,8 s e **1,64 GB** di
+picco (massime: 2,0 s e 0,38 GB), il maggiore contributo singolo al picco di
+`run-graph` (2,37 GB). Isolarli rende il grafo costruibile su macchine da
+4 GB e non ripubblica 88 MB a ogni fix di SQL del grafo. `make run` li
+costruisce comunque, ma il dataset è indipendente e parallelizzabile.
+
+**`legal_index` (indice BM25).**
 
 `mart_legal_search_terms` aggrega ~62M token prima di ridurli a 7,2M coppie
 (atto, stem): è il picco di memoria di tutto il compose e, insieme a nodi e
@@ -37,7 +47,8 @@ Misure reali (2026-11-23, macchina 4,9GB, `preserve_insertion_order=false`):
 
 | Versione / target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` (12 mart) | ✅ 6.532.318 righe | **2,37 GB** | 80 s |
+| `run-graph` (10 mart) | ✅ 6.532.318 righe | **2,37 GB** | 80 s |
+| `run-texts` (2 mart, isolato) | ✅ 69.246 righe | **1,64 GB** | 5,8 s |
 | `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
 | `run-index` ottimizzata, 2GB | ❌ OOM pulito di DuckDB | 2,44 GB | — |
 | `run-index` ottimizzata, 3GB + 3 thread | ✅ **7.918.259 righe** | **3,20 GB** | 59 s |
@@ -117,7 +128,7 @@ Cellar e `vigenza_fonte='cellar'`; non è la vigenza italiana del corpus
 ## Come si usa
 
 ```bash
-make run              # compose da rete → 10 mart
+make run              # compose da rete → 10 mart grafo + 2 testi + 1 indice
 make test             # integrità + golden + E2E di contratto
 make lint
 ```
@@ -182,7 +193,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 13 tabelle (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, search_terms, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 13 tabelle su 3 dataset — grafo (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, rel, emend_leg) · testi (texts, massime) · indice (search_terms) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline → GCS + registry PR |

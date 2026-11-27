@@ -17,6 +17,7 @@ def _env_pulita(monkeypatch, tmp_path):
     """Isola ogni test da env e da `out/` reali."""
     monkeypatch.delenv(paths.SOURCE_ENV, raising=False)
     monkeypatch.setenv("LEGAL_GRAPH_MART_DIR", str(tmp_path))
+    monkeypatch.setenv("LEGAL_GRAPH_TEXT_DIR", str(tmp_path / "texts"))
     monkeypatch.setenv("LEGAL_GRAPH_INDEX_DIR", str(tmp_path / "index"))
     return tmp_path
 
@@ -34,6 +35,22 @@ def test_search_terms_viene_da_legal_index(_env_pulita):
     index_dir.mkdir(parents=True, exist_ok=True)
     local = _touch(index_dir, "mart_legal_search_terms")
     assert paths.resolve("mart_legal_search_terms") == local
+
+
+def test_texts_vengono_da_legal_texts(_env_pulita):
+    """Testi e massime vivono nel dataset fratello `legal_texts`."""
+    assert paths.dataset_of("mart_legal_texts") == "legal_texts"
+    assert paths.dataset_of("mart_legal_massime") == "legal_texts"
+    assert paths.dataset_of("mart_legal_nodes") == "legal_graph"
+
+    url = paths.gcs_url("mart_legal_texts")
+    assert "/legal_texts/2026/mart_legal_texts.parquet" in str(url)
+    assert "/legal_graph/2026/" in str(paths.gcs_url("mart_legal_nodes"))
+
+    texts_dir = _env_pulita / "texts"
+    texts_dir.mkdir(parents=True, exist_ok=True)
+    local = _touch(texts_dir, "mart_legal_texts")
+    assert paths.resolve("mart_legal_texts") == local
 
 
 def _touch(mart_dir, table: str):
