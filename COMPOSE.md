@@ -48,7 +48,7 @@ attuale 2026-11-27, `DUCKDB_MEMORY_LIMIT=1,5GB`, 2 thread):
 
 | Target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` + 2 staging (2026-11-27) | ✅ 7.076.079 righe | **1,77 GB** | 2 m 23 s |
+| `run-graph` + 2 staging, row group 2048 (2026-11-27) | ✅ 7.076.079 righe | **1,80 GB** | 1 m 51 s |
 | `run-graph` prima dello split (2026-11-23, 12 tabelle) | ✅ 6.532.318 righe | 2,37 GB | 80 s |
 | `run-texts` (2 tabelle, isolato) | ✅ 69.266 righe | **1,59 GB** | 10 s |
 | `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
@@ -141,6 +141,28 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.
 Le `stg_*` sono `internal: true`: il parquet resta in `out/` per debug e run
 parziali, ma non entra in `mart_refs`/`marts` del registry e non va su GCS.
+
+### Row group: layout per lookup, non per scrittura
+
+Le tabelle lette **per chiave** dal MCP hanno `row_group_size: 2048`
+(`nodes`, `edges`, `edges_in`, `node_metrics`, `texts`, `search_terms`):
+il row group è l'unità minima che un lettore scarica da GCS, e il default
+(122.880 righe) fa leggere 2-3 MB per una riga. Con 2048 righe, filtro su
+chiave ordinata → 1 gruppo:
+
+| Tabella | Gruppi | Byte per lookup (stima da metadata) | Prima |
+|---|---:|---:|---:|
+| `nodes` | 449 | ~39 KB | 2,9 MB |
+| `edges_in` | 753 | ~24 KB | 3,5 MB |
+| `edges` | 753 | ~26 KB | 0,08 MB |
+| `texts` | 12 | ~17 MB | 77 MB |
+| `search_terms` | 3.870 | ~70 KB per 3 termini | 5,1 MB |
+
+Costo: i file crescono del ~13-25% per le statistiche per gruppo
+(`nodes` 23,4→26,4 MB; `edges_in` 17,3→22,1 MB) e il build richiede
+`preserve_insertion_order=false` (come in CI): senza, a 2 thread e 1,5 GB
+va in OOM. `search_keys` resta a gruppi grandi: è una scansione completa,
+non un lookup.
 
 L'ordine `nodes → edges` è un **contratto**, non una comodità: `mart_legal_edges`
 fa `EXISTS (... FROM mart_legal_nodes)` per emettere solo edge con endpoint

@@ -29,12 +29,18 @@ run:
 	$(MAKE) run-texts
 	$(MAKE) run-index
 
+# `preserve_insertion_order=false` come in CI: con i row group piccoli il
+# writer tiene più stato e senza il flag il build supera 1,5GB (misurato:
+# OOM a 2 thread, 1,5GB). Il flag non cambia i risultati: le tabelle lette per
+# chiave hanno un ORDER BY esplicito.
 run-graph:
-	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) $(TOOLKIT) run mart -c $(GRAPH_CONFIG) -y $(YEAR)
+	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) DUCKDB_PRESERVE_INSERTION_ORDER=false \
+		$(TOOLKIT) run mart -c $(GRAPH_CONFIG) -y $(YEAR)
 	$(PYTHON) -m legal_graph.freshness --config $(GRAPH_CONFIG) --out out/data/mart/legal_graph/$(YEAR)/mart_legal_freshness.parquet
 
 run-texts:
-	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) $(TOOLKIT) run mart -c $(TEXT_CONFIG) -y $(YEAR)
+	DUCKDB_MEMORY_LIMIT=$(GRAPH_MEMORY) DUCKDB_PRESERVE_INSERTION_ORDER=false \
+		$(TOOLKIT) run mart -c $(TEXT_CONFIG) -y $(YEAR)
 
 # Solo la tabella di freschezza (non ricostruisce il grafo).
 freshness:

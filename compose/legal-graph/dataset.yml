@@ -326,8 +326,12 @@ mart:
       internal: true
     - name: "mart_legal_nodes"
       sql: "sql/mart_legal_nodes.sql"
+      # lookup per id (`legal_node`, join di ricerca): 448 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+      # lookup per source_id (archi in uscita): 751 gruppi da 2048
+      row_group_size: 2048
     # alias di identità (camera:atto, dl, norma) e vocabolario relazioni:
     # contratti letti dalle view MCP, non liste hardcoded nei consumer
     - name: "mart_legal_entity_alias"
@@ -337,10 +341,14 @@ mart:
     # stessa tabella degli archi ordinata per target_id: query "in entrata"
     - name: "mart_legal_edges_in"
       sql: "sql/mart_legal_edges_in.sql"
+      # lookup per target_id (archi in entrata): 751 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_coverage"
       sql: "sql/mart_legal_coverage.sql"
     - name: "mart_legal_node_metrics"
       sql: "sql/mart_legal_node_metrics.sql"
+      # lookup per id (`legal_node` overview): 448 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_search_keys"
       sql: "sql/mart_legal_search_keys.sql"
     # L'indice lessicale full-text (BM25) è il dataset fratello

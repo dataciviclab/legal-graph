@@ -46,6 +46,9 @@ mart:
   tables:
     - name: "mart_legal_search_terms"
       sql: "sql/mart_legal_search_terms.sql"
+      # `term IN (...)` è un lookup su file ordinato per `term`: gruppi piccoli
+      # (3.870 da 2048) evitano di leggere 1,2 MB per gruppo per 3-8 termini.
+      row_group_size: 2048
   required_tables:
     - "mart_legal_search_terms"
   validate:
