@@ -78,14 +78,21 @@ def test_caso4_modifica_non_e_provenienza(con):
 
 def test_caso5_nodo_senza_lineage(con):
     """Un nodo senza archi di lineage: lista vuota e nota esplicita."""
+    # Anti-join su un set calcolato una volta: il NOT EXISTS correlato con
+    # `source_id = n.id OR target_id = n.id` costringeva un scan di 1,5M edge
+    # per nodo (5 s). Qui gli edge di lineage si leggono una volta sola.
     row = con.execute(
         """
+        WITH lineage AS (
+            SELECT source_id AS id FROM edges
+            WHERE relation IN ('diventa_legge','converte_decreto_legge','attua_delega')
+            UNION
+            SELECT target_id FROM edges
+            WHERE relation IN ('diventa_legge','converte_decreto_legge','attua_delega')
+        )
         SELECT n.id FROM nodes n
+        ANTI JOIN lineage l ON l.id = n.id
         WHERE n.id LIKE 'urn:nir:%'
-          AND NOT EXISTS (
-            SELECT 1 FROM edges e WHERE (e.source_id = n.id OR e.target_id = n.id)
-              AND e.relation IN ('diventa_legge','converte_decreto_legge','attua_delega')
-          )
         LIMIT 1
         """
     ).fetchone()
