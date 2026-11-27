@@ -164,6 +164,13 @@ Costo: i file crescono del ~13-25% per le statistiche per gruppo
 va in OOM. `search_keys` resta a gruppi grandi: è una scansione completa,
 non un lookup.
 
+La search **non proietta più `title` da `search_keys`** (13,7 MB su 31,6):
+lo recupera per i soli top-N da `nodes` (`_titoli_per_id`). Misurato:
+36,5 → **20,6 MiB** per una ricerca per titolo. Attenzione: il guadagno
+dipende dai row group di `nodes` — con il layout vecchio (8 gruppi) il
+lookup dei 20 titoli costava 14,2 MiB e annullava il risparmio. Le due
+modifiche vanno pubblicate **insieme**.
+
 L'ordine `nodes → edges` è un **contratto**, non una comodità: `mart_legal_edges`
 fa `EXISTS (... FROM mart_legal_nodes)` per emettere solo edge con endpoint
 esistenti (`testo_atto`, `diventa_legge`, `emendamento`, `relatore`, `vota`,
