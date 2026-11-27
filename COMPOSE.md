@@ -246,10 +246,27 @@ Le view sui mart sono create al bootstrap della connessione: dopo un `make run` 
 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
-| `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
-| `pipeline.yml` | lun 06:00 UTC, push compose/** | `make run` (graph → index) + intelligence + **test** + sync GCS + registry PR |
+| `ci.yml` | PR + push main | preflight + lint + unit test senza mart |
+| `pipeline.yml` | merge PR su `compose/**`, lun 06:00 UTC, dispatch | reusable org: build → **test** → sync GCS → registry PR |
+| `code-tests.yml` | merge PR su `legal_graph/**`, `tests/**`, `Makefile`, dispatch | `make download-gcs` + `make test`, senza rebuild né publish |
 
-I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Il publish GCS include tutte e 10 le tabelle, texts e massime comprese (dal build 2026-11-09): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
+**Batch.** `pipeline.yml` passa `detect-paths: compose`: sui merge esegue
+`make run-batch`, che legge `batch.txt` e mappa:
+
+| Dataset toccato | Target |
+|---|---|
+| `compose/legal-texts/**` | `run-texts` (10 s) |
+| `compose/legal-graph/**` | `run-graph` + `run-index` |
+| `compose/legal-index/**` | `run-graph` + `run-index` (in checkout pulito `search_keys` non c'è) |
+
+Schedule e dispatch costruiscono un `batch.txt` con tutti e tre → run completo.
+Dopo il batch, `ensure-marts` scarica i dataset non ricostruiti: il
+`verify-command` (`make test && pytest -m network`) gira su un set completo.
+Il sync `per-dataset` carica l'intera directory anno, quindi anche `_run/` e le
+tabelle `internal` (`stg_*`): accettato finché la reusable non espone
+`sync-exclude`.
+
+I mart **non** vengono più committati in git. Il publish GCS include tutte e 10 le tabelle del grafo + 2 testi + 1 indice: `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
 Locale == CI: stessi target Makefile.
 

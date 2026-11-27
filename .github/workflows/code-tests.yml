@@ -1,0 +1,45 @@
+# Code tests — legal-graph
+#
+# Buco chiuso: un fix al codice MCP (`legal_graph/**`) non tocca i compose e
+# non deve ricostruire i mart, ma deve comunque far girare i test sul mart
+# pubblicato (golden search, e2e, contratti delle view). Prima del 2026-11
+# `legal_graph/**` era nei trigger della pipeline: un fix di una riga costava
+# un run completo (~0,5 GiB). Qui si scaricano i mart e si testa, senza build
+# né publish.
+#
+# I test di rete (marker `network`) restano nella pipeline, dove i mart sono
+# appena costruiti e la rete è già usata dal build.
+
+name: Code tests
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - "legal_graph/**"
+      - "tests/**"
+      - "Makefile"
+      - ".github/workflows/code-tests.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: legal-graph-code-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    if: github.event.pull_request.merged == true || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dataciviclab/.github/actions/python-setup@main
+        with:
+          install-extras: "dev,pipeline,mcp"
+
+      - name: Mart pubblicati
+        run: make download-gcs
+
+      - name: Test sul mart
+        run: make test
