@@ -11,11 +11,12 @@ Priorità sorgente mart (tabelle del compose):
 - `gcs`: solo GCS, anche se un build locale è presente (evita di servire
   dati vecchi quando il publish è più fresco)
 
-Il contract di publish copre 13 tabelle: le 10 del grafo (nodes, edges,
-entity_alias, relation_type, edges_in, coverage, metrics, search_keys,
-node_rel, emend_leg) sono previste dal compose M1 e diventano online col
-primo run di pipeline che le pubblica; `search_terms` (indice BM25),
-`texts` e `massime` seguono lo stesso meccanismo.
+Il contract di publish copre 14 tabelle su tre dataset:
+- `legal_graph`: 10 tabelle del grafo (nodes, edges, entity_alias,
+  relation_type, edges_in, coverage, metrics, search_keys, node_rel,
+  emend_leg) + `freshness` prodotta dal repo;
+- `legal_texts`: `texts` e `massime` (payload di testo, picco di memoria);
+- `legal_index`: `search_terms` (indice BM25).
 Solo mart compose (locale o GCS): nessun fallback su data/*.parquet.
 """
 from __future__ import annotations
@@ -34,12 +35,17 @@ DEFAULT_MART_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_graph" / YEAR
 # L'indice lessicale vive nel dataset fratello `legal_index` (compose/legal-index/):
 # isolato per memoria, non per semantica. Stesso prefix GCS, slug diverso.
 DEFAULT_INDEX_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_index" / YEAR
+# Testi e massime vivono in `legal_texts` (compose/legal-texts/): payload di
+# testo e picco di memoria isolati dal grafo, nessuna dipendenza da nodi/archi.
+DEFAULT_TEXT_DIR = REPO_ROOT / "out" / "data" / "mart" / "legal_texts" / YEAR
 
 SOURCE_ENV = "LEGAL_GRAPH_SOURCE"
 SOURCE_MODES = ("auto", "local", "gcs")
 
 # Tabelle pubblicate dal dataset `legal_index` invece che da `legal_graph`.
 INDEX_TABLES = frozenset({"mart_legal_search_terms"})
+# Tabelle pubblicate dal dataset `legal_texts` invece che da `legal_graph`.
+TEXT_TABLES = frozenset({"mart_legal_texts", "mart_legal_massime"})
 
 # Tabelle coperte dal publish GCS (dal 2026-11: anche texts/massime)
 GCS_MART_TABLES = frozenset(
@@ -77,14 +83,30 @@ def index_dir() -> Path:
     return DEFAULT_INDEX_DIR
 
 
+def text_dir() -> Path:
+    """Directory locale di testi e massime (dataset `legal_texts`)."""
+    env = os.environ.get("LEGAL_GRAPH_TEXT_DIR")
+    if env:
+        return Path(env)
+    return DEFAULT_TEXT_DIR
+
+
 def dataset_of(table: str) -> str:
-    """Dataset che pubblica la tabella: `legal_graph` o `legal_index`."""
-    return "legal_index" if table in INDEX_TABLES else "legal_graph"
+    """Dataset che pubblica la tabella: graph, texts o index."""
+    if table in INDEX_TABLES:
+        return "legal_index"
+    if table in TEXT_TABLES:
+        return "legal_texts"
+    return "legal_graph"
 
 
 def table_dir(table: str) -> Path:
     """Directory locale della tabella, nel dataset che la produce."""
-    return index_dir() if table in INDEX_TABLES else mart_dir()
+    if table in INDEX_TABLES:
+        return index_dir()
+    if table in TEXT_TABLES:
+        return text_dir()
+    return mart_dir()
 
 
 def source_mode() -> str:
@@ -163,6 +185,21 @@ def resolve_index_metadata_file() -> PathLike | None:
         return local
     if mode in ("auto", "gcs"):
         return _metadata_url("mart_legal_search_terms")
+    return None
+
+
+def resolve_texts_metadata_file() -> PathLike | None:
+    """`metadata.json` di `legal_texts`.
+
+    Testi e massime vivono nel dataset fratello: il gate delle tabelle
+    pubblicate va applicato al loro publish, non a quello del grafo.
+    """
+    mode = source_mode()
+    local = text_dir() / "metadata.json"
+    if mode in ("auto", "local") and local.exists():
+        return local
+    if mode in ("auto", "gcs"):
+        return _metadata_url("mart_legal_texts")
     return None
 
 

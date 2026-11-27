@@ -114,7 +114,7 @@ cited AS (
     -- bersagli delle abrogazioni sono 60.774 su 64.215 nel catalogo e senza
     -- nodo l'arco restava dangling.
     SELECT DISTINCT r.bersaglio_urn AS urn
-    FROM read_parquet('{support.riferimenti_urn.path}') r
+    FROM stg_riferimenti r
     WHERE r.rel_type IN ('citation', 'abroga')
       AND r.bersaglio_urn LIKE 'urn:nir:%'
       AND (
@@ -382,42 +382,33 @@ nodes_corpus_ddl AS (
 ),
 
 nodes_emend AS (
+    -- Grano già unico nel mart `senato_akn.mart_emendamenti` (legislatura,
+    -- fase, emend_id): niente ROW_NUMBER qui. La scelta del documento che
+    -- rappresenta l'emendamento vive upstream.
     SELECT
-        id, tipo, data, numero, title, collezione, source_filename,
-        source, anno, length_chars, length_words, celex, codice_redazionale,
-        stato, materia, qualita_score, sunsetting_score
-    FROM (
-        SELECT
-            -- identità: (legislatura, fase, numero). `emend_id` è il numero
-            -- dentro l'atto ("1.1" esiste in centinaia di atti): senza la fase
-            -- il nodo aggregava emendamenti diversi dello stesso numero.
-            'senato:emend:' || CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT)
-                || ':' || fase || ':' || emend_id AS id,
-            tipologia AS tipo,
-            CAST(work_date AS VARCHAR) AS data,
-            emend_id AS numero,
-            -- anteprima (clean senato-akn): il testo integrale pesa 158 MB
-            -- su 211 MB del clean e serviva per 100 caratteri di titolo
-            LEFT(text_preview, 100) AS title,
-            'Senato Emendamenti' AS collezione,
-            document_id AS source_filename,
-            'senato_emend' AS source,
-            YEAR(work_date) AS anno,
-            text_len AS length_chars,
-            NULL::BIGINT AS length_words,
-            NULL::VARCHAR AS celex,
-            NULL::VARCHAR AS codice_redazionale,
-            NULL::VARCHAR AS stato,
-            NULL::VARCHAR AS materia,
-            NULL::INTEGER AS qualita_score,
-            NULL::INTEGER AS sunsetting_score,
-            ROW_NUMBER() OVER (
-                PARTITION BY CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT), fase, emend_id
-                ORDER BY document_id
-            ) AS _rn
-        FROM read_parquet('{support.senato_emendamenti.path}')
-        WHERE emend_id IS NOT NULL AND legislatura IS NOT NULL
-    ) WHERE _rn = 1
+        -- identità: (legislatura, fase, numero). `emend_id` è il numero
+        -- dentro l'atto ("1.1" esiste in centinaia di atti): senza la fase
+        -- il nodo aggregava emendamenti diversi dello stesso numero.
+        'senato:emend:' || CAST(regexp_extract(legislatura, '(\d+)', 1) AS BIGINT)
+            || ':' || fase || ':' || emend_id AS id,
+        tipologia AS tipo,
+        CAST(work_date AS VARCHAR) AS data,
+        emend_id AS numero,
+        LEFT(text_preview, 100) AS title,
+        'Senato Emendamenti' AS collezione,
+        document_id AS source_filename,
+        'senato_emend' AS source,
+        YEAR(work_date) AS anno,
+        text_len AS length_chars,
+        NULL::BIGINT AS length_words,
+        NULL::VARCHAR AS celex,
+        NULL::VARCHAR AS codice_redazionale,
+        NULL::VARCHAR AS stato,
+        NULL::VARCHAR AS materia,
+        NULL::INTEGER AS qualita_score,
+        NULL::INTEGER AS sunsetting_score
+    FROM stg_emendamenti
+    WHERE emend_id IS NOT NULL AND legislatura IS NOT NULL
 ),
 
 nodes_dib AS (

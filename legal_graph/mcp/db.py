@@ -51,6 +51,7 @@ from legal_graph.paths import (
     resolve_search_keys_file,
     resolve_search_terms_file,
     resolve_texts_file,
+    resolve_texts_metadata_file,
     source_exists,
 )
 
@@ -422,6 +423,7 @@ def _pubblicate_per_dataset(
     for dataset, resolver in (
         ("legal_graph", resolve_metadata_file),
         ("legal_index", resolve_index_metadata_file),
+        ("legal_texts", resolve_texts_metadata_file),
     ):
         path = resolver()
         if path is None:

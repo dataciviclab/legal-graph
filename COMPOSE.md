@@ -14,13 +14,23 @@ Nodi, archi e tabelle derivate da rete (GitHub raw / GCS HTTPS), senza clonare i
 | SQL base | `compose/legal-graph/sql/mart_legal_nodes.sql`, `.../mart_legal_edges.sql` |
 | SQL derivate | alias · relation_type · coverage · metrics · search_keys · node_rel · emend_leg · **texts** · **massime** |
 | Indice BM25 | `compose/legal-index/sql/mart_legal_search_terms.sql` — dataset separato per memoria |
-| Output | `out/data/mart/legal_graph/2026/` + `out/data/mart/legal_index/2026/` (gitignored) |
-| Pubblico | GCS `dataciviclab-mart/legal-graph/` — `legal_graph/2026/` (12 tabelle) + `legal_index/2026/` (1 tabella) |
+| Output | `out/data/mart/legal_graph/2026/` + `out/data/mart/legal_texts/2026/` + `out/data/mart/legal_index/2026/` (gitignored) |
+| Pubblico | GCS `dataciviclab-mart/legal-graph/` — `legal_graph/2026/` (11 tabelle, con freshness) + `legal_texts/2026/` (2) + `legal_index/2026/` (1) |
 | Package | `legal_graph/` — MCP 7 tool + paths + legal_text |
 | CLI | — (il layer legacy `data/*.parquet` è stato rimosso) |
 | Test | `tests/` — integrità + golden search |
 
-### Perché due dataset
+### Perché tre dataset
+
+**`legal_texts` (testi e massime).** `mart_legal_texts` + `mart_legal_massime`
+sono 88 MB su 198 MB del compose e non leggono nodi o archi: dipendono solo
+dai clean di costituzione-italiana. Da soli valgono 5,8 s e **1,64 GB** di
+picco (massime: 2,0 s e 0,38 GB), il maggiore contributo singolo al picco di
+`run-graph` (2,37 GB). Isolarli rende il grafo costruibile su macchine da
+4 GB e non ripubblica 88 MB a ogni fix di SQL del grafo. `make run` li
+costruisce comunque, ma il dataset è indipendente e parallelizzabile.
+
+**`legal_index` (indice BM25).**
 
 `mart_legal_search_terms` aggrega ~62M token prima di ridurli a 7,2M coppie
 (atto, stem): è il picco di memoria di tutto il compose e, insieme a nodi e
@@ -33,14 +43,38 @@ archi, non entra in una macchina da 8GB. Isolato in `legal_index`:
 
 Ordine obbligato: `make run` = `run-graph` → `run-index`.
 
-Misure reali (2026-11-23, macchina 4,9GB, `preserve_insertion_order=false`):
+Misure reali (macchina 4,9GB, `preserve_insertion_order=false`; struttura
+attuale 2026-11-27, `DUCKDB_MEMORY_LIMIT=1,5GB`, 2 thread):
 
-| Versione / target | Esito | Picco RSS | Tempo |
+| Target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` (12 mart) | ✅ 6.532.318 righe | **2,37 GB** | 80 s |
+| `run-graph` + 2 staging, row group 2048 (2026-11-27) | ✅ 7.076.079 righe | **1,80 GB** | 1 m 51 s |
+| `run-graph` prima dello split (2026-11-23, 12 tabelle) | ✅ 6.532.318 righe | 2,37 GB | 80 s |
+| `run-texts` (2 tabelle, isolato) | ✅ 69.266 righe | **1,59 GB** | 10 s |
 | `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
 | `run-index` ottimizzata, 2GB | ❌ OOM pulito di DuckDB | 2,44 GB | — |
 | `run-index` ottimizzata, 3GB + 3 thread | ✅ **7.918.259 righe** | **3,20 GB** | 59 s |
+
+Il picco del grafo scende perché testi+massime (1,6+0,4 GB da soli) non sono
+più nel suo run. L'indice resta il picco assoluto: su una macchina <8GB si usa
+`make run-local` (grafo+testi in locale, indice dall'ultimo publish).
+
+### Costi di lettura (misurati 2026-11-27)
+
+Metodo: `EXPLAIN ANALYZE` + `HTTPFS HTTP Stats` con le colonne realmente
+usate, una connessione per lettura (la full-scan del file è un limite
+superiore: DuckDB legge solo le colonne proiettate).
+
+| Support | Prima | Dopo | Δ |
+|---|---|---|---|
+| `riferimenti_urn` (8 letture) | 52,9 MiB | **13,7** (stg) | −39,2 |
+| `senato_emendamenti` (3 letture) | 78,8 MiB | **28,2** (mart + stg) | −50,6 |
+| `normativa` per l'identità | 2 letture | **1** (nodi) | −1,6 |
+| `pronunce` (testo) | 76,8 nel grafo | 76,8 in `legal_texts` | fuori dal grafo |
+
+Totale: **~−91 MiB/run** sui 521 MiB misurati dall'audit compose (−17%).
+L'indice (`testi`, 82,9 MiB) è invariato; `mart_riferimenti_urn` (13,7 MiB)
+resta il file più riletto, ora una volta sola.
 
 L'indice non stava in 4GB con la query originale: `regexp_extract_all` +
 `UNNEST` materializzano le liste fuori dal buffer manager, quindi
@@ -68,6 +102,12 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
 ## Mart (ordine compose)
 
 ```text
+0  stg_riferimenti          ← una lettura di mart_riferimenti_urn (13,7 MiB)
+                              usata da nodi, archi e copertura: prima 8
+                              scansioni = 52,9 MiB/run. `internal: true`
+0b stg_emendamenti          ← mart `senato-akn.mart_emendamenti` (grano
+                              emendamento, 28 MB) letto una volta sola:
+                              prima 3 scansioni del clean = 78,8 MiB/run
 1 mart_legal_nodes          ← support esterni (+ nodi Camera/Senato da
                               open-politica `atti` e `persone`; eiv da akn_act_meta,
                               nodi dl:* da atti.mart_dl,
@@ -75,8 +115,10 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
                               fuori corpus: solo identità, nessun testo;
                               **nodi UE** `celex:*` da `direttive_ue`: una riga per
                               CELEX, le due grafie URN collassano sullo stesso nodo)
-2 mart_legal_edges          ← support esterni + relazioni tipizzate
-                              (attua_delega: `method='title'` letta dal titolo
+2 mart_legal_edges          ← support esterni + stg + identità da nodes
+                              (tipo/oggetto/numero/anno degli atti da
+                              mart_legal_nodes, non dal clean;
+                              attua_delega: `method='title'` letta dal titolo
                               dell'atto, `regex` dedotta da una citazione;
                               modifiche AKN, relatore_sentenza, relatore Camera,
                               firmatario, converte_decreto_legge)
@@ -91,11 +133,43 @@ L'indice cambia solo quando cambia il corpus, il grafo a ogni fix di SQL:
 5b mart_legal_search_terms   ← FROM search_keys + testi IC (indice BM25)
 6 mart_legal_node_rel       ← FROM mart_legal_edges
 7 mart_legal_emend_leg      ← FROM mart_legal_edges
-8 mart_legal_texts           ← articoli Cost. + pronunce (testo/dispositivo)
-9 mart_legal_massime         ← massime (testo troncato 600)
 ```
 
+`mart_legal_texts` e `mart_legal_massime` vivono in `compose/legal-texts/`
+(dataset `legal_texts`): payload di testo e picco di memoria isolati.
+
 Le tabelle derivate leggono le precedenti **nella stessa sessione DuckDB** del run MART.
+Le `stg_*` sono `internal: true`: il parquet resta in `out/` per debug e run
+parziali, ma non entra in `mart_refs`/`marts` del registry e non va su GCS.
+
+### Row group: layout per lookup, non per scrittura
+
+Le tabelle lette **per chiave** dal MCP hanno `row_group_size: 2048`
+(`nodes`, `edges`, `edges_in`, `node_metrics`, `texts`, `search_terms`):
+il row group è l'unità minima che un lettore scarica da GCS, e il default
+(122.880 righe) fa leggere 2-3 MB per una riga. Con 2048 righe, filtro su
+chiave ordinata → 1 gruppo:
+
+| Tabella | Gruppi | Byte per lookup (stima da metadata) | Prima |
+|---|---:|---:|---:|
+| `nodes` | 449 | ~39 KB | 2,9 MB |
+| `edges_in` | 753 | ~24 KB | 3,5 MB |
+| `edges` | 753 | ~26 KB | 0,08 MB |
+| `texts` | 12 | ~17 MB | 77 MB |
+| `search_terms` | 967 (8192 righe/gruppo) | ~250 KB per 3 termini | 5,1 MB |
+
+Costo: i file crescono del ~13-25% per le statistiche per gruppo
+(`nodes` 23,4→26,4 MB; `edges_in` 17,3→22,1 MB) e il build richiede
+`preserve_insertion_order=false` (come in CI): senza, a 2 thread e 1,5 GB
+va in OOM. `search_keys` resta a gruppi grandi: è una scansione completa,
+non un lookup.
+
+La search **non proietta più `title` da `search_keys`** (13,7 MB su 31,6):
+lo recupera per i soli top-N da `nodes` (`_titoli_per_id`). Misurato:
+36,5 → **20,6 MiB** per una ricerca per titolo. Attenzione: il guadagno
+dipende dai row group di `nodes` — con il layout vecchio (8 gruppi) il
+lookup dei 20 titoli costava 14,2 MiB e annullava il risparmio. Le due
+modifiche vanno pubblicate **insieme**.
 
 L'ordine `nodes → edges` è un **contratto**, non una comodità: `mart_legal_edges`
 fa `EXISTS (... FROM mart_legal_nodes)` per emettere solo edge con endpoint
@@ -117,8 +191,9 @@ Cellar e `vigenza_fonte='cellar'`; non è la vigenza italiana del corpus
 ## Come si usa
 
 ```bash
-make run              # compose da rete → 10 mart
-make test             # integrità + golden + E2E di contratto
+make run              # compose da rete → 10 mart grafo + 2 testi + 1 indice
+make test             # integrità + golden + E2E di contratto (sorgente locale)
+make test TEST_SOURCE=auto   # idem, con fallback GCS (mart scaricati)
 make lint
 ```
 
@@ -171,10 +246,21 @@ Le view sui mart sono create al bootstrap della connessione: dopo un `make run` 
 
 | Workflow | Trigger | Cosa fa |
 |---|---|---|
-| `ci.yml` | PR + push main | preflight + lint (no build mart — non sono più in git) |
-| `pipeline.yml` | lun 06:00 UTC, push compose/** | `make run` (graph → index) + intelligence + **test** + sync GCS + registry PR |
+| `ci.yml` | PR + push main | preflight + lint + unit test senza mart |
+| `pipeline.yml` | push main su `compose/**`, lun 06:00 UTC, dispatch | `make run` (graph → texts → index) + **test** + sync GCS + registry PR |
 
-I mart **non** vengono più committati in git. I test sul grafo girano in pipeline (o localmente). Il publish GCS include tutte e 10 le tabelle, texts e massime comprese (dal build 2026-11-09): `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
+Il run è **sempre completo**: nessun batch, nessun download dei mart in CI. I
+test girano su ciò che il run ha appena costruito (`LEGAL_GRAPH_REQUIRE_MART=1`),
+quindi un mart rotto blocca il publish. Il sync è a lista esplicita: non carica
+`_run/` né le tabelle `internal` (`stg_*`).
+
+I cambi al solo codice MCP (`legal_graph/**`, `tests/**`) **non** sono nei
+trigger: non toccano i mart e un run completo costerebbe ~0,5 GiB per un fix di
+una riga. I test sul mart per quei cambi girano al run successivo; la CI su PR
+copre il codice senza dati (`-m "not mart and not network"`). `make test` in
+locale usa `out/` o i mart scaricati con `make download-gcs`.
+
+I mart **non** vengono più committati in git. Il publish GCS include tutte e 10 le tabelle del grafo + 2 testi + 1 indice: `LEGAL_GRAPH_SOURCE=auto|local|gcs` sceglie la sorgente (default `auto`: locale → GCS).
 
 Locale == CI: stessi target Makefile.
 
@@ -182,7 +268,7 @@ Locale == CI: stessi target Makefile.
 
 | Area | Stato |
 |---|---|
-| Compose mart + MCP thin | ✅ 13 tabelle (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, search_terms, rel, emend_leg, texts, massime) |
+| Compose mart + MCP thin | ✅ 13 tabelle su 3 dataset — grafo (nodes, edges, entity_alias, relation_type, edges_in, coverage, metrics, search_keys, rel, emend_leg) · testi (texts, massime) · indice (search_terms) |
 | Golden test ranking | ✅ |
 | LICENSE MIT | ✅ |
 | CI org | ✅ Actions + pipeline → GCS + registry PR |

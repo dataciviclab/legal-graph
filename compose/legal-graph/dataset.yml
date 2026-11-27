@@ -119,12 +119,8 @@ support:
     slug: pronunce_corte_costituzionale
     layer: clean
     years: [2026]
-  - name: massime_corte_costituzionale
-    type: external
-    repo: costituzione-italiana
-    slug: massime_corte_costituzionale
-    layer: clean
-    years: [2026]
+  # Massime (clean): vive nel dataset fratello `legal-texts` (testi+massime).
+  # Qui restano solo i mart esplosi, che servono agli edge.
   # Massime: il clean è una riga per massima con `parametri`/`norme` in JSON.
   # Gli edge leggono i mart esplosi (una riga per massima×parametro/norma):
   # niente prodotto cartesiano tra le due liste.
@@ -179,11 +175,15 @@ support:
     slug: senato_corpus
     layer: clean
     years: [2026]
+  # Grano emendamento (legislatura, fase, emend_id), dedup e testo integrale
+  # già risolti dal produttore: 28 MB invece dei 197 MB del clean, e la
+  # scelta di quale documento rappresenta l'emendamento vive upstream.
   - name: senato_emendamenti
     type: external
     repo: senato-akn
     slug: senato_emendamenti
-    layer: clean
+    layer: mart
+    table: mart_emendamenti
     years: [2026]
   - name: senato_dibattito
     type: external
@@ -308,13 +308,30 @@ support:
 mart:
   # Ordine obbligato: le tabelle derivate leggono le precedenti
   # nella stessa sessione DuckDB del run MART.
-  #   1 mart_legal_nodes / 2 mart_legal_edges  <- support esterni
+  #   0 stg_riferimenti                        <- una lettura del support
+  #   1 mart_legal_nodes / 2 mart_legal_edges  <- support esterni + stg
   #   3+ metrics, search_keys, rel, emend_leg  <- FROM mart_legal_*
   tables:
+    # Staging interno: `mart_riferimenti_urn` è letta 8 volte (nodi, archi,
+    # copertura) con colonne diverse, 52,9 MiB/run su un file da 13,7.
+    # Materializzata una volta, le tre tabelle la leggono dalla sessione.
+    # `internal: true`: il parquet resta in out/ ma non è un contratto
+    # pubblico (fuori da mart_refs/marts del registry).
+    - name: "stg_riferimenti"
+      sql: "sql/stg_riferimenti.sql"
+      internal: true
+    # Emendamenti: 28 MB, letti da nodi, archi e copertura. Una lettura sola.
+    - name: "stg_emendamenti"
+      sql: "sql/stg_emendamenti.sql"
+      internal: true
     - name: "mart_legal_nodes"
       sql: "sql/mart_legal_nodes.sql"
+      # lookup per id (`legal_node`, join di ricerca): 448 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_edges"
       sql: "sql/mart_legal_edges.sql"
+      # lookup per source_id (archi in uscita): 751 gruppi da 2048
+      row_group_size: 2048
     # alias di identità (camera:atto, dl, norma) e vocabolario relazioni:
     # contratti letti dalle view MCP, non liste hardcoded nei consumer
     - name: "mart_legal_entity_alias"
@@ -324,10 +341,14 @@ mart:
     # stessa tabella degli archi ordinata per target_id: query "in entrata"
     - name: "mart_legal_edges_in"
       sql: "sql/mart_legal_edges_in.sql"
+      # lookup per target_id (archi in entrata): 751 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_coverage"
       sql: "sql/mart_legal_coverage.sql"
     - name: "mart_legal_node_metrics"
       sql: "sql/mart_legal_node_metrics.sql"
+      # lookup per id (`legal_node` overview): 448 gruppi da 2048
+      row_group_size: 2048
     - name: "mart_legal_search_keys"
       sql: "sql/mart_legal_search_keys.sql"
     # L'indice lessicale full-text (BM25) è il dataset fratello
@@ -337,15 +358,9 @@ mart:
       sql: "sql/mart_legal_node_rel.sql"
     - name: "mart_legal_emend_leg"
       sql: "sql/mart_legal_emend_leg.sql"
-    - name: "mart_legal_texts"
-      sql: "sql/mart_legal_texts.sql"
-      # 22.567 righe da ~3,6 KB (il testo) stanno in UN row group con il
-      # default (122.880 righe): ogni `legal_text` da GCS leggeva 77 MB per
-      # una riga. Con 2048 righe per gruppo (il minimo che DuckDB accetta)
-      # sono 12 gruppi e un lookup legge ~6 MB.
-      row_group_size: 2048
-    - name: "mart_legal_massime"
-      sql: "sql/mart_legal_massime.sql"
+    # `mart_legal_texts` e `mart_legal_massime` vivono nel dataset fratello
+    # `legal-texts` (compose/legal-texts/): payload di testo e picco di
+    # memoria isolati, nessuna dipendenza da nodi/archi. Vedi COMPOSE.md.
   required_tables:
     - "mart_legal_nodes"
     - "mart_legal_edges"
@@ -353,7 +368,6 @@ mart:
     - "mart_legal_relation_type"
     - "mart_legal_node_metrics"
     - "mart_legal_search_keys"
-    - "mart_legal_texts"
   validate:
     table_rules:
       mart_legal_nodes:
@@ -385,13 +399,6 @@ mart:
       mart_legal_search_keys:
         required_columns: [id, title_folded]
         primary_key: [id]
-        min_rows: 10000
-      mart_legal_texts:
-        required_columns: [id, kind, title, testo]
-        primary_key: [id]
-        min_rows: 1000
-      mart_legal_massime:
-        required_columns: [sentenza_id, ecli, id_massima, testo]
         min_rows: 10000
 
 validation:

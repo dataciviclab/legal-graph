@@ -13,7 +13,7 @@ Non è un'enciclopedia del diritto né un motore di ricerca normativo. È una **
 | **Nodi** | 916.355 — leggi e decreti, DDL Camera e Senato, decreti-legge e conversioni, emendamenti, dibattiti, sentenze, articoli della Costituzione, persone |
 | **Relazioni** | 1.411.497 — riferimenti tra atti, citazioni costituzionali, impugnazioni, emendamenti, deleghe, abrogazioni e sostituzioni, passaggio DDL→legge, firmatari, relatori |
 | **Bersagli fuori corpus** | **67.281** atti citati che non sono nel corpus testuale, ricostruiti dal catalogo Normattiva (tutti collegati al grafo dal 2026-11-14, 0 orfani) |
-| **Tabelle pubblicate** | 13 mart: nodi, archi, edge in entrata, copertura, metriche, chiavi di ricerca, **indice full-text (BM25)**, relazioni pre-aggregate, emendamenti, testi, massime |
+| **Tabelle pubblicate** | 13 mart su 3 dataset: 10 del grafo (nodi, archi, edge in entrata, copertura, metriche, chiavi, relazioni pre-aggregate, emendamenti), 2 di testi/massime, **indice full-text (BM25)** |
 | **Fonti** | 5 repo del Lab, lette da rete |
 
 ## Domande a cui risponde
@@ -77,7 +77,7 @@ Dettagli su compose, variabili d'ambiente e CI in [COMPOSE.md](COMPOSE.md).
 ```text
 fonti del Lab (GitHub / GCS)
   → compose toolkit (compose/legal-graph + compose/legal-index)
-  → 13 mart su GCS (12 grafo + 1 indice)
+  → 13 mart su GCS (10 grafo + 2 testi + 1 indice)
   → MCP thin: search · node · text · query · insights
 ```
 

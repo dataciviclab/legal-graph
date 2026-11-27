@@ -101,13 +101,29 @@ class TestFunnel:
         )
         assert edge_pct is not None, f"{relation}: edge_pct assente"
 
+    def test_emendamenti_grano_upstream(self, con):
+        """Il denominatore è il mart a grano emendamento, non i documenti.
+
+        Dal 2026-12 `senato-akn.mart_emendamenti` è già deduplicato su
+        (legislatura, fase, emend_id): `upstream_rows` e `natural_pairs`
+        coincidono per costruzione. Prima il clean portava una riga per
+        documento (copie replicate) e il denominatore contava coppie distinte.
+        """
+        upstream_rows, natural_pairs = con.execute(
+            "SELECT upstream_rows, natural_pairs FROM coverage WHERE relation = 'emendamento'"
+        ).fetchone()
+        assert upstream_rows == natural_pairs, (
+            f"mart emendamenti non al grano dichiarato: "
+            f"{upstream_rows} righe vs {natural_pairs} coppie"
+        )
+
     def test_emendamenti_quota_collegati(self, con):
         """Quota emendamenti collegati all'atto, sul denominatore giusto.
 
-        `emendamento` non è 1:1: gli emendamenti distinti sono
-        (legislatura, atto, emend_id) = 789.361, mentre i nodi sono 248.127
-        perché `emend_id` è il numero *dentro* l'atto ("1.1" esiste in
-        centinaia di atti). Contare i nodi dava 9% di orfani invece di 15,7%.
+        `emendamento` non è 1:1: il denominatore sono gli emendamenti
+        (legislatura, fase, emend_id), non i nodi. `emend_id` è il numero
+        *dentro* l'atto ("1.1" esiste in centinaia di atti): contare i nodi
+        darebbe una quota di orfani sbagliata.
         """
         pct = con.execute(
             "SELECT edge_pct FROM coverage WHERE relation = 'emendamento'"
@@ -192,7 +208,9 @@ class TestFunnel:
             # arrivano dalla stessa sorgente e deduplicati = 69.385.
             ("abroga", 69_385),
             ("diventa_legge", 7_478),
-            ("emendamento", 763_690),
+            # 2026-12: denominatore = mart a grano emendamento (dedup upstream),
+            # non più i documenti del clean (758.852 → 563.641 righe).
+            ("emendamento", 563_641),
         ],
     )
     def test_upstream_numerators_stable(self, con, relation, baseline):

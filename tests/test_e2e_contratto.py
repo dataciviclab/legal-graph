@@ -404,6 +404,9 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
     monkeypatch.setattr(db, "resolve_edges_in_file", lambda: mancante)
     # senza metadata leggibile si ricade sul probe per tabella
     monkeypatch.setattr(db, "resolve_metadata_file", lambda: "http://127.0.0.1:9/metadata.json")
+    monkeypatch.setattr(
+        db, "resolve_texts_metadata_file", lambda: "http://127.0.0.1:9/metadata.json"
+    )
     con = db._new_con()
     try:
         db._bootstrap_views(con)
@@ -418,34 +421,40 @@ def test_bootstrap_salta_tabelle_remote_non_pubblicate(monkeypatch):
 
 
 def test_bootstrap_usa_metadata_del_publish(monkeypatch, tmp_path):
-    """`metadata.json` elenca le tabelle caricate: le altre non si creano.
+    """Ogni publish governa le proprie tabelle (split `legal_texts`).
 
-    Evita un probe HTTP per tabella (~0,3s l'uno) a ogni bootstrap in modalità
-    `gcs`. Il test usa mart locali ma un metadata che dichiara un publish
-    parziale: `texts` esiste su disco e non deve finire tra le view.
+    Il metadata del grafo non elenca `texts`/`massime`: se il gate usasse
+    ancora quell'elenco per tutte le tabelle, le due view non verrebbero
+    create pur essendo pubblicate. Qui il publish dei testi è parziale
+    (solo `texts`): `massime` esiste su disco e non deve comparire.
     """
     import json
 
     from legal_graph.mcp import db
 
-    pubblicate = {
-        "tables": [
-            {"name": n}
-            for n in (
-                "mart_legal_nodes",
-                "mart_legal_edges",
-                "mart_legal_edges_in",
-                "mart_legal_coverage",
-                "mart_legal_node_metrics",
-                "mart_legal_search_keys",
-                "mart_legal_node_rel",
-                "mart_legal_emend_leg",
-            )
-        ]
-    }
-    meta = tmp_path / "metadata.json"
-    meta.write_text(json.dumps(pubblicate), encoding="utf-8")
-    monkeypatch.setattr(db, "resolve_metadata_file", lambda: meta)
+    def _meta(name: str, tabelle: tuple[str, ...]):
+        path = tmp_path / name
+        path.write_text(
+            json.dumps({"tables": [{"name": n} for n in tabelle]}), encoding="utf-8"
+        )
+        return path
+
+    graph = _meta(
+        "graph.json",
+        (
+            "mart_legal_nodes",
+            "mart_legal_edges",
+            "mart_legal_edges_in",
+            "mart_legal_coverage",
+            "mart_legal_node_metrics",
+            "mart_legal_search_keys",
+            "mart_legal_node_rel",
+            "mart_legal_emend_leg",
+        ),
+    )
+    texts = _meta("texts.json", ("mart_legal_texts",))
+    monkeypatch.setattr(db, "resolve_metadata_file", lambda: graph)
+    monkeypatch.setattr(db, "resolve_texts_metadata_file", lambda: texts)
     con = db._new_con()
     try:
         db._bootstrap_views(con)
@@ -454,7 +463,8 @@ def test_bootstrap_usa_metadata_del_publish(monkeypatch, tmp_path):
             for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
         }
         assert {"nodes", "edges", "edges_in", "coverage"} <= nomi
-        assert {"texts", "massime"}.isdisjoint(nomi), nomi
+        assert "texts" in nomi, "testi pubblicati in legal_texts: view mancante"
+        assert "massime" not in nomi, "massime non è nel publish parziale dei testi"
     finally:
         con.close()
 

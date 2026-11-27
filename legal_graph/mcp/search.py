@@ -125,17 +125,47 @@ def _payload(r: tuple) -> dict[str, Any]:
     payload = {
         "id": r[0],
         "tipo": r[1],
-        "title": (r[2] or "")[:_TITLE_SEARCH],
-        "data": r[3],
-        "anno": r[4],
-        "source": r[5],
+        # `title` non viene proiettato da `search_keys` (13,7 MB per query):
+        # lo recupera `_titoli_per_id` per i soli risultati.
+        "title": "",
+        "data": r[2],
+        "anno": r[3],
+        "source": r[4],
     }
-    if len(r) > 6:
-        payload["stato"] = r[6]
-        payload["materia"] = r[7]
-    if len(r) > 8:
-        payload["vigenza_fonte"] = r[8]
+    if len(r) > 5:
+        payload["stato"] = r[5]
+        payload["materia"] = r[6]
+    if len(r) > 7:
+        payload["vigenza_fonte"] = r[7]
     return payload
+
+
+def _titoli_per_id(
+    con: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]
+) -> None:
+    """Titolo dei soli risultati, non di tutta `search_keys`.
+
+    `title` è 13,7 MB su 31,6 di `search_keys`: proiettarlo significa leggerlo
+    a ogni ricerca. Qui si leggono i titoli dei <=50 id restituiti da `nodes`
+    (row group 2048, lookup per id): ~0,5-1 MB. Misurato: search 36,5 → 20,6
+    MiB, più il lookup dei titoli.
+    """
+    ids = [r["id"] for r in rows if r.get("id")]
+    if not ids:
+        return
+    placeholders = ",".join("?" for _ in ids)
+    try:
+        trovati = dict(
+            con.execute(
+                f"SELECT id, title FROM nodes WHERE id IN ({placeholders})", ids
+            ).fetchall()
+        )
+    except duckdb.Error as exc:
+        logger.warning("titoli: lookup su nodes fallito (%s)", exc)
+        return
+    for r in rows:
+        titolo = trovati.get(r.get("id")) or ""
+        r["title"] = titolo[:_TITLE_SEARCH]
 
 
 _DOC_SENATO = re.compile(r"^senato:atto:(\d+)$")
@@ -167,7 +197,7 @@ def _select_sk_sql(
     metrics_join = "LEFT JOIN metrics m ON m.id = k.id" if use_metrics else ""
     fonte_col = ", n.vigenza_fonte" if has_fonte else ""
     return f"""
-    SELECT k.id, k.tipo, k.title,
+    SELECT k.id, k.tipo,
            CAST(n.data AS VARCHAR) AS data,
            k.anno, k.source,
            n.stato, n.materia{fonte_col}
@@ -202,7 +232,7 @@ def _base_order(exact_id: str | None = None) -> str:
         "WHEN 'abrogato' THEN 3 ELSE 1 END"
     )
     parts.append("COALESCE(m.referenced_by, 0) DESC")
-    parts.extend(["k.anno DESC NULLS LAST", "k.title", "k.id"])
+    parts.extend(["k.anno DESC NULLS LAST", "k.id"])
     return ", ".join(parts)
 
 
@@ -278,7 +308,7 @@ def _term_order(use_metrics: bool) -> str:
         "WHEN 'vigente' THEN 0 WHEN '' THEN 1 WHEN 'decaduto' THEN 2 "
         "WHEN 'abrogato' THEN 3 ELSE 1 END, "
         f"(COALESCE(ts.score, 0) + {_TERM_PRIOR_WEIGHT} * LN(1 + {prior})) DESC, "
-        f"{prior} DESC, k.anno DESC NULLS LAST, k.title, k.id"
+        f"{prior} DESC, k.anno DESC NULLS LAST, k.id"
     )
 
 
@@ -347,7 +377,9 @@ def _run_sk(
             len(order_params),
         )
         return _errore_sk(exc)
-    return [_payload(r) for r in rows]
+    out = [_payload(r) for r in rows]
+    _titoli_per_id(con, out)
+    return out
 
 
 def _errore_sk(exc: duckdb.Error) -> list[dict[str, Any]]:
