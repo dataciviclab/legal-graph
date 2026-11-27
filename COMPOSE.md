@@ -43,15 +43,38 @@ archi, non entra in una macchina da 8GB. Isolato in `legal_index`:
 
 Ordine obbligato: `make run` = `run-graph` → `run-index`.
 
-Misure reali (2026-11-23, macchina 4,9GB, `preserve_insertion_order=false`):
+Misure reali (macchina 4,9GB, `preserve_insertion_order=false`; struttura
+attuale 2026-11-27, `DUCKDB_MEMORY_LIMIT=1,5GB`, 2 thread):
 
-| Versione / target | Esito | Picco RSS | Tempo |
+| Target | Esito | Picco RSS | Tempo |
 |---|---|---|---|
-| `run-graph` (10 mart) | ✅ 6.532.318 righe | **2,37 GB** | 80 s |
-| `run-texts` (2 mart, isolato) | ✅ 69.246 righe | **1,64 GB** | 5,8 s |
+| `run-graph` + 2 staging (2026-11-27) | ✅ 7.076.079 righe | **1,77 GB** | 2 m 23 s |
+| `run-graph` prima dello split (2026-11-23, 12 tabelle) | ✅ 6.532.318 righe | 2,37 GB | 80 s |
+| `run-texts` (2 tabelle, isolato) | ✅ 69.266 righe | **1,59 GB** | 10 s |
 | `run-index` originale, 2GB | ❌ ucciso | **3,13 GB** | 17 s CPU |
 | `run-index` ottimizzata, 2GB | ❌ OOM pulito di DuckDB | 2,44 GB | — |
 | `run-index` ottimizzata, 3GB + 3 thread | ✅ **7.918.259 righe** | **3,20 GB** | 59 s |
+
+Il picco del grafo scende perché testi+massime (1,6+0,4 GB da soli) non sono
+più nel suo run. L'indice resta il picco assoluto: su una macchina <8GB si usa
+`make run-local` (grafo+testi in locale, indice dall'ultimo publish).
+
+### Costi di lettura (misurati 2026-11-27)
+
+Metodo: `EXPLAIN ANALYZE` + `HTTPFS HTTP Stats` con le colonne realmente
+usate, una connessione per lettura (la full-scan del file è un limite
+superiore: DuckDB legge solo le colonne proiettate).
+
+| Support | Prima | Dopo | Δ |
+|---|---|---|---|
+| `riferimenti_urn` (8 letture) | 52,9 MiB | **13,7** (stg) | −39,2 |
+| `senato_emendamenti` (3 letture) | 78,8 MiB | **28,2** (mart + stg) | −50,6 |
+| `normativa` per l'identità | 2 letture | **1** (nodi) | −1,6 |
+| `pronunce` (testo) | 76,8 nel grafo | 76,8 in `legal_texts` | fuori dal grafo |
+
+Totale: **~−91 MiB/run** sui 521 MiB misurati dall'audit compose (−17%).
+L'indice (`testi`, 82,9 MiB) è invariato; `mart_riferimenti_urn` (13,7 MiB)
+resta il file più riletto, ora una volta sola.
 
 L'indice non stava in 4GB con la query originale: `regexp_extract_all` +
 `UNNEST` materializzano le liste fuori dal buffer manager, quindi
